@@ -1,17 +1,12 @@
 import unittest
-import pandas as pd
-import torch
-import re
-from abc import ABC, abstractmethod
-from typing import List, Callable, Dict
 from src.processing.processors import (
     TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
     DialogueSplitterProcessor, DialogueChunkerProcessor, DummyTokenizer,
-    ComposedProcessor, Processor
+    Processor
 )
 from src.processing.bert_tokenize_processor import TokenizationProcessor
 from src.processing.categorical_label_processor import CategoricalLabelProcessor
-from transformers import AutoTokenizer
+
 
 # Define dummy processors for testing non-categorical pipelines.
 class DummyProcessor(Processor):
