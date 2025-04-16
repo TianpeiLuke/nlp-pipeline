@@ -1,10 +1,6 @@
 import unittest
 import torch
-from typing import List
-from transformers import AutoTokenizer  # Assuming you have this
-from src.processing.processors import Processor  # Import your Processor base class
 from src.processing.multiclass_label_processor import MultiClassLabelProcessor  # Import the class to be tested
-
 
 
 class TestMultiClassLabelProcessor(unittest.TestCase):

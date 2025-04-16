@@ -1,6 +1,6 @@
 import unittest
 import torch
-from ..src.lightning_models.pl_bert import TextBertBase  # Adjust based on your actual file structure
+from src.lightning_models.pl_bert import TextBertBase  # Adjust based on your actual file structure
 
 
 class TestTextBertBase(unittest.TestCase):
