@@ -1,10 +1,4 @@
-import sys
-import os
-
-# Add project root to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-
+# -*- coding: utf-8 -*-
 import unittest
 from unittest.mock import MagicMock, patch
 import torch
@@ -12,8 +6,8 @@ from torch.utils.data import DataLoader, TensorDataset
 import lightning.pytorch as pl
 
 
-from lightning_models.pl_train import model_train  # Replace with actual import
-from lightning_models.pl_multimodal_bert import MultimodalBert
+from src.lightning_models.pl_train import model_train  # Replace with actual import
+from src.lightning_models.pl_multimodal_bert import MultimodalBert
 
 
 

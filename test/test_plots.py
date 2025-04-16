@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from ..src.lightning_models.pl_model_plots import roc_metric_plot, pr_metric_plot
+from src.lightning_models.pl_model_plots import roc_metric_plot, pr_metric_plot
 
 class TestMetricPlots(unittest.TestCase):
     def setUp(self):
@@ -34,7 +34,7 @@ class TestMetricPlots(unittest.TestCase):
         y_true = torch.randint(0, 2, (100,))
         pr_metric_plot(
             y_pred, y_true, y_pred, y_true, self.tmp_dir,
-            task="binary", num_classes=2, plot_val=True,
+            task="binary", num_classes=2, 
             writer=self.writer, global_step=self.global_step
         )
         self.assertTrue(os.path.exists(os.path.join(self.tmp_dir, "PR-BSM.svg")))
@@ -57,7 +57,7 @@ class TestMetricPlots(unittest.TestCase):
         y_true = torch.randint(0, num_classes, (100,))
         pr_metric_plot(
             y_pred, y_true, y_pred, y_true, self.tmp_dir,
-            task="multiclass", num_classes=num_classes, plot_val=False,
+            task="multiclass", num_classes=num_classes, 
             writer=self.writer, global_step=self.global_step
         )
         for fname in ["PR-BSM-ovr.svg", "PR-BSM-macro.svg", "PR-BSM-weighted.svg"]:
