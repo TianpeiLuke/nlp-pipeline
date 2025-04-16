@@ -2,9 +2,16 @@ import unittest
 import torch
 from torchmetrics.functional import (
     accuracy, f1_score, auroc, average_precision, precision, recall,
-    kl_divergence, binary_recall_at_fixed_precision, multiclass_recall_at_fixed_precision
+    kl_divergence
 )
-from ..src.lightning_models.pl_model_plots import compute_metrics, SUPPORTED_METRICS  # Update this to actual import path
+from torchmetrics.functional.classification import (
+    binary_recall_at_fixed_precision, multiclass_recall_at_fixed_precision
+)
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from ..src.lightning_models.pl_model_plots import compute_metrics, SUPPORTED_METRICS  # Adjusted import path
 
 
 
