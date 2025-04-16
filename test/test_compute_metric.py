@@ -7,11 +7,8 @@ from torchmetrics.functional import (
 from torchmetrics.functional.classification import (
     binary_recall_at_fixed_precision, multiclass_recall_at_fixed_precision
 )
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from ..src.lightning_models.pl_model_plots import compute_metrics, SUPPORTED_METRICS  # Adjusted import path
+from src.lightning_models.pl_model_plots import compute_metrics, SUPPORTED_METRICS  # Adjusted import path
 
 
 
