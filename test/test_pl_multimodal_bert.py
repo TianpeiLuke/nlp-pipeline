@@ -4,7 +4,7 @@ import unittest
 import torch
 from lightning.pytorch import seed_everything
 
-from ..lightning_models.pl_multimodal_bert import MultimodalBert
+from ..src.lightning_models.pl_multimodal_bert import MultimodalBert
 
 
 class TestMultimodalBert(unittest.TestCase):

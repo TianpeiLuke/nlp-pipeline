@@ -4,7 +4,7 @@ import torch.nn as nn
 from lightning.pytorch import seed_everything
 
 # Updated import path for your project structure
-from ..lightning_models.pl_tab_ae import TabAE
+from ..src.lightning_models.pl_tab_ae import TabAE
 
 
 class TestTabAE(unittest.TestCase):

@@ -2,9 +2,9 @@
 import unittest
 import pandas as pd
 import torch
-from ..processing.bsm_datasets import BSMDataset
-from ..processing.processors import Processor
-from ..processing.processors import DummyTokenizer  # Import DummyTokenizer from processors.py
+from ..src.processing.bsm_datasets import BSMDataset
+from ..src.processing.processors import Processor
+from ..src.processing.processors import DummyTokenizer  # Import DummyTokenizer from processors.py
 
 # Define dummy pipeline processors for testing in this file.
 class DummyProcessor(Processor):

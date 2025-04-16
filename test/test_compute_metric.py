@@ -4,7 +4,7 @@ from torchmetrics.functional import (
     accuracy, f1_score, auroc, average_precision, precision, recall,
     kl_divergence, binary_recall_at_fixed_precision, multiclass_recall_at_fixed_precision
 )
-from ..lightning_models.pl_model_plots import compute_metrics, SUPPORTED_METRICS  # Update this to actual import path
+from ..src.lightning_models.pl_model_plots import compute_metrics, SUPPORTED_METRICS  # Update this to actual import path
 
 
 

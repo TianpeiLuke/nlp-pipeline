@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from ..pl_model_plots import roc_metric_plot, pr_metric_plot
+from ..src.lightning_models.pl_model_plots import roc_metric_plot, pr_metric_plot
 
 class TestMetricPlots(unittest.TestCase):
     def setUp(self):

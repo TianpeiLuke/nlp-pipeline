@@ -4,15 +4,15 @@ import pandas as pd
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
-from ..processing.bsm_dataloader import build_collate_batch
-from ..processing.bsm_datasets import BSMDataset
-from ..processing.processors import (
+from ..src.processing.bsm_dataloader import build_collate_batch
+from ..src.processing.bsm_datasets import BSMDataset
+from ..src.processing.processors import (
     TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
     DialogueSplitterProcessor, DialogueChunkerProcessor, DummyTokenizer,
     ComposedProcessor, Processor
 )
-from ..processing.bert_tokenize_processor import TokenizationProcessor
-from ..processing.categorical_label_processor import CategoricalLabelProcessor
+from ..src.processing.bert_tokenize_processor import TokenizationProcessor
+from ..src.processing.categorical_label_processor import CategoricalLabelProcessor
 
 
 # Define dummy processors for testing non-categorical pipelines.
