@@ -9,9 +9,8 @@ from src.processing.bsm_datasets import BSMDataset
 from src.processing.processors import (
     TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
     DialogueSplitterProcessor, DialogueChunkerProcessor, DummyTokenizer,
-    ComposedProcessor, Processor
+    Processor
 )
-from src.processing.bert_tokenize_processor import TokenizationProcessor
 from src.processing.categorical_label_processor import CategoricalLabelProcessor
 
 
