@@ -10,25 +10,7 @@ import torch
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
-#from torchmetrics.functional import (
-#    auroc,
-#    roc,
-#    confusion_matrix,
-#    average_precision,
-#    f1_score,
-#    precision,
-#    recall,
-#    specificity,
-#    kl_divergence,
-#    precision_recall_curve
-#)
-#
-#from torchmetrics.functional.classification import (
-#    accuracy, binary_recall_at_fixed_precision, multiclass_recall_at_fixed_precision,
-#    multiclass_roc, multiclass_auroc,
-#    multiclass_precision_recall_curve,
-#    multiclass_average_precision
-#)
+
 
 from torchmetrics.functional import (
     f1_score,
