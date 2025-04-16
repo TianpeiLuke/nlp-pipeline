@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+launch.json
+*.pdb
+.env
