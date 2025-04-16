@@ -3,7 +3,7 @@ import json
 import traceback
 from io import StringIO, BytesIO
 import logging
-from typing import List, Union, Dict, Optional
+from typing import List, Union, Dict, Tuple, Optional
 
 import pandas as pd
 import torch
@@ -160,6 +160,7 @@ class Config(BaseModel):
             raise ValueError(
                 f"class_weights must have the same number of elements as num_classes "
                 f"(expected {self.num_classes}, got {len(self.class_weights)})."
+                )
 
 
 #=================== Helper Function ================
