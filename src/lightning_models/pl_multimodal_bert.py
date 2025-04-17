@@ -19,7 +19,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
     get_constant_schedule_with_warmup,
 )
-
+import onnx
 
 from .dist_utils import all_gather, get_rank
 from .pl_tab_ae import TabAE  # Or TabularEmbeddingModule
