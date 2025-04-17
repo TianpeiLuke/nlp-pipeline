@@ -2,6 +2,7 @@ import os
 import json
 import traceback
 from io import StringIO, BytesIO
+from pathlib import Path
 import logging
 from typing import List, Union, Dict, Tuple, Optional
 
@@ -32,12 +33,12 @@ from lightning_models.pl_multimodal_bert import MultimodalBert
 from lightning_models.pl_bert_classification import TextBertClassification
 from lightning_models.pl_lstm import TextLSTM
 from lightning_models.pl_train import (
+    model_inference,
     model_online_inference,
     load_model,
-    load_artifacts,    
+    load_artifacts,
     load_onnx_model
 )
-
 from lightning_models.dist_utils import get_rank, is_main_process
 from pydantic import BaseModel, Field, ValidationError  # For Config Validation
 
