@@ -307,7 +307,8 @@ class MultimodalBert(pl.LightningModule):
         # Final check
         for name, tensor in zip(input_names, input_tensors):
             assert tensor.shape[0] == batch_size, f"Inconsistent batch size for input '{name}': {tensor.shape}"
-
+        
+        # Allow dynamic axes for first two dimensions (Batch, Chunk) of [B, C, D] 
         dynamic_axes = {}
         for name, tensor in zip(input_names, input_tensors):
             # Assume at least first dimension (batch) is dynamic
