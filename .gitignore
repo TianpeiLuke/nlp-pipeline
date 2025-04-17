@@ -1,6 +1,64 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-launch.json
-*.pdb
+*.py[cod]
+*.pyo
+*.pyd
+
+# Environment and dependency folders
 .env
+.venv/
+env/
+venv/
+pip-wheel-metadata/
+
+# VSCode and IDE configs
 .vscode/
+.idea/
+*.code-workspace
+launch.json
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs and outputs
+*.log
+*.out
+*.err
+logs/
+*.tmp
+*.temp
+
+# Model and checkpoint artifacts
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+runs/
+outputs/
+models/
+lightning_logs/
+wandb/
+tensorboard/
+
+# SageMaker and cloud-specific
+*.tar.gz
+output/
+debug-output/
+*.npy
+*.npz
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+coverage.xml
+htmlcov/
+.cache/
+pytest_cache/
+
+# Misc
+*.pdb
+*.egg-info/
+dist/
+build/
