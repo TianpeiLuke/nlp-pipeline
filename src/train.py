@@ -481,6 +481,58 @@ def build_model_and_optimizer(
     return model, train_dataloader, val_dataloader, test_dataloader, embedding_mat
 
 
+# ----------------- Save to ONNX -----------------------------
+def export_model_to_onnx(
+    model: torch.nn.Module,
+    trainer,
+    val_dataloader: DataLoader,
+    onnx_path: Union[str, Path],
+):
+    """
+    Export a (possibly FSDP-wrapped) MultimodalBert model to ONNX using a sample batch from the validation dataloader.
+
+    Args:
+        model (torch.nn.Module): The trained model or FSDP-wrapped model.
+        trainer: The Lightning trainer used during training (for strategy check).
+        val_dataloader (DataLoader): DataLoader to fetch a sample batch for tracing.
+        onnx_path (Union[str, Path]): File path to save the ONNX model.
+
+    Raises:
+        RuntimeError: If export fails.
+    """
+    logger.info(f"Exporting model to ONNX: {onnx_path}")
+
+    # 1. Sample and move batch to CPU
+    try:
+        sample_batch = next(iter(val_dataloader))
+    except StopIteration:
+        raise RuntimeError("Validation dataloader is empty. Cannot export ONNX.")
+
+    sample_batch_cpu = {
+        k: v.to("cpu") if isinstance(v, torch.Tensor) else v
+        for k, v in sample_batch.items()
+    }
+
+    # 2. Handle FSDP unwrapping if needed
+    model_to_export = model
+    if isinstance(trainer.strategy, FSDPStrategy):
+        if isinstance(model, FSDP):
+            logger.info("Unwrapping FSDP model for ONNX export.")
+            model_to_export = model.module
+        else:
+            logger.warning("Trainer uses FSDPStrategy, but model is not FSDP-wrapped.")
+
+    # 3. Move model to CPU and export
+    model_to_export = model_to_export.to("cpu").eval()
+
+    try:
+        model_to_export.export_to_onnx(onnx_path, sample_batch_cpu)
+        logger.info(f"ONNX export completed: {onnx_path}")
+    except Exception as e:
+        logger.error(f"ONNX export failed: {e}")
+        raise RuntimeError("Failed to export model to ONNX.") from e
+
+
 # ----------------- Evaluation and Logging -----------------------
 def evaluate_and_log_results(
     model: nn.Module,
@@ -591,32 +643,10 @@ def main(config: Config):
             model_class=config.model_class,
         )
         
-        # ------------- Onnx -------------------------------
-        onnx_path = os.path.join(model_path, "model.onnx")
-        logger.info(f"Saving model as ONNX to {onnx_path}")
-        
-        # Get a batch from val loader
-        sample_batch = next(iter(val_dataloader))
-        
-        # Always move sample batch to CPU
-        sample_batch_cpu = {
-            k: v.to("cpu") if isinstance(v, torch.Tensor) else v
-            for k, v in sample_batch.items()
-        }
-
-        # Unwrap and move model to CPU if needed
-        model_to_export = model
-        if isinstance(trainer.strategy, FSDPStrategy):
-            if isinstance(model, FSDP):
-                logger.info("Unwrapping FSDP model for ONNX export")
-                model_to_export = model.module
-            else:
-                logger.warning("Trainer strategy is FSDP, but model is not an instance of FSDP.")
-
-        model_to_export = model_to_export.to("cpu")
-        # Export ONNX
-        model_to_export.export_to_onnx(onnx_path, sample_batch_cpu)
-            
+    # ------------------ ONNX Export ------------------
+    onnx_path = os.path.join(model_path, "model.onnx")
+    logger.info(f"Saving model as ONNX to {onnx_path}")
+    export_model_to_onnx(model, trainer, val_dataloader, onnx_path)
             
 #        # ------------- TorchScript -------------------------------
 #        torchscript_path = os.path.join(model_path, "model_scripted.pt")

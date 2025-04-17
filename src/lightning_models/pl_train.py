@@ -236,46 +236,54 @@ def model_inference(
         return y_pred, y_true
 
     
-#
-#@torch.inference_mode()
-#def model_online_inference(
-#    model: pl.LightningModule,
-#    dataloader: DataLoader
-#) -> np.ndarray:
-#    model.eval()
-#    predictions = []
-#    for batch in dataloader:
-#        _, preds, _ = model.run_epoch(batch, 'pred')
-#        predictions.append(preds.detach().cpu().numpy())
-#    return np.concatenate(predictions, axis=0)
-
-#------------------ Online Inference (Pytorch Lightning or ONNX) ------------------------
 def model_online_inference(model: Union[pl.LightningModule, ort.InferenceSession], dataloader: DataLoader) -> np.ndarray:
     """
     Run online inference for either a PyTorch Lightning model or an ONNX Runtime session.
-
-    Args:
-        model (Union[pl.LightningModule, ort.InferenceSession]): Either a trained PyTorch model or ONNX session.
-        dataloader (DataLoader): A DataLoader providing input batches.
-
-    Returns:
-        np.ndarray: Concatenated prediction outputs.
     """
     if isinstance(model, ort.InferenceSession):
-        logger.info("Running inference with ONNX Runtime.")
+        print("Running inference with ONNX Runtime.")
         predictions = []
+        expected_input_names = [inp.name for inp in model.get_inputs()]
+
         for batch in dataloader:
-            # Prepare ONNX-compatible input dictionary
-            input_feed = {k: v.cpu().numpy() for k, v in batch.items() if isinstance(v, torch.Tensor)}
-            output = model.run(None, input_feed)[0]  # Run inference and get the first output (logits)
+            input_feed = {}
+            for k in expected_input_names:
+                if k not in batch:
+                    raise KeyError(f"ONNX input '{k}' not found in batch")
+
+                val = batch[k]
+
+                # Convert to numpy with correct type
+                if isinstance(val, torch.Tensor):
+                    val_np = val.cpu().numpy()
+
+                    # Ensure correct dtype
+                    if "input_ids" in k or "attention_mask" in k:
+                        val_np = val_np.astype("int64")  # Required for ONNX
+                    else:
+                        val_np = val_np.astype("float32")
+
+                    input_feed[k] = val_np
+                    
+                elif isinstance(val, list) and all(isinstance(x, (int, float)) for x in val):
+                    # Fallback for list-based numeric features
+                    val_np = np.array(val, dtype="float32").reshape(-1, 1)
+                    input_feed[k] = val_np
+
+                else:
+                    # Skip fields like order_id (string/list[str]) or raise error
+                    print(f"[Warning] Skipping unsupported ONNX input field: '{k}' ({type(val)})")
+
+            output = model.run(None, input_feed)[0]  # Run inference
             predictions.append(output)
+
         return np.concatenate(predictions, axis=0)
+    
     else:
-        logger.info("Running inference with PyTorch model.")
+        print("Running inference with PyTorch model.")
         model.eval()
         predictions = []
         for batch in dataloader:
-            # Run model's `run_epoch` in prediction mode
             _, preds, _ = model.run_epoch(batch, 'pred')
             predictions.append(preds.detach().cpu().numpy())
         return np.concatenate(predictions, axis=0)
@@ -411,6 +419,8 @@ def load_onnx_model(onnx_path: Union[str, Path]) -> ort.InferenceSession:
     try:
         session = ort.InferenceSession(str(onnx_path), providers=providers)
         logger.info(f"Successfully loaded ONNX model from {onnx_path}")
+        logger.info("Expected ONNX model inputs:", [i.name for i in session.get_inputs()])
+        return session
         return session
     except Exception as e:
         raise RuntimeError(f"Failed to load ONNX model: {e}")

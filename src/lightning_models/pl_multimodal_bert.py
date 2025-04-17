@@ -293,20 +293,30 @@ class MultimodalBert(pl.LightningModule):
                 input_names.append(field)
                 value = sample_batch.get(field)
                 if isinstance(value, torch.Tensor):
-                    value = value.to("cpu")
+                    value = value.to("cpu").float()
                     if value.shape[0] != batch_size:
                         raise ValueError(f"Tensor for field '{field}' has batch size {value.shape[0]} but expected {batch_size}")
                     input_tensors.append(value)
+                elif isinstance(value, list) and all(isinstance(x, (int, float)) for x in value):
+                    tensor_val = torch.tensor(value, dtype=torch.float32).view(batch_size, -1).to("cpu")
+                    input_tensors.append(tensor_val)
                 else:
-                    # Fallback to zero tensor with correct batch size
+                    logger.warning(f"Field '{field}' has unsupported type ({type(value)}); replacing with zeros.")
                     input_tensors.append(torch.zeros((batch_size, 1), dtype=torch.float32).to("cpu"))
 
         # Final check
         for name, tensor in zip(input_names, input_tensors):
             assert tensor.shape[0] == batch_size, f"Inconsistent batch size for input '{name}': {tensor.shape}"
 
-        dynamic_axes = {name: {0: "batch"} for name in input_names}
-
+        dynamic_axes = {}
+        for name, tensor in zip(input_names, input_tensors):
+            # Assume at least first dimension (batch) is dynamic
+            axes = {0: "batch"}
+            # Make all further dims dynamic as well
+            for i in range(1, tensor.dim()):
+                axes[i] = f"dim_{i}"
+            dynamic_axes[name] = axes
+            
         try:
             torch.onnx.export(
                 wrapper,
