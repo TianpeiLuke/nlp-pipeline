@@ -32,19 +32,12 @@ from lightning_models.pl_multimodal_bert import MultimodalBert
 from lightning_models.pl_bert_classification import TextBertClassification
 from lightning_models.pl_lstm import TextLSTM
 from lightning_models.pl_train import (
-    model_inference,
     model_online_inference,
-    predict_stack_transform,
     load_model,
-    load_artifacts,
-    load_checkpoint,
+    load_artifacts,    
     load_onnx_model
 )
-from lightning_models.pl_model_plots import (
-    compute_metrics,
-    roc_metric_plot,
-    pr_metric_plot,
-)
+
 from lightning_models.dist_utils import get_rank, is_main_process
 from pydantic import BaseModel, Field, ValidationError  # For Config Validation
 
@@ -202,19 +195,19 @@ def model_fn(model_dir, context=None):
     config = Config(**load_config)
     
     # Load model based on file type
-    #if os.path.exists(onnx_model_path):
-    #    logger.info("Detected ONNX model.")
-    #    model = load_onnx_model(onnx_model_path)
-    #else:
-    logger.info("Detected PyTorch model.")
-    model = load_model(
-            os.path.join(model_path, model_filename),
-            config.model_dump(),
-            embedding_mat,
-            model_class,
-            device_l=device
-        )
-    model.eval()
+    if os.path.exists(onnx_model_path):
+        logger.info("Detected ONNX model.")
+        model = load_onnx_model(onnx_model_path)
+    else:
+        logger.info("Detected PyTorch model.")
+        model = load_model(
+                os.path.join(model_path, model_filename),
+                config.model_dump(),
+                embedding_mat,
+                model_class,
+                device_l=device
+            )
+        model.eval()
     
     ## reconstruct pipelines
     tokenizer, pipelines = data_preprocess_pipeline(config)
