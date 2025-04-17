@@ -4,17 +4,21 @@ import json
 import sys
 import traceback
 import ast
-import argparse
 import logging
 import pandas as pd
 import numpy as np
+from pathlib import Path
+
 from typing import List, Tuple, Pattern, Union, Dict, Set, Optional
 from collections.abc import Callable, Mapping
+
 import torch
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torch.optim as optim
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
 import lightning.pytorch as pl
 from lightning.pytorch.strategies import FSDPStrategy
 
@@ -289,7 +293,7 @@ def find_first_data_file(
 # ----------------- Dataset Loading -------------------------
 def load_data_module(file_dir, filename, config: Config) -> BSMDataset:
     log_once(logger, f"Loading BSM dataset from {filename} in folder {file_dir}")
-    bsm_dataset = BSMDataset(config=config.dict(), file_dir=file_dir, filename=filename)  # Pass as dict
+    bsm_dataset = BSMDataset(config=config.model_dump(), file_dir=file_dir, filename=filename)  # Pass as dict
     log_once(logger, f"Filling missing values in dataset {filename}")
     bsm_dataset.fill_missing_value(
         label_name=config.label_name, column_cat_name=config.cat_field_list
@@ -350,15 +354,15 @@ def model_select(
     model_class: str, config: Config, vocab_size: int, embedding_mat: torch.Tensor
 ) -> nn.Module:
     if model_class == "multimodal_cnn":
-        return MultimodalCNN(config.dict(), vocab_size, embedding_mat)
+        return MultimodalCNN(config.model_dump(), vocab_size, embedding_mat)
     elif model_class == "bert":
-        return TextBertClassification(config.dict())
+        return TextBertClassification(config.model_dump())
     elif model_class == "lstm":
-        return TextLSTM(config.dict(), vocab_size, embedding_mat)
+        return TextLSTM(config.model_dump(), vocab_size, embedding_mat)
     elif model_class == "multimodal_bert":
-        return MultimodalBert(config.dict())
+        return MultimodalBert(config.model_dump())
     else:
-        return TextBertClassification(config.dict())
+        return TextBertClassification(config.model_dump())
 
 
 # ----------------- Training Setup -----------------------
@@ -481,6 +485,58 @@ def build_model_and_optimizer(
     return model, train_dataloader, val_dataloader, test_dataloader, embedding_mat
 
 
+# ----------------- Save to ONNX -----------------------------
+def export_model_to_onnx(
+    model: torch.nn.Module,
+    trainer,
+    val_dataloader: DataLoader,
+    onnx_path: Union[str, Path],
+):
+    """
+    Export a (possibly FSDP-wrapped) MultimodalBert model to ONNX using a sample batch from the validation dataloader.
+
+    Args:
+        model (torch.nn.Module): The trained model or FSDP-wrapped model.
+        trainer: The Lightning trainer used during training (for strategy check).
+        val_dataloader (DataLoader): DataLoader to fetch a sample batch for tracing.
+        onnx_path (Union[str, Path]): File path to save the ONNX model.
+
+    Raises:
+        RuntimeError: If export fails.
+    """
+    logger.info(f"Exporting model to ONNX: {onnx_path}")
+
+    # 1. Sample and move batch to CPU
+    try:
+        sample_batch = next(iter(val_dataloader))
+    except StopIteration:
+        raise RuntimeError("Validation dataloader is empty. Cannot export ONNX.")
+
+    sample_batch_cpu = {
+        k: v.to("cpu") if isinstance(v, torch.Tensor) else v
+        for k, v in sample_batch.items()
+    }
+
+    # 2. Handle FSDP unwrapping if needed
+    model_to_export = model
+    if isinstance(trainer.strategy, FSDPStrategy):
+        if isinstance(model, FSDP):
+            logger.info("Unwrapping FSDP model for ONNX export.")
+            model_to_export = model.module
+        else:
+            logger.warning("Trainer uses FSDPStrategy, but model is not FSDP-wrapped.")
+
+    # 3. Move model to CPU and export
+    model_to_export = model_to_export.to("cpu").eval()
+
+    try:
+        model_to_export.export_to_onnx(onnx_path, sample_batch_cpu)
+        logger.info(f"ONNX export completed: {onnx_path}")
+    except Exception as e:
+        logger.error(f"ONNX export failed: {e}")
+        raise RuntimeError("Failed to export model to ONNX.") from e
+
+
 # ----------------- Evaluation and Logging -----------------------
 def evaluate_and_log_results(
     model: nn.Module,
@@ -564,7 +620,7 @@ def main(config: Config):
     log_once(logger, "Training starts using pytorch.lightning ...")
     trainer = model_train(
         model,
-        config.dict(),
+        config.model_dump(),
         train_dataloader,
         val_dataloader,
         device="auto",
@@ -585,29 +641,16 @@ def main(config: Config):
         logger.info(f"Saving model artifacts to {artifact_filename}")
         save_artifacts(
             artifact_filename,
-            config.dict(),
+            config.model_dump(),
             embedding_mat,
             tokenizer.vocab,
             model_class=config.model_class,
         )
         
-        # ------------- Onnx -------------------------------
-        onnx_path = os.path.join(model_path, "model.onnx")
-        logger.info(f"Saving model as ONNX to {onnx_path}")
-        sample_batch = next(iter(val_dataloader))
-
-        if isinstance(trainer.strategy, FSDPStrategy):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-            model_to_export = model.module if isinstance(model, FSDP) else model
-            model_to_export = model_to_export.to("cpu")
-            sample_batch_cpu = {
-                k: v.to("cpu") if isinstance(v, torch.Tensor) else v
-                for k, v in sample_batch.items()
-            }
-            model_to_export.export_to_onnx(onnx_path, sample_batch_cpu)
-        else:
-            model.export_to_onnx(onnx_path, sample_batch)
-            
+    # ------------------ ONNX Export ------------------
+    onnx_path = os.path.join(model_path, "model.onnx")
+    logger.info(f"Saving model as ONNX to {onnx_path}")
+    export_model_to_onnx(model, trainer, val_dataloader, onnx_path)
             
 #        # ------------- TorchScript -------------------------------
 #        torchscript_path = os.path.join(model_path, "model_scripted.pt")
@@ -641,10 +684,10 @@ if __name__ == "__main__":
         logger.error(f"Configuration Error: {e}")
         sys.exit(1)  # Exit with error code
     print("Sanitized config:")
-    for k, v in config.dict().items():
+    for k, v in config.model_dump().items():
         print(f"{k}: {v} ({type(v)})")
     log_once(logger, "Final Hyperparameters:")
-    log_once(logger, json.dumps(config.dict(), indent=4))
+    log_once(logger, json.dumps(config.model_dump(), indent=4))
     log_once(logger, "================================================")
     log_once(logger, "Starting the training process.")
     try:

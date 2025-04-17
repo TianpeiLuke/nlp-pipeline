@@ -57,13 +57,6 @@ def _get_global_gloo_group():
         return dist.new_group(backend="gloo")
     return dist.group.WORLD
 
-#def all_gather(data, group=None):
-#    if get_world_size() == 1:
-#        return [data]
-#    group = group or _get_global_gloo_group()
-#    output = [None for _ in range(get_world_size(group))]
-#    dist.all_gather_object(output, data, group=group)
-#    return output
 
 def all_gather(data, group=None, safe_clone=True):
     if get_world_size() == 1:

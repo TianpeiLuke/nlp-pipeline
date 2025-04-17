@@ -20,6 +20,8 @@ from lightning.pytorch.strategies import FSDPStrategy, DDPStrategy
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
+
 
 import onnx
 import onnxruntime as ort
@@ -234,46 +236,54 @@ def model_inference(
         return y_pred, y_true
 
     
-#
-#@torch.inference_mode()
-#def model_online_inference(
-#    model: pl.LightningModule,
-#    dataloader: DataLoader
-#) -> np.ndarray:
-#    model.eval()
-#    predictions = []
-#    for batch in dataloader:
-#        _, preds, _ = model.run_epoch(batch, 'pred')
-#        predictions.append(preds.detach().cpu().numpy())
-#    return np.concatenate(predictions, axis=0)
-
-#------------------ Online Inference (Pytorch Lightning or ONNX) ------------------------
 def model_online_inference(model: Union[pl.LightningModule, ort.InferenceSession], dataloader: DataLoader) -> np.ndarray:
     """
     Run online inference for either a PyTorch Lightning model or an ONNX Runtime session.
-
-    Args:
-        model (Union[pl.LightningModule, ort.InferenceSession]): Either a trained PyTorch model or ONNX session.
-        dataloader (DataLoader): A DataLoader providing input batches.
-
-    Returns:
-        np.ndarray: Concatenated prediction outputs.
     """
     if isinstance(model, ort.InferenceSession):
-        logger.info("Running inference with ONNX Runtime.")
+        print("Running inference with ONNX Runtime.")
         predictions = []
+        expected_input_names = [inp.name for inp in model.get_inputs()]
+
         for batch in dataloader:
-            # Prepare ONNX-compatible input dictionary
-            input_feed = {k: v.cpu().numpy() for k, v in batch.items() if isinstance(v, torch.Tensor)}
-            output = model.run(None, input_feed)[0]  # Run inference and get the first output (logits)
+            input_feed = {}
+            for k in expected_input_names:
+                if k not in batch:
+                    raise KeyError(f"ONNX input '{k}' not found in batch")
+
+                val = batch[k]
+
+                # Convert to numpy with correct type
+                if isinstance(val, torch.Tensor):
+                    val_np = val.cpu().numpy()
+
+                    # Ensure correct dtype
+                    if "input_ids" in k or "attention_mask" in k:
+                        val_np = val_np.astype("int64")  # Required for ONNX
+                    else:
+                        val_np = val_np.astype("float32")
+
+                    input_feed[k] = val_np
+                    
+                elif isinstance(val, list) and all(isinstance(x, (int, float)) for x in val):
+                    # Fallback for list-based numeric features
+                    val_np = np.array(val, dtype="float32").reshape(-1, 1)
+                    input_feed[k] = val_np
+
+                else:
+                    # Skip fields like order_id (string/list[str]) or raise error
+                    print(f"[Warning] Skipping unsupported ONNX input field: '{k}' ({type(val)})")
+
+            output = model.run(None, input_feed)[0]  # Run inference
             predictions.append(output)
+
         return np.concatenate(predictions, axis=0)
+    
     else:
-        logger.info("Running inference with PyTorch model.")
+        print("Running inference with PyTorch model.")
         model.eval()
         predictions = []
         for batch in dataloader:
-            # Run model's `run_epoch` in prediction mode
             _, preds, _ = model.run_epoch(batch, 'pred')
             predictions.append(preds.detach().cpu().numpy())
         return np.concatenate(predictions, axis=0)
@@ -302,11 +312,17 @@ def save_model(filename: str, model: nn.Module):
 
     # Unwrap if wrapped in FSDP
     if isinstance(model, FSDP):
-        model_to_save = model.module
+        # Use FSDP's full state dict context
+        with FSDP.state_dict_type(
+            model,
+            StateDictType.FULL_STATE_DICT,
+            FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
+        ):
+            state_dict = model.state_dict()
+            if dist.get_rank() == 0:
+                torch.save(state_dict, filename)
     else:
-        model_to_save = model
-
-    torch.save(model_to_save.state_dict(), filename)
+        torch.save(model.state_dict(), filename)
 
 
 def save_artifacts(filename: str, config: Dict, embedding_mat: torch.Tensor, vocab: Dict[str, int], model_class: str):
@@ -330,11 +346,9 @@ def load_artifacts(filename: str, device_l: str = 'cpu') -> Tuple[Dict, torch.Te
     embedding_mat = artifacts['embedding_mat']
     vocab = artifacts['vocab']
     model_class = artifacts['model_class']
-    label_to_id = config.get('label_to_id', None) # Get label mappings
-    id_to_label = config.get('id_to_label', None)
     for k in ['torch_version', 'transformers_version', 'pytorch_lightning_version']:
         logger.info(f"{k}: {artifacts.get(k, 'N/A')}")
-    return config, embedding_mat, vocab, model_class, label_to_id, id_to_label # Return label mappings
+    return config, embedding_mat, vocab, model_class
 
 
 
@@ -351,13 +365,15 @@ def load_model(filename: str, config: Dict, embedding_mat: torch.Tensor, model_c
         'bert': lambda: TextBertClassification(config),
         'lstm': lambda: TextLSTM(config, embedding_mat.shape[0], embedding_mat),
         'multimodal_bert': lambda: MultimodalBert(config)
-    }.get(model_class, lambda: MultimodalCNN(config, embedding_mat.shape[0], embedding_mat))()
+    }.get(model_class, lambda: MultimodalBert(config))()
 
     try:
+        logger.info(f"Loading model weights from: {filename}")
         model.load_state_dict(torch.load(filename, map_location=device_l))
-    except RuntimeError as e:
+        logger.info("Model weights loaded successfully.")
+    except Exception as e:
         logger.error(f"Failed to load model weights: {e}")
-    raise
+        raise RuntimeError("Model loading failed.") from e
 
     return model
 
@@ -403,6 +419,8 @@ def load_onnx_model(onnx_path: Union[str, Path]) -> ort.InferenceSession:
     try:
         session = ort.InferenceSession(str(onnx_path), providers=providers)
         logger.info(f"Successfully loaded ONNX model from {onnx_path}")
+        logger.info("Expected ONNX model inputs:", [i.name for i in session.get_inputs()])
+        return session
         return session
     except Exception as e:
         raise RuntimeError(f"Failed to load ONNX model: {e}")

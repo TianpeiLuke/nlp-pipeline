@@ -52,34 +52,32 @@ class TextBertBaseConfig(BaseModel):
         return value
 
 
-class TextBertBase(pl.LightningModule):  # Or nn.Module if not training independently
+class TextBertBase(pl.LightningModule):
     def __init__(self, config: Union[Dict, TextBertBaseConfig]):
         super().__init__()
         if isinstance(config, dict):
             config = TextBertBaseConfig(**config)
-        self.config = config
-        self.text_input_ids_key = config.text_input_ids_key
-        self.text_attention_mask_key = config.text_attention_mask_key
-        self.text_name = config.text_name + "_processed_" + self.text_input_ids_key
-        self.text_attention_mask = config.text_name + "_processed_" + self.text_attention_mask_key
+        self.config = config.model_dump()
+
+        self.text_input_ids_key = self.config["text_input_ids_key"]
+        self.text_attention_mask_key = self.config["text_attention_mask_key"]
+        self.text_name = self.config["text_name"] + "_processed_" + self.text_input_ids_key
+        self.text_attention_mask = self.config["text_name"] + "_processed_" + self.text_attention_mask_key
 
         self.bert = AutoModel.from_pretrained(
-            self.config.tokenizer, output_attentions=False
+            self.config["tokenizer"], output_attentions=False
         )
         self._maybe_reinitialize()
 
         self.output_bert_dim = self.bert.config.hidden_size
-        self.output_text_dim = self.config.hidden_common_dim
+        self.output_text_dim = self.config["hidden_common_dim"]
 
         self.head_layer = nn.Sequential(
             nn.Dropout(0.1),
             nn.Linear(self.output_bert_dim, self.output_text_dim),
         )
 
-        if isinstance(config, dict):
-            self.save_hyperparameters(config)  # If using pl.LightningModule
-        else:
-            self.save_hyperparameters(config.dict())
+        self.save_hyperparameters(self.config)
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         input_ids = batch[self.text_name]
@@ -101,7 +99,7 @@ class TextBertBase(pl.LightningModule):  # Or nn.Module if not training independ
         return logits
 
     def _maybe_reinitialize(self):
-        if not self.config.reinit_pooler:
+        if not self.config["reinit_pooler"]:
             return
         encoder = self.bert
         encoder.pooler.dense.weight.data.normal_(
@@ -111,8 +109,8 @@ class TextBertBase(pl.LightningModule):  # Or nn.Module if not training independ
         for p in encoder.pooler.parameters():
             p.requires_grad = True
 
-        if self.config.reinit_layers > 0:
-            for layer in encoder.encoder.layer[-self.config.reinit_layers :]:
+        if self.config["reinit_layers"] > 0:
+            for layer in encoder.encoder.layer[-self.config["reinit_layers"] :]:
                 for module in layer.modules():
                     if isinstance(module, (nn.Linear, nn.Embedding)):
                         module.weight.data.normal_(
@@ -123,9 +121,3 @@ class TextBertBase(pl.LightningModule):  # Or nn.Module if not training independ
                         module.weight.data.fill_(1.0)
                     if isinstance(module, nn.Linear) and module.bias is not None:
                         module.bias.data.zero_()
-
-    # def configure_optimizers(self): # Remove if not training independently
-    #     optimizer = AdamW(
-    #         self.parameters(), lr=self.config.lr, eps=self.config.adam_epsilon
-    #     )
-    #     return optimizer

@@ -10,55 +10,50 @@ from src.lightning_models.pl_tab_ae import TabAE
 class TestTabAE(unittest.TestCase):
     def setUp(self):
         seed_everything(42)
-        self.config = {
-            'tab_field_list': ['feat1', 'feat2', 'feat3'],
-            'label_name': 'target',
-            'hidden_common_dim': 8,
-            'is_binary': True,
-            'optimizer_type': 'SGD',
-            'lr': 0.01,
-            'momentum': 0.9,
-            'pos_weight': 1.0
+        self.config_dict = {
+            "tab_field_list": ["f1", "f2", "f3"],
+            "hidden_common_dim": 16
         }
-
-        self.model = TabAE(self.config)
-        self.model.add_loss_op()
+        self.model = TabAE(self.config_dict)
         self.model.eval()
 
-        # Dummy batch of size 4
-        self.batch = {
-            'feat1': torch.tensor([0.1, 0.2, 0.3, 0.4]),
-            'feat2': torch.tensor([1.0, 1.5, 1.7, 1.9]),
-            'feat3': torch.tensor([0.5, 0.7, 0.2, 0.9]),
-            'target': torch.tensor([0.0, 1.0, 0.0, 1.0])
+        self.batch_size = 4
+        self.batch_dict = {
+            "f1": torch.randn(self.batch_size),
+            "f2": torch.randn(self.batch_size),
+            "f3": torch.randn(self.batch_size)
         }
+        self.tensor_input = torch.randn(self.batch_size, len(self.config_dict["tab_field_list"]))
 
-    def test_model_init(self):
-        self.assertIsInstance(self.model.embedding_layer, nn.Sequential)
-        self.assertIsInstance(self.model.classifier, nn.Linear)
-        self.assertEqual(self.model.output_tab_dim, 8)
-        self.assertEqual(self.model.num_classes, 2)
+    def test_forward_with_dict(self):
+        out = self.model(self.batch_dict)
+        self.assertEqual(out.shape, (self.batch_size, self.config_dict["hidden_common_dim"]))
 
-    def test_embedding_forward_pass(self):
-        with torch.no_grad():
-            embedding = self.model(self.batch)
-        self.assertEqual(embedding.shape, (4, 8))  # [B, D]
+    def test_forward_with_tensor(self):
+        out = self.model(self.tensor_input)
+        self.assertEqual(out.shape, (self.batch_size, self.config_dict["hidden_common_dim"]))
 
-    def test_classifier_forward_pass(self):
-        with torch.no_grad():
-            logits = self.model.forward_classify(self.batch)
-        self.assertEqual(logits.shape, (4, 1))  # [B] for binary (squeezed)
+    def test_combine_tab_data_shape(self):
+        combined = self.model.combine_tab_data(self.batch_dict)
+        self.assertEqual(combined.shape, (self.batch_size, len(self.config_dict["tab_field_list"])))
 
-    def test_run_epoch_loss(self):
-        loss, preds, labels = self.model.run_epoch(self.batch, stage='train')
-        self.assertIsNotNone(loss)
-        self.assertEqual(preds.shape, labels.shape)
-        self.assertTrue(torch.all((preds >= 0) & (preds <= 1)))  # sigmoid output range
+    def test_missing_field_raises_keyerror(self):
+        bad_batch = {
+            "f1": torch.randn(self.batch_size),
+            "f2": torch.randn(self.batch_size)
+            # missing "f3"
+        }
+        with self.assertRaises(KeyError):
+            self.model.combine_tab_data(bad_batch)
 
-    def test_training_step(self):
-        loss = self.model.training_step(self.batch, batch_idx=0)
-        self.assertIsInstance(loss, torch.Tensor)
-        self.assertGreaterEqual(loss.item(), 0)
+    def test_invalid_type_raises_typeerror(self):
+        bad_batch = {
+            "f1": "invalid type",
+            "f2": torch.randn(self.batch_size),
+            "f3": torch.randn(self.batch_size)
+        }
+        with self.assertRaises(TypeError):
+            self.model.combine_tab_data(bad_batch)
 
 
 if __name__ == '__main__':
