@@ -585,7 +585,7 @@ def evaluate_and_log_results(
             y_true=test_true_labels,
             y_val_pred=val_predict_labels,  
             y_val_true=val_true_labels,
-            path=checkpoint_path,
+            path=output_path,
             task=task,
             num_classes=num_classes,
             writer=writer,
@@ -596,14 +596,14 @@ def evaluate_and_log_results(
             y_true=test_true_labels,
             y_val_pred=val_predict_labels, 
             y_val_true=val_true_labels,
-            path=checkpoint_path,
+            path=output_path,
             task=task,
             num_classes=num_classes,
             writer=writer,
             global_step=trainer.global_step,
         )
         writer.close()
-        prediction_filename = os.path.join(checkpoint_path, "predict_results.pth")
+        prediction_filename = os.path.join(output_path, "predict_results.pth")
         log_once(logger, f"Saving prediction result to {prediction_filename}")
         save_prediction(prediction_filename, test_true_labels, test_predict_labels)
 
