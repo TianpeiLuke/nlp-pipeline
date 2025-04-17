@@ -47,7 +47,7 @@ class TestModelTrain(unittest.TestCase):
             "val_check_interval": 1.0
         }
 
-    @patch("lightning_models.pl_multimodal_bert.MultimodalBert", DummyModel)  # Patch with dummy model
+    @patch("src.lightning_models.pl_multimodal_bert.MultimodalBert", DummyModel)  # Patch with dummy model
     def test_model_train_runs(self):
         model = DummyModel(self.config)
 
