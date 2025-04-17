@@ -259,6 +259,7 @@ class MultimodalBert(pl.LightningModule):
                 self.text_key = model.text_name
                 self.mask_key = model.text_attention_mask
                 self.tab_keys = model.tab_field_list or []
+                self.softmax = nn.Softmax(dim=1)
 
             def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, *tab_tensors: torch.Tensor):
                 batch = {
@@ -267,7 +268,9 @@ class MultimodalBert(pl.LightningModule):
                 }
                 for name, tensor in zip(self.tab_keys, tab_tensors):
                     batch[name] = tensor
-                return self.model(batch)
+                # output probabilities instead of logits
+                logits = self.model(batch)
+                return self.softmax(logits)
 
         self.eval()
 
@@ -332,7 +335,7 @@ class MultimodalBert(pl.LightningModule):
                 tuple(input_tensors),
                 f=save_path,
                 input_names=input_names,
-                output_names=["logits"],
+                output_names=["prob"],
                 dynamic_axes=dynamic_axes,
                 opset_version=14,
             )
