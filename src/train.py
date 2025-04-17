@@ -289,7 +289,7 @@ def find_first_data_file(
 # ----------------- Dataset Loading -------------------------
 def load_data_module(file_dir, filename, config: Config) -> BSMDataset:
     log_once(logger, f"Loading BSM dataset from {filename} in folder {file_dir}")
-    bsm_dataset = BSMDataset(config=config.dict(), file_dir=file_dir, filename=filename)  # Pass as dict
+    bsm_dataset = BSMDataset(config=config.model_dump(), file_dir=file_dir, filename=filename)  # Pass as dict
     log_once(logger, f"Filling missing values in dataset {filename}")
     bsm_dataset.fill_missing_value(
         label_name=config.label_name, column_cat_name=config.cat_field_list
@@ -350,15 +350,15 @@ def model_select(
     model_class: str, config: Config, vocab_size: int, embedding_mat: torch.Tensor
 ) -> nn.Module:
     if model_class == "multimodal_cnn":
-        return MultimodalCNN(config.dict(), vocab_size, embedding_mat)
+        return MultimodalCNN(config.model_dump(), vocab_size, embedding_mat)
     elif model_class == "bert":
-        return TextBertClassification(config.dict())
+        return TextBertClassification(config.model_dump())
     elif model_class == "lstm":
-        return TextLSTM(config.dict(), vocab_size, embedding_mat)
+        return TextLSTM(config.model_dump(), vocab_size, embedding_mat)
     elif model_class == "multimodal_bert":
-        return MultimodalBert(config.dict())
+        return MultimodalBert(config.model_dump())
     else:
-        return TextBertClassification(config.dict())
+        return TextBertClassification(config.model_dump())
 
 
 # ----------------- Training Setup -----------------------
@@ -564,7 +564,7 @@ def main(config: Config):
     log_once(logger, "Training starts using pytorch.lightning ...")
     trainer = model_train(
         model,
-        config.dict(),
+        config.model_dump(),
         train_dataloader,
         val_dataloader,
         device="auto",
@@ -585,7 +585,7 @@ def main(config: Config):
         logger.info(f"Saving model artifacts to {artifact_filename}")
         save_artifacts(
             artifact_filename,
-            config.dict(),
+            config.model_dump(),
             embedding_mat,
             tokenizer.vocab,
             model_class=config.model_class,
@@ -594,19 +594,28 @@ def main(config: Config):
         # ------------- Onnx -------------------------------
         onnx_path = os.path.join(model_path, "model.onnx")
         logger.info(f"Saving model as ONNX to {onnx_path}")
+        
+        # Get a batch from val loader
         sample_batch = next(iter(val_dataloader))
+        
+        # Always move sample batch to CPU
+        sample_batch_cpu = {
+            k: v.to("cpu") if isinstance(v, torch.Tensor) else v
+            for k, v in sample_batch.items()
+        }
 
+        # Unwrap and move model to CPU if needed
+        model_to_export = model
         if isinstance(trainer.strategy, FSDPStrategy):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-            model_to_export = model.module if isinstance(model, FSDP) else model
-            model_to_export = model_to_export.to("cpu")
-            sample_batch_cpu = {
-                k: v.to("cpu") if isinstance(v, torch.Tensor) else v
-                for k, v in sample_batch.items()
-            }
-            model_to_export.export_to_onnx(onnx_path, sample_batch_cpu)
-        else:
-            model.export_to_onnx(onnx_path, sample_batch)
+            if isinstance(model, FSDP):
+                logger.info("Unwrapping FSDP model for ONNX export")
+                model_to_export = model.module
+            else:
+                logger.warning("Trainer strategy is FSDP, but model is not an instance of FSDP.")
+
+        model_to_export = model_to_export.to("cpu")
+        # Export ONNX
+        model_to_export.export_to_onnx(onnx_path, sample_batch_cpu)
             
             
 #        # ------------- TorchScript -------------------------------
@@ -641,10 +650,10 @@ if __name__ == "__main__":
         logger.error(f"Configuration Error: {e}")
         sys.exit(1)  # Exit with error code
     print("Sanitized config:")
-    for k, v in config.dict().items():
+    for k, v in config.model_dump().items():
         print(f"{k}: {v} ({type(v)})")
     log_once(logger, "Final Hyperparameters:")
-    log_once(logger, json.dumps(config.dict(), indent=4))
+    log_once(logger, json.dumps(config.model_dump(), indent=4))
     log_once(logger, "================================================")
     log_once(logger, "Starting the training process.")
     try:

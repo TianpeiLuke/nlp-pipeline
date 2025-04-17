@@ -20,6 +20,8 @@ from lightning.pytorch.strategies import FSDPStrategy, DDPStrategy
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
+
 
 import onnx
 import onnxruntime as ort
@@ -302,11 +304,17 @@ def save_model(filename: str, model: nn.Module):
 
     # Unwrap if wrapped in FSDP
     if isinstance(model, FSDP):
-        model_to_save = model.module
+        # Use FSDP's full state dict context
+        with FSDP.state_dict_type(
+            model,
+            StateDictType.FULL_STATE_DICT,
+            FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
+        ):
+            state_dict = model.state_dict()
+            if dist.get_rank() == 0:
+                torch.save(state_dict, filename)
     else:
-        model_to_save = model
-
-    torch.save(model_to_save.state_dict(), filename)
+        torch.save(model.state_dict(), filename)
 
 
 def save_artifacts(filename: str, config: Dict, embedding_mat: torch.Tensor, vocab: Dict[str, int], model_class: str):
@@ -330,11 +338,9 @@ def load_artifacts(filename: str, device_l: str = 'cpu') -> Tuple[Dict, torch.Te
     embedding_mat = artifacts['embedding_mat']
     vocab = artifacts['vocab']
     model_class = artifacts['model_class']
-    label_to_id = config.get('label_to_id', None) # Get label mappings
-    id_to_label = config.get('id_to_label', None)
     for k in ['torch_version', 'transformers_version', 'pytorch_lightning_version']:
         logger.info(f"{k}: {artifacts.get(k, 'N/A')}")
-    return config, embedding_mat, vocab, model_class, label_to_id, id_to_label # Return label mappings
+    return config, embedding_mat, vocab, model_class
 
 
 
@@ -351,13 +357,15 @@ def load_model(filename: str, config: Dict, embedding_mat: torch.Tensor, model_c
         'bert': lambda: TextBertClassification(config),
         'lstm': lambda: TextLSTM(config, embedding_mat.shape[0], embedding_mat),
         'multimodal_bert': lambda: MultimodalBert(config)
-    }.get(model_class, lambda: MultimodalCNN(config, embedding_mat.shape[0], embedding_mat))()
+    }.get(model_class, lambda: MultimodalBert(config))()
 
     try:
+        logger.info(f"Loading model weights from: {filename}")
         model.load_state_dict(torch.load(filename, map_location=device_l))
-    except RuntimeError as e:
+        logger.info("Model weights loaded successfully.")
+    except Exception as e:
         logger.error(f"Failed to load model weights: {e}")
-    raise
+        raise RuntimeError("Model loading failed.") from e
 
     return model
 

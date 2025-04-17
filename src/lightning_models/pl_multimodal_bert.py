@@ -244,9 +244,6 @@ class MultimodalBert(pl.LightningModule):
 
     # === Export ===
     def export_to_onnx(self, save_path: Union[str, Path], sample_batch: Dict[str, Union[torch.Tensor, List]]):
-        import onnx
-        from torch import nn
-
         class MultimodalBertONNXWrapper(nn.Module):
             def __init__(self, model: MultimodalBert):
                 super().__init__()
@@ -265,26 +262,48 @@ class MultimodalBert(pl.LightningModule):
                 return self.model(batch)
 
         self.eval()
+
+        # Unwrap from FSDP if needed
         model_to_export = self.module if isinstance(self, FSDP) else self
         model_to_export = model_to_export.to("cpu")
         wrapper = MultimodalBertONNXWrapper(model_to_export).to("cpu").eval()
 
-        # Prepare input tensor list
+        # === Prepare input tensor list ===
         input_names = [self.text_name, self.text_attention_mask]
-        input_tensors = [
-            sample_batch[self.text_name].to("cpu") if isinstance(sample_batch[self.text_name], torch.Tensor) else torch.zeros((1, 1), dtype=torch.long),  # Handle potential list
-            sample_batch[self.text_attention_mask].to("cpu") if isinstance(sample_batch[self.text_attention_mask], torch.Tensor) else torch.zeros((1, 1), dtype=torch.long),  # Handle potential list
-        ]
+        input_tensors = []
 
+        # Handle text inputs
+        input_ids_tensor = sample_batch.get(self.text_name)
+        attention_mask_tensor = sample_batch.get(self.text_attention_mask)
+
+        if not isinstance(input_ids_tensor, torch.Tensor) or not isinstance(attention_mask_tensor, torch.Tensor):
+            raise ValueError("Both input_ids and attention_mask must be torch.Tensor in sample_batch.")
+
+        input_ids_tensor = input_ids_tensor.to("cpu")
+        attention_mask_tensor = attention_mask_tensor.to("cpu")
+
+        input_tensors.append(input_ids_tensor)
+        input_tensors.append(attention_mask_tensor)
+
+        batch_size = input_ids_tensor.shape[0]
+
+        # Handle tabular inputs
         if self.tab_field_list:
             for field in self.tab_field_list:
-                if isinstance(sample_batch[field], torch.Tensor):
-                    input_names.append(field)
-                    input_tensors.append(sample_batch[field].to("cpu"))
+                input_names.append(field)
+                value = sample_batch.get(field)
+                if isinstance(value, torch.Tensor):
+                    value = value.to("cpu")
+                    if value.shape[0] != batch_size:
+                        raise ValueError(f"Tensor for field '{field}' has batch size {value.shape[0]} but expected {batch_size}")
+                    input_tensors.append(value)
                 else:
-                    input_names.append(field)
-                    # Handle potential list for tabular data
-                    input_tensors.append(torch.zeros((1, 1), dtype=torch.float32).to("cpu"))                
+                    # Fallback to zero tensor with correct batch size
+                    input_tensors.append(torch.zeros((batch_size, 1), dtype=torch.float32).to("cpu"))
+
+        # Final check
+        for name, tensor in zip(input_names, input_tensors):
+            assert tensor.shape[0] == batch_size, f"Inconsistent batch size for input '{name}': {tensor.shape}"
 
         dynamic_axes = {name: {0: "batch"} for name in input_names}
 

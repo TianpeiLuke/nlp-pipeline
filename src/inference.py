@@ -3,8 +3,9 @@ import json
 import traceback
 from io import StringIO, BytesIO
 import logging
-from typing import List, Union, Dict, Optional
+from typing import List, Union, Dict, Tuple, Optional
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -45,7 +46,7 @@ from lightning_models.pl_model_plots import (
     pr_metric_plot,
 )
 from lightning_models.dist_utils import get_rank, is_main_process
-from pydantic import BaseModel, Field, ValidationError, field_validator  # For Config Validation
+from pydantic import BaseModel, Field, ValidationError  # For Config Validation
 
 # =================== Logging Setup =================================
 logger = logging.getLogger(__name__)
@@ -160,12 +161,11 @@ class Config(BaseModel):
             raise ValueError(
                 f"class_weights must have the same number of elements as num_classes "
                 f"(expected {self.num_classes}, got {len(self.class_weights)})."
+            )
 
 
 #=================== Helper Function ================
 def data_preprocess_pipeline(config: Config) -> Tuple[AutoTokenizer, Dict[str, Processor]]:
-    if not config.tokenizer:
-        config.tokenizer = "bert-base-multilingual-cased"
     logger.info(f"Constructing tokenizer: {config.tokenizer}")
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer)
     dialogue_pipeline = (
@@ -194,21 +194,26 @@ def data_preprocess_pipeline(config: Config) -> Tuple[AutoTokenizer, Dict[str, P
 def model_fn(model_dir, context=None):
     model_filename = 'model.pth'
     model_artifact_name = 'model_artifacts.pth'
+    onnx_model_path = os.path.join(model_dir, "model.onnx")
 
-    load_config, embedding_mat, vocab, model_class, label_to_id, id_to_label = load_artifacts(
-        os.path.join(model_path, model_artifact_name), device_l=device
-    )
+
+    load_config, embedding_mat, vocab, model_class = load_artifacts(os.path.join(model_path, model_artifact_name), device_l=device)
                 
     config = Config(**load_config)
     
-    ## load models
+    # Load model based on file type
+    #if os.path.exists(onnx_model_path):
+    #    logger.info("Detected ONNX model.")
+    #    model = load_onnx_model(onnx_model_path)
+    #else:
+    logger.info("Detected PyTorch model.")
     model = load_model(
-        os.path.join(model_path, model_filename),
-        config.dict(),
-        embedding_mat,
-        model_class,
-        device_l=device
-    )
+            os.path.join(model_path, model_filename),
+            config.model_dump(),
+            embedding_mat,
+            model_class,
+            device_l=device
+        )
     model.eval()
     
     ## reconstruct pipelines
@@ -216,7 +221,7 @@ def model_fn(model_dir, context=None):
                 
     # === Add multiclass label processor if needed ===
     if not config.is_binary and config.num_classes > 2:
-        if config.multiclass_categories and id_to_label:
+        if config.multiclass_categories:
             label_processor = MultiClassLabelProcessor(label_list=config.multiclass_categories, strict=True)
             pipelines[config.label_name] = label_processor
                 
@@ -236,26 +241,54 @@ def input_fn(request_body, request_content_type, context=None):
     """
     Deserialize the Invoke request body into an object we can perform prediction on.
     """
+    logger.info(f"Received request with Content-Type: {request_content_type}") # Log content type
     try:
         if request_content_type == 'text/csv':
-            return pd.read_csv(StringIO(request_body), header=None, index_col=None)
+            logger.info("Processing content type: text/csv")
+            decoded = request_body
+            logger.debug(f"Decoded CSV data:\n{decoded[:500]}...") # Optional: Log decoded data (be careful with large data)
+            try:
+                df = pd.read_csv(StringIO(decoded), header=None, index_col=None)
+                logger.info(f"Successfully parsed CSV into DataFrame. Shape: {df.shape}, Type: {type(df)}")
+                return df # <--- Returns DataFrame here
+            except Exception as parse_error:
+                logger.error(f"Failed to parse CSV data: {parse_error}")
+                # If parsing fails, it will fall through to the final except block
+                raise # Re-raise the parsing error to be caught below
+
         elif request_content_type == 'application/json':
-            return pd.read_json(f"[{StringIO(request_body).read()}]", orient='records')
+            logger.info("Processing content type: application/json")
+            # ... your JSON handling ...
+            # Ensure this branch also returns a DataFrame if called
+            decoded = request_body
+            df = pd.read_json(f"[{StringIO(decoded).read()}]", orient='records')
+            logger.info(f"Successfully parsed JSON into DataFrame. Shape: {df.shape}, Type: {type(df)}")
+            return df # <--- Returns DataFrame here
+
         elif request_content_type == 'application/x-parquet':
-            return pd.read_parquet(BytesIO(request_body))
+            logger.info("Processing content type: application/x-parquet")
+            # ... your Parquet handling ...
+            # Ensure this branch also returns a DataFrame if called
+            df = pd.read_parquet(BytesIO(request_body))
+            logger.info(f"Successfully parsed Parquet into DataFrame. Shape: {df.shape}, Type: {type(df)}")
+            return df # <--- Returns DataFrame here
+
         else:
+            logger.warning(f"Unsupported content type: {request_content_type}")
+            # THIS RETURNS A Response OBJECT, NOT A DataFrame
             return Response(
-                response='This predictor only supports CSV, JSON, or Parquet data',
+                response=f'This predictor only supports CSV, JSON, or Parquet data. Received: {request_content_type}',
                 status=415,
                 mimetype='text/plain'
             )
     except Exception as e:
-        logger.error(f"Failed to parse input ({request_content_type}): {e}")
+        # THIS ALSO RETURNS A Response OBJECT, NOT A DataFrame
+        logger.error(f"Failed to parse input ({request_content_type}). Error: {e}", exc_info=True) # Log full traceback
         return Response(
-            response='Invalid input format or corrupted data',
+            response=f'Invalid input format or corrupted data. Error during parsing: {e}',
             status=400,
             mimetype='text/plain'
-        )              
+        )
                 
 
 # ================== Prediction Function ============================
@@ -267,7 +300,7 @@ def predict_fn(input_object, model_data, context=None):
     config = model_data["config"]
     pipelines = model_data["pipelines"]
 
-    config_predict = config.dict()
+    config_predict = config.model_dump()
     label_field = config_predict.get('label_name', None)
 
     if label_field:
@@ -275,8 +308,8 @@ def predict_fn(input_object, model_data, context=None):
         config_predict['cat_field_list'] = [col for col in config_predict['cat_field_list'] if col != label_field]
 
     dataset = BSMDataset(config_predict, dataframe=input_object)
-    for field_name, pipeline in pipelines.items():
-        dataset.add_pipeline(field_name, pipeline)
+    for feature_name, pipeline in pipelines.items():
+        dataset.add_pipeline(feature_name, pipeline)
 
     bsm_collate_batch = build_collate_batch(
         input_ids_key=config.text_input_ids_key, 
@@ -296,31 +329,107 @@ def predict_fn(input_object, model_data, context=None):
                 
                 
 # ================== Output Function ================================
-def output_fn(predictions, accept, context=None):
-    logger.info("Score: {}".format(predictions))
-    out = StringIO()
+def output_fn(prediction_output, accept='application/json'):
+    """
+    Serializes the multi-class prediction output.
 
-    if accept == 'text/csv':
-        pd.DataFrame({'score': predictions}).to_csv(out, header=False, index=False)
-        return out.getvalue()
-    elif accept in ['application/json', 'application/jsonlines']:
-        records_json = pd.DataFrame({'score': predictions}).to_json(orient='records')
-        return json.dumps({"predictions": json.loads(records_json)})
+    Args:
+        prediction_output: The output from predict_fn, expected to be a
+                           numpy array of shape (N, num_classes) or list of lists.
+        accept: The requested response MIME type (e.g., 'application/json').
+
+    Returns:
+        tuple: (response_body, content_type)
+    """
+    logger.info(f"Received prediction output of type: {type(prediction_output)} for accept type: {accept}")
+
+    scores_list = None
+    num_samples = 0
+    num_classes = 0
+
+    # 1. Ensure prediction_output is a list of lists or list of numbers
+    if isinstance(prediction_output, np.ndarray):
+        logger.info(f"Prediction output numpy array shape: {prediction_output.shape}")
+        if prediction_output.ndim == 1:
+            # Handle case where predict_fn might have already flattened for some reason
+            num_samples = prediction_output.shape[0]
+            num_classes = 1
+            scores_list = prediction_output.tolist()
+            logger.warning("Received 1D numpy array - treating as single output per sample.")
+        elif prediction_output.ndim == 2:
+            num_samples = prediction_output.shape[0]
+            num_classes = prediction_output.shape[1]
+            scores_list = prediction_output.tolist() # Convert array([ [c1,c2], [c1,c2] ]) to [ [c1,c2], [c1,c2] ]
+            logger.info(f"Converted numpy array ({num_samples} samples, {num_classes} classes) to list of lists.")
+        else:
+            msg = f"Unsupported numpy array dimension: {prediction_output.ndim}"
+            logger.error(msg)
+            raise ValueError(msg)
+
+    elif isinstance(prediction_output, list):
+        # Handle if predict_fn already returned a list
+        if not prediction_output:
+            logger.warning("Received empty list as prediction output.")
+            scores_list = []
+            num_samples = 0
+            num_classes = 0
+        else:
+            first_item = prediction_output[0]
+            num_samples = len(prediction_output)
+            if isinstance(first_item, list): # List of lists
+                num_classes = len(first_item)
+                scores_list = prediction_output
+                logger.info(f"Prediction output is list of lists ({num_samples} samples, {num_classes} classes). Using as is.")
+            elif isinstance(first_item, (int, float)): # List of numbers (1D case)
+                num_classes = 1
+                scores_list = prediction_output
+                logger.warning("Received list of numbers - treating as single output per sample.")
+            else:
+                msg = f"Unsupported type within prediction list: {type(first_item)}"
+                logger.error(msg)
+                raise ValueError(msg)
     else:
-        logger.error("Unsupported return format")
-        return Response(
-            response="Unsupported return format",
-            status=406,
-            mimetype='text/plain'
-        )
+        msg = f"Unsupported prediction output type: {type(prediction_output)}"
+        logger.error(msg)
+        raise ValueError(msg)
 
+    # 2. Serialize based on accept type
+    try:
+        if accept.lower() == 'application/json':
+            # Create a DataFrame where the 'scores' column *contains the lists*
+            # This format works well with to_json(orient='records')
+            # Output: [{"scores": [class0_prob, class1_prob, ...]}, ...]
+            df_out = pd.DataFrame({'scores': scores_list})
+            logger.info("DataFrame created for JSON output (column contains lists).")
+            response_body = df_out.to_json(orient='records')
+            content_type = accept
 
+        elif accept.lower() == 'text/csv':
+            # For CSV, it's often better to represent the list as a
+            # single JSON string within the cell, similar to your on_test_epoch_end.
+            # Output CSV:
+            # scores
+            # "[class0_prob, class1_prob, ...]"
+            # "[class0_prob, class1_prob, ...]"
+            scores_as_json_strings = [json.dumps(s) for s in scores_list]
+            df_out = pd.DataFrame({'scores': scores_as_json_strings})
+            logger.info("DataFrame created for CSV output (column contains JSON strings).")
+            # Include header=True so the column name 'scores' is included
+            response_body = df_out.to_csv(index=False, header=True)
+            content_type = accept
+        else:
+            # Handle unsupported accept types
+            logger.error(f"Unsupported accept type: {accept}")
+            # You might want to return a specific error format here
+            raise ValueError(f"Unsupported accept type: {accept}")
 
+        logger.info(f"Successfully serialized response with Content-Type: {content_type}")
+        # Return the serialized data and the content type
+        return response_body, content_type
 
-
-
-
-
-
-
-
+    except Exception as e:
+        logger.error(f"Error during DataFrame creation or serialization in output_fn: {e}", exc_info=True)
+        # Return error as JSON
+        error_response = json.dumps({'error': f'Failed to serialize output: {e}'})
+        # Return tuple (body, content_type) even for errors
+        return error_response, 'application/json'
