@@ -6,6 +6,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Union
+import logging
 
 import torch
 import torch.nn as nn
@@ -25,6 +26,13 @@ from .dist_utils import all_gather, get_rank
 from .pl_tab_ae import TabAE  # Or TabularEmbeddingModule
 from .pl_bert import TextBertBase
 from .pl_model_plots import compute_metrics
+
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 
 class MultimodalBert(pl.LightningModule):
@@ -330,9 +338,9 @@ class MultimodalBert(pl.LightningModule):
             )
             onnx_model = onnx.load(str(save_path))
             onnx.checker.check_model(onnx_model)
-            print(f"ONNX model exported and verified at {save_path}")
+            logger.info(f"ONNX model exported and verified at {save_path}")
         except Exception as e:
-            print(f"ONNX export failed: {e}")
+            logger.warning(f"ONNX export failed: {e}")
 
 
 
@@ -361,7 +369,7 @@ class MultimodalBert(pl.LightningModule):
         try:
             scripted_model = torch.jit.trace(model_to_export, (sample_batch_tensorized,))
         except Exception as e:
-            print(f"Trace failed: {e}. Trying script...")
+            logger.warning(f"Trace failed: {e}. Trying script...")
             scripted_model = torch.jit.script(model_to_export)
         scripted_model.save(str(save_path))
-        print(f"TorchScript model saved to: {save_path}")
+        logger.info(f"TorchScript model saved to: {save_path}")
