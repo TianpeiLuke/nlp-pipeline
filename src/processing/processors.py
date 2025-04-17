@@ -1,35 +1,23 @@
-import os
 import re
 import numpy as np
 import pandas as pd
-import csv
 from bs4 import BeautifulSoup
 import sklearn
 from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 
-from collections.abc import Callable, Mapping
-from typing import List, Tuple, Pattern, Union, Dict, Set, Optional, Annotated, Callable
+from typing import List,  Union, Dict, Optional
 from abc import ABC, abstractmethod
 import re
 from bs4 import BeautifulSoup
 
 
-from abc import ABC, abstractmethod
-
 from .constants import *
-
-import boto3
-from botocore.exceptions import ClientError
 from urllib.request import urlretrieve
-import html as ihtml
 
 
-import six
-#from six.moves.urllib.request import urlretrieve
 
 import warnings
-#from bs4 import MarkupResemblesLocatorWarning
-warnings.filterwarnings("ignore") #, category=MarkupResemblesLocatorWarning, module='bs4')
+warnings.filterwarnings("ignore") 
 
 # --- Base Processor Classes ---
 class Processor(ABC):
