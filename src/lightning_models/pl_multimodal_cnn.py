@@ -1,4 +1,3 @@
-import os
 import json
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +8,6 @@ import torch.nn as nn
 import torch.optim as optim
 import lightning.pytorch as pl
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-import onnx
 
 from .pl_tab_ae import TabAE
 from .pl_text_cnn import TextCNN

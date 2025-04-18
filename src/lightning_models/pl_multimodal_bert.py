@@ -26,13 +26,16 @@ from .dist_utils import all_gather, get_rank
 from .pl_tab_ae import TabAE  # Or TabularEmbeddingModule
 from .pl_bert import TextBertBase
 from .pl_model_plots import compute_metrics
-
+# =================== Logging Setup =================================
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # <-- THIS LINE IS MISSING
+
 handler = logging.StreamHandler()
 handler.setLevel(logging.INFO)
 formatter = logging.Formatter("%(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+logger.propagate = False
 
 
 class MultimodalBert(pl.LightningModule):
@@ -259,7 +262,6 @@ class MultimodalBert(pl.LightningModule):
                 self.text_key = model.text_name
                 self.mask_key = model.text_attention_mask
                 self.tab_keys = model.tab_field_list or []
-                self.softmax = nn.Softmax(dim=1)
 
             def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, *tab_tensors: torch.Tensor):
                 batch = {
@@ -268,9 +270,9 @@ class MultimodalBert(pl.LightningModule):
                 }
                 for name, tensor in zip(self.tab_keys, tab_tensors):
                     batch[name] = tensor
-                # output probabilities instead of logits
+                #output probability scores instead of logits
                 logits = self.model(batch)
-                return self.softmax(logits)
+                return nn.functional.softmax(logits, dim=1)
 
         self.eval()
 
@@ -318,8 +320,7 @@ class MultimodalBert(pl.LightningModule):
         # Final check
         for name, tensor in zip(input_names, input_tensors):
             assert tensor.shape[0] == batch_size, f"Inconsistent batch size for input '{name}': {tensor.shape}"
-        
-        # Allow dynamic axes for first two dimensions (Batch, Chunk) of [B, C, D] 
+
         dynamic_axes = {}
         for name, tensor in zip(input_names, input_tensors):
             # Assume at least first dimension (batch) is dynamic
@@ -335,7 +336,7 @@ class MultimodalBert(pl.LightningModule):
                 tuple(input_tensors),
                 f=save_path,
                 input_names=input_names,
-                output_names=["prob"],
+                output_names=["probs"],
                 dynamic_axes=dynamic_axes,
                 opset_version=14,
             )

@@ -44,14 +44,15 @@ from pydantic import BaseModel, Field, ValidationError  # For Config Validation
 
 # =================== Logging Setup =================================
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # <-- THIS LINE IS MISSING
+
 if not logger.hasHandlers():
     handler = logging.StreamHandler()
     handler.setLevel(logging.INFO)
     formatter = logging.Formatter("%(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-logger.propagate = False
+    logger.propagate = False
 
 
 # ================== Model, Data and Hyperparameter Folder =================
@@ -98,7 +99,7 @@ class Config(BaseModel):
     lr_decay: float = 0.05
     momentum: float = 0.9
     weight_decay: float = 0
-    class_weights: List[int] = Field(default_factory=lambda: [1, 10])
+    class_weights: List[float] = Field(default_factory=lambda: [1.0, 10.0])
     dropout_keep: float = 0.5
     optimizer: str = "SGD"
     fixed_tokenizer_length: bool = True
@@ -155,7 +156,7 @@ class Config(BaseModel):
             raise ValueError(
                 f"class_weights must have the same number of elements as num_classes "
                 f"(expected {self.num_classes}, got {len(self.class_weights)})."
-                )
+            )
 
 
 #=================== Helper Function ================

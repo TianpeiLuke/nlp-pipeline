@@ -78,13 +78,19 @@ val_channel = "val"
 val_path = os.path.join(input_path, val_channel)
 test_channel = "test"
 test_path = os.path.join(input_path, test_channel)
+
 # =================== Logging Setup =================================
 logger = logging.getLogger(__name__)
-handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger.setLevel(logging.INFO)  # <-- THIS LINE IS MISSING
+
+if is_main_process():
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.propagate = False
+
 
 
 def log_once(logger, message, level=logging.INFO):
@@ -119,7 +125,7 @@ class Config(BaseModel):
     lr_decay: float = 0.05
     momentum: float = 0.9
     weight_decay: float = 0
-    class_weights: List[int] = Field(default_factory=lambda: [1, 10])
+    class_weights: List[float] = Field(default_factory=lambda: [1.0, 10.0])
     dropout_keep: float = 0.5
     optimizer: str = "SGD"
     fixed_tokenizer_length: bool = True
@@ -579,7 +585,7 @@ def evaluate_and_log_results(
         for key, value in metric_test.items():
             log_once(logger, f"{key} = {value:.4f}")
         log_once(logger, "Saving metric plots...")
-        writer = SummaryWriter(log_dir=os.path.join(checkpoint_path, "tensorboard_eval"))
+        writer = SummaryWriter(log_dir=os.path.join(output_path, "tensorboard_eval"))
         roc_metric_plot(
             y_pred=test_predict_labels,  
             y_true=test_true_labels,
@@ -647,28 +653,10 @@ def main(config: Config):
             model_class=config.model_class,
         )
         
-    # ------------------ ONNX Export ------------------
-    onnx_path = os.path.join(model_path, "model.onnx")
-    logger.info(f"Saving model as ONNX to {onnx_path}")
-    export_model_to_onnx(model, trainer, val_dataloader, onnx_path)
-            
-#        # ------------- TorchScript -------------------------------
-#        torchscript_path = os.path.join(model_path, "model_scripted.pt")
-#        logger.info(f"Saving model as TorchScript to {torchscript_path}")
-#        sample_batch = next(iter(val_dataloader))
-
-#        if isinstance(trainer.strategy, FSDPStrategy):
-#            # Unwrap FSDP to get the base model
-#            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-#            model_to_export = model.module if isinstance(model, FSDP) else model
-#            model_to_export = model_to_export.to("cpu")
-#            sample_batch_cpu = {
-#                k: v.to("cpu") if isinstance(v, torch.Tensor) else v
-#                for k, v in sample_batch.items()
-#            }
-#            model_to_export.export_to_torchscript(torchscript_path, sample_batch_cpu)
-#        else:
-#            model.export_to_torchscript(torchscript_path, sample_batch)            
+        # ------------------ ONNX Export ------------------
+        onnx_path = os.path.join(model_path, "model.onnx")
+        logger.info(f"Saving model as ONNX to {onnx_path}")
+        export_model_to_onnx(model, trainer, val_dataloader, onnx_path)       
 
     evaluate_and_log_results(model, val_dataloader, test_dataloader, config, trainer)
     sys.exit(0)
