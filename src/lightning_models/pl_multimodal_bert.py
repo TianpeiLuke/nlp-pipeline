@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-
-import os
 import json
 import pandas as pd
 from pathlib import Path
