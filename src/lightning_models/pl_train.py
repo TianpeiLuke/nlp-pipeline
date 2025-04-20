@@ -419,8 +419,7 @@ def load_onnx_model(onnx_path: Union[str, Path]) -> ort.InferenceSession:
     try:
         session = ort.InferenceSession(str(onnx_path), providers=providers)
         logger.info(f"Successfully loaded ONNX model from {onnx_path}")
-        logger.info("Expected ONNX model inputs:", [i.name for i in session.get_inputs()])
-        return session
+        logger.info(f"Expected ONNX model inputs: {[i.name for i in session.get_inputs()]}")
         return session
     except Exception as e:
         raise RuntimeError(f"Failed to load ONNX model: {e}")
