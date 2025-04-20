@@ -29,6 +29,11 @@ class TokenizationProcessor(Processor):
 
     def process(self, input_chunks: List[str]) -> List[Dict[str, List[int]]]:
         tokenized_output = []
+        
+        # If input_chunks is empty, simulate processing a single empty string
+        if not input_chunks:
+            input_chunks = [""]
+            
         for chunk in input_chunks:
             encoded = self.tokenizer(
                 chunk,
