@@ -1,18 +1,9 @@
 import re
-import numpy as np
-import pandas as pd
-from bs4 import BeautifulSoup
-import sklearn
-from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 
-from typing import List,  Union, Dict, Optional
+from typing import List, Union, Dict, Optional
 from abc import ABC, abstractmethod
-import re
 from bs4 import BeautifulSoup
-
-
 from .constants import *
-from urllib.request import urlretrieve
 
 
 
@@ -154,6 +145,10 @@ class DialogueChunkerProcessor(Processor):
         num_chunks = 0  # Track the number of chunks created
 
         for msg in messages:
+            # Skip empty or whitespace-only messages
+            if not msg.strip():  
+                continue
+                
             # Count tokens using the HF AutoTokenizer; avoid adding special tokens here
             token_count = len(self.tokenizer.encode(msg, add_special_tokens=False))
             # If adding this message would exceed limit, save current chunk and start a new one.
@@ -219,165 +214,3 @@ class HTMLNormalizerProcessor(Processor):
         # Get text content with whitespace normalized.
         raw_text = soup.get_text(separator=" ", strip=True)
         return raw_text               
-  
-    
-#====================================================================================================    
-class LabelProcessor(Processor):
-    '''
-    '''
-    label_encoder: sklearn.preprocessing._label.LabelEncoder
-    label_encoder_dict: dict
-    
-    def __init__(self, label_encoder: Optional[sklearn.preprocessing._label.LabelEncoder] = None,
-                 label_encoder_dict: Dict[Union[str, int], int] = None
-                ):
-        self.processor_name = 'label_encoding_process'
-        if not label_encoder or not isinstance(label_encoder, sklearn.preprocessing._label.LabelEncoder):
-            self.label_encoder = LabelEncoder()
-        else:
-            self.label_encoder = label_encoder
-            
-        try:
-            self.label_encoder_dict = dict(zip(self.label_encoder.classes_, 
-                                self.label_encoder.transform(self.label_encoder.classes_).tolist()))
-        except AttributeError:
-            if label_encoder_dict:
-                self.label_encoder_dict = label_encoder_dict
-            else:
-                self.label_encoder_dict = dict()
-        
-        self.function_handler_list = [
-                                      self.label_transform, 
-                                     ]
-        self.function_name_list = [
-                                   'label_transform', 
-                                  ]
-        
-    def label_encoder_fit(self, label_df: Union[list, pd.core.series.Series]) -> None:
-        if not isinstance(label_df, list) and \
-            not isinstance(label_df, pd.core.series.Series) and \
-            not isinstance(label_df, pd.core.frame.DataFrame):
-            raise TypeError('Input must be list or pandas.core.series.Series or pandas.core.frame.DataFrame')
-        self.label_encoder.fit(label_df)
-        self.label_encoder_dict = dict(zip(self.label_encoder.classes_, 
-                                self.label_encoder.transform(self.label_encoder.classes_).tolist()))
-
-        
-    def label_transform(self, label: Union[str, int, list, pd.core.series.Series]) -> Union[int, List[int]]:
-        if not isinstance(label, list) and \
-            not isinstance(label, pd.core.series.Series) and \
-            not isinstance(label, pd.core.frame.DataFrame):
-                
-            if isinstance(label, str) or isinstance(label, int):
-                label = [label]
-                try:
-                    result = self.label_encoder.transform(label)
-                except ValueError:
-                    result = [-1]
-                return result[0]
-            else:
-                raise TypeError('Input must be list or pandas.core.series.Series')
-        else:
-            try:
-                transformed_label = self.label_encoder.transform(label)
-            except ValueError:
-                transformed_label = -1*np.ones(label.shape)
-            return transformed_label
-    
-    def process(self, label: Union[str, int,  list, pd.core.series.Series], **kwargs) -> Union[int, List[int]]:
-        if not self.label_encoder_dict or len(self.label_encoder_dict) == 0:
-            return label
-        else:
-            return self.label_transform(label)
-    
-
-#====================================================================================================    
-class OrdinalProcessor(Processor):
-    '''
-    Remove quotations of previous emails from Gmail, Hotmail etc.
-    '''    
-    def __init__(self, encoder: Optional[sklearn.preprocessing._encoders.OrdinalEncoder] = None,
-                 encoder_dict: Dict[Union[str, int], int] = None
-                ):
-        self.processor_name = 'categorical_encoder'
-        if not encoder or not isinstance(encoder, sklearn.preprocessing._encoders.OrdinalEncoder):
-            self.encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
-        else:
-            self.encoder = encoder
-            
-        try:
-            self.encoder_dict = dict(zip(list(self.encoder.categories_[0]), 
-                                              self.encoder.transform(self.encoder.categories_[0].reshape(-1, 1)).reshape(1, -1).tolist()[0]
-                                    ))
-        except AttributeError:
-            if encoder_dict:
-                self.encoder_dict = encoder_dict
-            else:
-                self.encoder_dict = dict()
-        
-        self.function_handler_list = [
-                                      self.feature_transform, 
-                                     ]
-        self.function_name_list = [
-                                   'feature_transform', 
-                                  ]
-        
-    def encoder_fit(self, df: Union[list, pd.core.series.Series]) -> None:
-        df_array = None
-        if isinstance(df, list):
-            df_array = np.array(df).reshape(-1, 1)
-        elif isinstance(df, pd.core.series.Series):
-            df_array = df.to_numpy().reshape(-1, 1)
-        elif isinstance(df, pd.core.frame.DataFrame):
-            df_array = df.to_numpy()
-        else:
-            raise TypeError('Input must be list or pandas.core.series.Series or pandas.core.frame.DataFrame')
-            
-        self.encoder.fit(df_array)
-        self.encoder_dict = dict(zip(list(self.encoder.categories_[0]), 
-                                          self.encoder.transform(self.encoder.categories_[0].reshape(-1, 1)).reshape(1, -1).tolist()[0]
-                                ))
-
-        
-    def feature_transform(self, 
-                          categorical: Union[str, int, list, pd.core.series.Series, pd.core.frame.DataFrame]) -> Union[int, List[int]]:
-        if isinstance(categorical, str) or isinstance(categorical, int):
-            categorical_array = [[categorical]]
-        elif isinstance(categorical, list):
-            categorical_array = np.array(categorical).reshape(-1, 1)
-        elif isinstance(categorical, pd.core.series.Series):
-            categorical_array = categorical.to_numpy().reshape(-1, 1)
-        elif isinstance(categorical, pd.core.frame.DataFrame):
-            categorical_array = categorical.to_numpy()
-        else:
-            raise TypeError('Input must be int, str, list, pandas.core.series.Series or pandas.core.frame.DataFrame')
-            
-        transformed_label = self.encoder.transform(categorical_array)
-        if isinstance(categorical, str) or isinstance(categorical, int):
-            transformed_label = transformed_label[0][0]
-        elif isinstance(categorical, list) or isinstance(categorical, pd.core.series.Series):
-            transformed_label = transformed_label.reshape(1, -1)[0]
-            
-        return transformed_label
-    
-    def process(self, 
-                categorical: Union[str, int,  list, pd.core.series.Series, pd.core.frame.DataFrame], 
-                **kwargs) -> Union[int, List[int]]:
-        if not self.encoder_dict or len(self.encoder_dict) == 0:
-            return categorical
-        else:
-            return self.feature_transform(categorical)
-        
-    
-
-#=======================
-
-# --- Dummy Tokenizer for Unit Testing (can also be used by others) ---
-class DummyTokenizer:
-    """A dummy tokenizer that splits text by whitespace."""
-    def encode(self, text, add_special_tokens=False):
-        return text.split()
-    
-    def __call__(self, text, add_special_tokens=True, max_length=None, truncation=True, padding="longest", return_attention_mask=True):
-        tokens = text.split()
-        return {"input_ids": tokens, "attention_mask": [1] * len(tokens)}
