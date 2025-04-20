@@ -4,7 +4,6 @@ from transformers import AutoTokenizer
 from .processors import Processor
 
 
-# --- NEW Processor 6: Tokenization Processor using HuggingFace AutoTokenizer ---
 # --- Processor 6: Tokenization Processor using AutoTokenizer ---
 class TokenizationProcessor(Processor):
     def __init__(
@@ -30,11 +29,11 @@ class TokenizationProcessor(Processor):
     def process(self, input_chunks: List[str]) -> List[Dict[str, List[int]]]:
         tokenized_output = []
         
-        # If input_chunks is empty, simulate processing a single empty string
-        if not input_chunks:
-            input_chunks = [""]
-            
         for chunk in input_chunks:
+            # Skip empty or whitespace-only chunks
+            if not chunk or not chunk.strip():
+                continue
+                
             encoded = self.tokenizer(
                 chunk,
                 add_special_tokens=self.add_special_tokens,
