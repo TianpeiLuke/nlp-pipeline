@@ -164,8 +164,9 @@ def data_preprocess_pipeline(config: Config) -> Tuple[AutoTokenizer, Dict[str, P
     logger.info(f"Constructing tokenizer: {config.tokenizer}")
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer)
     dialogue_pipeline = (
-        HTMLNormalizerProcessor()
-        >> EmojiRemoverProcessor()
+        ##HTMLNormalizerProcessor()
+        ##>> 
+        EmojiRemoverProcessor()
         >> TextNormalizationProcessor()
         >> DialogueSplitterProcessor()
         >> DialogueChunkerProcessor(tokenizer=tokenizer, 
@@ -240,7 +241,7 @@ def input_fn(request_body, request_content_type, context=None):
     try:
         if request_content_type == 'text/csv':
             logger.info("Processing content type: text/csv")
-            decoded = request_body
+            decoded = request_body.decode("utf-8") if isinstance(request_body, bytes) else request_body
             logger.debug(f"Decoded CSV data:\n{decoded[:500]}...") # Optional: Log decoded data (be careful with large data)
             try:
                 df = pd.read_csv(StringIO(decoded), header=None, index_col=None)
@@ -255,10 +256,25 @@ def input_fn(request_body, request_content_type, context=None):
             logger.info("Processing content type: application/json")
             # ... your JSON handling ...
             # Ensure this branch also returns a DataFrame if called
-            decoded = request_body
-            df = pd.read_json(f"[{StringIO(decoded).read()}]", orient='records')
-            logger.info(f"Successfully parsed JSON into DataFrame. Shape: {df.shape}, Type: {type(df)}")
-            return df # <--- Returns DataFrame here
+            decoded = request_body.decode("utf-8") if isinstance(request_body, bytes) else request_body
+            try:
+                if "\n" in decoded:
+                    # Multi-record JSON (NDJSON) handling
+                    records = [json.loads(line) for line in decoded.strip().splitlines() if line.strip()]
+                    df = pd.DataFrame(records)
+                else:
+                    json_obj = json.loads(decoded)
+                    if isinstance(json_obj, dict):
+                        df = pd.DataFrame([json_obj])
+                    elif isinstance(json_obj, list):
+                        df = pd.DataFrame(json_obj)
+                    else:
+                        raise ValueError("Unsupported JSON structure")
+                logger.info(f"Successfully parsed JSON into DataFrame. Shape: {df.shape}")
+                return df
+            except Exception as parse_error:
+                logger.error(f"Failed to parse JSON data: {parse_error}")
+                raise
 
         elif request_content_type == 'application/x-parquet':
             logger.info("Processing content type: application/x-parquet")
@@ -311,7 +327,7 @@ def predict_fn(input_object, model_data, context=None):
         attention_mask_key=config.text_attention_mask_key
     )
 
-    batch_size = min(config.batch_size, len(input_object))
+    batch_size = len(input_object)
     predict_dataloader = DataLoader(dataset, collate_fn=bsm_collate_batch, batch_size=batch_size)
 
     try:
@@ -339,92 +355,68 @@ def output_fn(prediction_output, accept='application/json'):
     logger.info(f"Received prediction output of type: {type(prediction_output)} for accept type: {accept}")
 
     scores_list = None
-    num_samples = 0
-    num_classes = 0
 
-    # 1. Ensure prediction_output is a list of lists or list of numbers
+    # Step 1: Normalize input format into a list of lists
     if isinstance(prediction_output, np.ndarray):
         logger.info(f"Prediction output numpy array shape: {prediction_output.shape}")
-        if prediction_output.ndim == 1:
-            # Handle case where predict_fn might have already flattened for some reason
-            num_samples = prediction_output.shape[0]
-            num_classes = 1
-            scores_list = prediction_output.tolist()
-            logger.warning("Received 1D numpy array - treating as single output per sample.")
-        elif prediction_output.ndim == 2:
-            num_samples = prediction_output.shape[0]
-            num_classes = prediction_output.shape[1]
-            scores_list = prediction_output.tolist() # Convert array([ [c1,c2], [c1,c2] ]) to [ [c1,c2], [c1,c2] ]
-            logger.info(f"Converted numpy array ({num_samples} samples, {num_classes} classes) to list of lists.")
-        else:
-            msg = f"Unsupported numpy array dimension: {prediction_output.ndim}"
-            logger.error(msg)
-            raise ValueError(msg)
-
+        scores_list = prediction_output.tolist()
     elif isinstance(prediction_output, list):
-        # Handle if predict_fn already returned a list
-        if not prediction_output:
-            logger.warning("Received empty list as prediction output.")
-            scores_list = []
-            num_samples = 0
-            num_classes = 0
-        else:
-            first_item = prediction_output[0]
-            num_samples = len(prediction_output)
-            if isinstance(first_item, list): # List of lists
-                num_classes = len(first_item)
-                scores_list = prediction_output
-                logger.info(f"Prediction output is list of lists ({num_samples} samples, {num_classes} classes). Using as is.")
-            elif isinstance(first_item, (int, float)): # List of numbers (1D case)
-                num_classes = 1
-                scores_list = prediction_output
-                logger.warning("Received list of numbers - treating as single output per sample.")
-            else:
-                msg = f"Unsupported type within prediction list: {type(first_item)}"
-                logger.error(msg)
-                raise ValueError(msg)
+        scores_list = prediction_output
     else:
         msg = f"Unsupported prediction output type: {type(prediction_output)}"
         logger.error(msg)
         raise ValueError(msg)
-
-    # 2. Serialize based on accept type
+        
+        
     try:
-        if accept.lower() == 'application/json':
-            # Create a DataFrame where the 'scores' column *contains the lists*
-            # This format works well with to_json(orient='records')
-            # Output: [{"scores": [class0_prob, class1_prob, ...]}, ...]
-            df_out = pd.DataFrame({'scores': scores_list})
-            logger.info("DataFrame created for JSON output (column contains lists).")
-            response_body = df_out.to_json(orient='records')
-            content_type = accept
+        is_multiclass = isinstance(scores_list[0], list)
 
+        # Step 2: JSON output formatting
+        # {
+        #  "prob_01": ...
+        #  "prob_02": ...
+        # ...
+        #  "prob_0k": ...
+        #  "output-label"": ...
+        # }
+        if accept.lower() == 'application/json':
+            output_records = []
+            for probs in scores_list:
+                probs = probs if isinstance(probs, list) else [probs]
+                max_idx = probs.index(max(probs)) if probs else -1
+
+                record = {
+                    **{f"prob_{str(i+1).zfill(2)}": p for i, p in enumerate(probs)},
+                    "output-label": f"class-{max_idx}" if max_idx >= 0 else "unknown"
+                }
+                output_records.append(record)
+
+            response = json.dumps({"predictions": output_records})
+            return response, 'application/json'
+
+        # Step 3: CSV output formatting
         elif accept.lower() == 'text/csv':
-            # For CSV, it's often better to represent the list as a
-            # single JSON string within the cell, similar to your on_test_epoch_end.
-            # Output CSV:
-            # scores
-            # "[class0_prob, class1_prob, ...]"
-            # "[class0_prob, class1_prob, ...]"
-            scores_as_json_strings = [json.dumps(s) for s in scores_list]
-            df_out = pd.DataFrame({'scores': scores_as_json_strings})
-            logger.info("DataFrame created for CSV output (column contains JSON strings).")
-            # Include header=True so the column name 'scores' is included
-            response_body = df_out.to_csv(index=False, header=True)
-            content_type = accept
+            csv_lines = []
+            for probs in scores_list:
+                probs = probs if isinstance(probs, list) else [probs]
+                max_idx = probs.index(max(probs)) if probs else -1
+                formatted_probs = [round(float(p), 4) for p in probs]  # Output as numerical floats
+                # Format list string without brackets and parentheses
+                list_str = ",".join(f"{p:.4f}" for p in formatted_probs)
+                
+                line = [list_str] + [f"class-{max_idx}" if max_idx >= 0 else "unknown"]
+                csv_lines.append(",".join(map(str, line)))
+
+            response_body = "\n".join(csv_lines) + "\n"
+            return response_body, 'text/csv'
+
+        # Step 4: Unsupported content type
         else:
-            # Handle unsupported accept types
             logger.error(f"Unsupported accept type: {accept}")
-            # You might want to return a specific error format here
             raise ValueError(f"Unsupported accept type: {accept}")
 
-        logger.info(f"Successfully serialized response with Content-Type: {content_type}")
-        # Return the serialized data and the content type
-        return response_body, content_type
-
+    # Step 5: Error handling
     except Exception as e:
         logger.error(f"Error during DataFrame creation or serialization in output_fn: {e}", exc_info=True)
-        # Return error as JSON
         error_response = json.dumps({'error': f'Failed to serialize output: {e}'})
-        # Return tuple (body, content_type) even for errors
         return error_response, 'application/json'
