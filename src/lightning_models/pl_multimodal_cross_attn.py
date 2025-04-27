@@ -53,11 +53,11 @@ class CrossAttentionFusion(nn.Module):
         return text_out, tab_out
 
 
-class MultimodalBert(pl.LightningModule):
+class MultimodalBertCrossAttn(pl.LightningModule):
     def __init__(self, config: Dict[str, Union[int, float, str, bool, List[str], torch.FloatTensor]]):
         super().__init__()
         self.config      = config
-        self.model_class = "multimodal_bert_crossatt"
+        self.model_class = "multimodal_cross_att"
 
         # — Core config —
         self.id_name      = config.get("id_name")
