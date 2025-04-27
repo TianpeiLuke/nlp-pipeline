@@ -37,11 +37,11 @@ logger.addHandler(handler)
 logger.propagate = False
 
 
-class MultimodalBertFusion(pl.LightningModule):
+class MultimodalBertGateFusion(pl.LightningModule):
     def __init__(self, config: Dict[str, Union[int, float, str, bool, List[str], torch.FloatTensor]]):
         super().__init__()
         self.config = config
-        self.model_class = "multimodal_bert_fusion"
+        self.model_class = "multimodal_gate_fusion"
 
         # === Core configuration ===
         self.id_name   = config.get("id_name", None)
@@ -278,7 +278,7 @@ class MultimodalBertFusion(pl.LightningModule):
     # === Export ===
     def export_to_onnx(self, save_path: Union[str, Path], sample_batch: Dict[str, Union[torch.Tensor, List]]):
         class MultimodalBertONNXWrapper(nn.Module):
-            def __init__(self, model: MultimodalBert):
+            def __init__(self, model: MultimodalBertGateFusion):
                 super().__init__()
                 self.model = model
                 self.text_key = model.text_name

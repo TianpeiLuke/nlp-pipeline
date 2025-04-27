@@ -2,6 +2,7 @@ import io
 import os
 import matplotlib.pyplot as plt
 from matplotlib import cm
+import numpy as np
 
 from PIL import Image
 from typing import Union, List, Dict, Tuple
