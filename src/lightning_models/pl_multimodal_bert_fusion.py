@@ -367,5 +367,3 @@ class MultimodalBertFusion(pl.LightningModule):
             logger.info(f"ONNX model exported and verified at {save_path}")
         except Exception as e:
             logger.warning(f"ONNX export failed: {e}")
-
-
