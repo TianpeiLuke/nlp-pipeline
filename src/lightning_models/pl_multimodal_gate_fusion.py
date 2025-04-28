@@ -47,6 +47,7 @@ class GateFusion(nn.Module):
         self.tab_proj = nn.Linear(tab_dim, fusion_dim)
         self.gate_net = nn.Sequential(
             nn.Linear(fusion_dim * 2, fusion_dim),
+            nn.LayerNorm(fusion_dim),
             nn.Sigmoid()
         )
 
