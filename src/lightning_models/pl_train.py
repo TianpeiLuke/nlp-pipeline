@@ -33,6 +33,9 @@ from .pl_bert import TextBertBase
 from .pl_tab_ae import TabAE
 from .pl_lstm import TextLSTM
 from .pl_multimodal_bert import MultimodalBert
+from .pl_multimodal_gate_fusion import MultimodalBertGateFusion
+from .pl_multimodal_moe import MultimodalBertMoE
+from .pl_multimodal_cross_attn import MultimodalBertCrossAttn
 
 
 def setup_logger():
@@ -352,7 +355,7 @@ def load_artifacts(filename: str, device_l: str = 'cpu') -> Tuple[Dict, torch.Te
 
 
 
-def load_model(filename: str, config: Dict, embedding_mat: torch.Tensor, model_class: str = 'multimodal_cnn', device_l: str = 'cpu') -> nn.Module:
+def load_model(filename: str, config: Dict, embedding_mat: torch.Tensor, model_class: str = 'multimodal_bert', device_l: str = 'cpu') -> nn.Module:
     """
     Load model weights into a fresh model instance.
 
@@ -364,7 +367,10 @@ def load_model(filename: str, config: Dict, embedding_mat: torch.Tensor, model_c
         'multimodal_cnn': lambda: MultimodalCNN(config, embedding_mat.shape[0], embedding_mat),
         'bert': lambda: TextBertClassification(config),
         'lstm': lambda: TextLSTM(config, embedding_mat.shape[0], embedding_mat),
-        'multimodal_bert': lambda: MultimodalBert(config)
+        'multimodal_bert': lambda: MultimodalBert(config),
+        'multimodal_gate_fusion': lambda: MultimodalBertGateFusion(config),
+        'multimodal_moe': lambda: MultimodalBertMoE(config),
+        'multimodal_cross_attn': lambda: MultimodalBertCrossAttn(config)
     }.get(model_class, lambda: MultimodalBert(config))()
 
     try:
@@ -384,7 +390,10 @@ def load_checkpoint(filename: str, model_class: str = 'multimodal_bert', device_
         'multimodal_cnn': MultimodalCNN,
         'bert': TextBertClassification,
         'lstm': TextLSTM,
-        'multimodal_bert': MultimodalBert
+        'multimodal_bert': MultimodalBert,
+        'multimodal_gate_fusion': MultimodalBertGateFusion,
+        'multimodal_moe': MultimodalBertMoE,
+        'multimodal_cross_attn': MultimodalBertCrossAttn
     }.get(model_class, MultimodalBert)
     return model_fn.load_from_checkpoint(filename, map_location=device_l)
 

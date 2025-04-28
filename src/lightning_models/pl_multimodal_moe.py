@@ -61,7 +61,7 @@ class MixtureOfExperts(nn.Module):
         return fused
 
 
-class MultimodalBertMOE(pl.LightningModule):
+class MultimodalBertMoE(pl.LightningModule):
     def __init__(self, config: Dict[str, Union[int, float, str, bool, List[str], torch.FloatTensor]]):
         super().__init__()
         self.config      = config
