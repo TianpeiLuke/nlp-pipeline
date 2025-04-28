@@ -44,6 +44,9 @@ from lightning_models.pl_tab_ae import TabAE
 from lightning_models.pl_text_cnn import TextCNN
 from lightning_models.pl_multimodal_cnn import MultimodalCNN
 from lightning_models.pl_multimodal_bert import MultimodalBert
+from lightning_models.pl_multimodal_moe import MultimodalBertMoE
+from lightning_models.pl_multimodal_gate_fusion import MultimodalBertGateFusion
+from lightning_models.pl_multimodal_cross_attn import MultimodalBertCrossAttn
 from lightning_models.pl_bert_classification import TextBertClassification
 from lightning_models.pl_lstm import TextLSTM
 from lightning_models.pl_train import (
@@ -64,6 +67,7 @@ from lightning_models.pl_model_plots import (
 )
 from lightning_models.dist_utils import get_rank, is_main_process
 from pydantic import BaseModel, Field, ValidationError, field_validator  # For Config Validation
+
 
 # ================== Model, Data and Hyperparameter Folder =================
 prefix = "/opt/ml/"
@@ -367,6 +371,12 @@ def model_select(
         return TextLSTM(config.model_dump(), vocab_size, embedding_mat)
     elif model_class == "multimodal_bert":
         return MultimodalBert(config.model_dump())
+    elif model_class == "multimodal_moe":
+        return MultimodalBertMoE(config.model_dump())
+    elif model_class == "multimodal_gate_fusion":
+        return MultimodalBertGateFusion(config.model_dump())
+    elif model_class == "multimodal_cross_attn":
+        return MultimodalBertCrossAttn(config.model_dump())
     else:
         return TextBertClassification(config.model_dump())
 
