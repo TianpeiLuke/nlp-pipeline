@@ -20,7 +20,7 @@ from transformers import (
 )
 import onnx
 
-from .dist_utils import all_gather, get_rank
+from .dist_utils import all_gather
 from .pl_tab_ae import TabAE
 from .pl_bert import TextBertBase
 from .pl_model_plots import compute_metrics
@@ -35,6 +35,28 @@ formatter = logging.Formatter("%(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.propagate = False
+
+
+class GateFusion(nn.Module):
+    """
+    Gate Fusion module to combine text and tabular features.
+    """
+    def __init__(self, text_dim, tab_dim, fusion_dim):
+        super().__init__()
+        self.text_proj = nn.Linear(text_dim, fusion_dim)
+        self.tab_proj = nn.Linear(tab_dim, fusion_dim)
+        self.gate_net = nn.Sequential(
+            nn.Linear(fusion_dim * 2, fusion_dim),
+            nn.Sigmoid()
+        )
+
+    def forward(self, text_features, tab_features):
+        txt_feat = self.text_proj(text_features)
+        tab_feat = self.tab_proj(tab_features)
+        combined = torch.cat([txt_feat, tab_feat], dim=1)
+        gate = self.gate_net(combined)
+        fused = gate * txt_feat + (1 - gate) * tab_feat
+        return fused
 
 
 class MultimodalBertGateFusion(pl.LightningModule):
@@ -86,14 +108,7 @@ class MultimodalBertGateFusion(pl.LightningModule):
         # === Gated-fusion head ===
         # Project each branch into the same fusion space
         fusion_dim = config.get("fusion_dim", text_dim)
-        self.text_proj = nn.Linear(text_dim, fusion_dim)
-        self.tab_proj  = nn.Linear(tab_dim, fusion_dim)
-
-        # Gate: [text; tab] → sigmoid weights in ℝ^{fusion_dim}
-        self.gate_net = nn.Sequential(
-            nn.Linear(fusion_dim * 2, fusion_dim),
-            nn.Sigmoid()
-        )
+        self.gate_fusion = GateFusion(text_dim, tab_dim, fusion_dim)
 
         # Final classifier on fused vector
         self.final_merge_network = nn.Sequential(
@@ -137,11 +152,7 @@ class MultimodalBertGateFusion(pl.LightningModule):
             tab_out = torch.zeros((text_out.size(0), 0), device=device)
 
         # — Gated fusion — 
-        txt_feat = self.text_proj(text_out)         # [B, fusion_dim]
-        tab_feat = self.tab_proj(tab_out)           # [B, fusion_dim]
-        combined = torch.cat([txt_feat, tab_feat], dim=1)  # [B, 2*fusion_dim]
-        gate     = self.gate_net(combined)               # [B, fusion_dim]
-        fused    = gate * txt_feat + (1 - gate) * tab_feat  # [B, fusion_dim]
+        fused = self.gate_fusion(text_out, tab_out)
 
         return self.final_merge_network(fused)
 
