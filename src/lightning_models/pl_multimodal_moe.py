@@ -34,6 +34,33 @@ logger.addHandler(handler)
 logger.propagate = False
 
 
+class MixtureOfExperts(nn.Module):
+    """
+    Mixture of Experts module to combine text and tabular features.
+    """
+    def __init__(self, text_dim, tab_dim, fusion_dim):
+        super().__init__()
+        self.text_proj = nn.Linear(text_dim, fusion_dim) if text_dim != fusion_dim else nn.Identity()
+        self.tab_proj = nn.Linear(tab_dim, fusion_dim) if tab_dim != fusion_dim else nn.Identity()
+        self.router = nn.Sequential(
+            nn.Linear(fusion_dim * 2, 2),
+            nn.Softmax(dim=-1)
+        )
+
+    def forward(self, text_features, tab_features):
+        # Project features to the same dimension
+        txt_feat = self.text_proj(text_features)
+        tab_feat = self.tab_proj(tab_features)
+        # Compute routing weights
+        concat_experts = torch.cat([txt_feat, tab_feat], dim=1)
+        weights = self.router(concat_experts)
+        # Weighted combination of experts
+        w_txt = weights[:, 0].unsqueeze(1)
+        w_tab = weights[:, 1].unsqueeze(1)
+        fused = w_txt * txt_feat + w_tab * tab_feat
+        return fused
+
+
 class MultimodalBertMOE(pl.LightningModule):
     def __init__(self, config: Dict[str, Union[int, float, str, bool, List[str], torch.FloatTensor]]):
         super().__init__()
@@ -80,15 +107,9 @@ class MultimodalBertMOE(pl.LightningModule):
 
         # === Mixture-of-Experts fusion ===
         fusion_dim = config.get("fusion_dim", max(text_dim, tab_dim))
-        # project experts into same dim
-        self.text_proj = nn.Linear(text_dim, fusion_dim) if text_dim != fusion_dim else nn.Identity()
-        self.tab_proj  = nn.Linear(tab_dim, fusion_dim)  if tab_dim  != fusion_dim else nn.Identity()
-        # router → 2 experts
-        self.router = nn.Sequential(
-            nn.Linear(fusion_dim * 2, 2),
-            nn.Softmax(dim=-1)
-        )
-        # classifier on fused
+        self.moe_fusion = MixtureOfExperts(text_dim, tab_dim, fusion_dim)
+
+        # Final classifier on fused vector
         self.classifier = nn.Sequential(
             nn.ReLU(),
             nn.Linear(fusion_dim, self.num_classes),
@@ -119,23 +140,15 @@ class MultimodalBertMOE(pl.LightningModule):
 
         # — Text expert — [B, text_dim]
         text_out = self.text_subnetwork(batch)
-        txt_feat = self.text_proj(text_out)  # [B, fusion_dim]
 
         # — Tabular expert — [B, tab_dim]
         if tab_data is not None:
             tab_out = self.tab_subnetwork(tab_data.to(device))
-            tab_feat = self.tab_proj(tab_out)  # [B, fusion_dim]
         else:
-            tab_feat = torch.zeros_like(txt_feat)
+            tab_out = torch.zeros_like(text_out)
 
-        # — Router computes weights — [B, 2]
-        concat_experts = torch.cat([txt_feat, tab_feat], dim=1)  # [B, 2*fusion_dim]
-        weights = self.router(concat_experts)                   # [B, 2]
-
-        # — MoE fusion — [B, fusion_dim]
-        w_txt = weights[:, 0].unsqueeze(1)   # [B,1]
-        w_tab = weights[:, 1].unsqueeze(1)   # [B,1]
-        fused = w_txt * txt_feat + w_tab * tab_feat
+        # — Mixture-of-Experts fusion —
+        fused = self.moe_fusion(text_out, tab_out)
 
         # — Classification — [B, num_classes]
         logits = self.classifier(fused)
