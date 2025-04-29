@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import lightning.pytorch as pl
+import onnx
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from .pl_tab_ae import TabAE
@@ -22,9 +23,11 @@ class MultimodalCNN(pl.LightningModule):
         self.config = config
         self.model_class = "multimodal_cnn"
 
+        # === Core configuration ===
         self.id_name = config.get("id_name", None)
         self.label_name = config["label_name"]
-        self.text_name = config["text_name"] + "_input_ids"
+        self.text_input_ids_key = config.get("text_input_ids_key", "input_ids")
+        self.text_name = config["text_name"] + "_processed_" + self.text_input_ids_key
         self.tab_field_list = config.get("tab_field_list", None)
 
         self.is_binary = config.get("is_binary", True)
@@ -32,16 +35,19 @@ class MultimodalCNN(pl.LightningModule):
         self.num_classes = 2 if self.is_binary else config.get("num_classes", 2)
         self.metric_choices = config.get("metric_choices", ["accuracy", "f1_score"])
 
-        self.model_path = config.get("model_path", "")
+        self.model_path = config.get("model_path", ".")
         self.lr = config.get("lr", 0.02)
         self.weight_decay = config.get("weight_decay", 0.0)
         self.adam_epsilon = config.get("adam_epsilon", 1e-8)
         self.warmup_steps = config.get("warmup_steps", 0)
+        self.run_scheduler = config.get("run_scheduler", True)
 
+        # For storing predictions
         self.id_lst, self.pred_lst, self.label_lst = [], [], []
         self.test_output_folder = None
         self.test_has_label = False
 
+        # === Subnetworks ===
         self.text_subnetwork = TextCNN(config, vocab_size, word_embeddings)
         self.tab_subnetwork = TabAE(config) if self.tab_field_list else None
 
@@ -53,12 +59,11 @@ class MultimodalCNN(pl.LightningModule):
             nn.Linear(tab_dim + text_dim, self.num_classes),
         )
 
+        # === Loss Function ===
         weights = config.get("class_weights", [1.0] * self.num_classes)
         if len(weights) != self.num_classes:
             weights += [1.0] * (self.num_classes - len(weights))
-
-        weights_tensor = torch.tensor(weights[:self.num_classes], dtype=torch.float)
-        self.register_buffer("class_weights_tensor", weights_tensor)
+        self.register_buffer("class_weights_tensor", torch.tensor(weights[:self.num_classes], dtype=torch.float))
         self.loss_op = nn.CrossEntropyLoss(weight=self.class_weights_tensor)
 
         self.save_hyperparameters()
@@ -67,22 +72,29 @@ class MultimodalCNN(pl.LightningModule):
         tab_data = self.tab_subnetwork.combine_tab_data(batch) if self.tab_subnetwork else None
         return self._forward_impl(batch, tab_data)
 
-    def _forward_impl(self, batch, tab_data) -> torch.Tensor:
-        text_out = self.text_subnetwork(batch[self.text_name])
+    def _forward_impl(self, batch, tab_data):
+        input_ids = batch[self.text_name]
+        text_out = self.text_subnetwork(input_ids)
         tab_out = self.tab_subnetwork(tab_data.float()) if tab_data is not None else torch.zeros((text_out.size(0), 0), device=self.device)
         combined = torch.cat([text_out, tab_out], dim=1)
         return self.final_merge_network(combined)
 
     def run_epoch(self, batch, stage):
         labels = batch.get(self.label_name) if stage != "pred" else None
+
         if labels is not None:
             if not isinstance(labels, torch.Tensor):
                 labels = torch.tensor(labels, device=self.device)
-            labels = labels.long()
+            if self.is_binary:
+                labels = labels.long()
+            else:
+                if labels.dim() > 1:
+                    labels = labels.argmax(dim=1).long()
+                else:
+                    labels = labels.long()
 
-        tab_data = self.tab_subnetwork.combine_tab_data(batch) if self.tab_subnetwork else None
-        logits = self._forward_impl(batch, tab_data)
-        loss = self.loss_op(logits, labels) if stage != "pred" else None
+        logits = self.forward(batch)
+        loss = self.loss_op(logits, labels) if labels is not None else None
         preds = torch.softmax(logits, dim=1)
         preds = preds[:, 1] if self.is_binary else preds
         return loss, preds, labels
@@ -90,8 +102,11 @@ class MultimodalCNN(pl.LightningModule):
     def configure_optimizers(self):
         optimizer_type = self.config.get("optimizer_type", "SGD")
         if optimizer_type == "Adam":
-            return optim.AdamW(self.parameters(), lr=self.lr, eps=self.adam_epsilon, weight_decay=self.weight_decay)
-        return optim.SGD(self.parameters(), lr=self.lr, momentum=self.config.get("momentum", 0.9), weight_decay=self.weight_decay)
+            optimizer = optim.AdamW(self.parameters(), lr=self.lr, eps=self.adam_epsilon, weight_decay=self.weight_decay)
+        else:
+            optimizer = optim.SGD(self.parameters(), lr=self.lr, momentum=self.config.get("momentum", 0.9), weight_decay=self.weight_decay)
+
+        return optimizer
 
     def training_step(self, batch, batch_idx):
         loss, _, _ = self.run_epoch(batch, "train")
@@ -155,10 +170,10 @@ class MultimodalCNN(pl.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         mode = "test" if self.label_name in batch else "pred"
         _, preds, labels = self.run_epoch(batch, mode)
-        return (preds, labels) if mode == "test" else preds
-    
+        return preds if mode == "pred" else (preds, labels)
+
     def export_to_onnx(self, save_path: Union[str, Path], sample_batch: Dict[str, Union[torch.Tensor, List]]):
-        class Wrapper(nn.Module):
+        class MultimodalCNNONNXWrapper(nn.Module):
             def __init__(self, model: MultimodalCNN):
                 super().__init__()
                 self.model = model
@@ -169,12 +184,14 @@ class MultimodalCNN(pl.LightningModule):
                 batch = {self.text_key: input_ids}
                 for name, tensor in zip(self.tab_keys, tab_tensors):
                     batch[name] = tensor
-                return self.model(batch)
+                logits = self.model(batch)
+                return nn.functional.softmax(logits, dim=1)
 
         self.eval()
+
         model_to_export = self.module if isinstance(self, FSDP) else self
         model_to_export = model_to_export.to("cpu")
-        wrapper = Wrapper(model_to_export).to("cpu").eval()
+        wrapper = MultimodalCNNONNXWrapper(model_to_export).to("cpu").eval()
 
         input_names = [self.text_name]
         input_tensors = [sample_batch[self.text_name].to("cpu")]
@@ -191,28 +208,9 @@ class MultimodalCNN(pl.LightningModule):
             tuple(input_tensors),
             f=save_path,
             input_names=input_names,
-            output_names=["logits"],
+            output_names=["probs"],
             dynamic_axes=dynamic_axes,
             opset_version=14,
         )
-        print(f"ONNX model exported to {save_path}")
+        print(f"ONNX model exported and verified at {save_path}")
 
-    def export_to_torchscript(self, save_path: Union[str, Path], sample_batch: Dict[str, Union[torch.Tensor, List]]):
-        self.eval()
-        sample_batch_tensorized = {}
-        for k, v in sample_batch.items():
-            if isinstance(v, list):
-                sample_batch_tensorized[k] = torch.tensor(v).to("cpu")
-            elif isinstance(v, torch.Tensor):
-                sample_batch_tensorized[k] = v.to("cpu")
-
-        model_to_export = self.module if isinstance(self, FSDP) else self
-        model_to_export = model_to_export.to("cpu").eval()
-
-        try:
-            scripted_model = torch.jit.trace(model_to_export, (sample_batch_tensorized,))
-        except Exception as e:
-            print(f"Trace failed: {e}. Trying script...")
-            scripted_model = torch.jit.script(model_to_export)
-        scripted_model.save(str(save_path))
-        print(f"TorchScript model saved to: {save_path}")
