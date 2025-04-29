@@ -1,13 +1,14 @@
 import os
 import json
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
-import lightning.pytorch as pl
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Union
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import lightning.pytorch as pl
+import pandas as pd
 import onnx
 
 from .pl_model_plots import compute_metrics
@@ -39,8 +40,6 @@ class TextCNN(pl.LightningModule):
         self.hidden_common_dim = config.get("hidden_common_dim", 100)
 
         self.model_path = config.get("model_path", ".")
-
-        # For storing predictions
         self.id_lst, self.pred_lst, self.label_lst = [], [], []
         self.test_output_folder = None
         self.test_has_label = False
@@ -98,15 +97,15 @@ class TextCNN(pl.LightningModule):
             nn.Linear(num_channels[-1] * num_kernels, output_text_dim)
         )
 
-    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        text_ids = batch[self.text_name]
-        x = self.embeddings(text_ids).permute(0, 2, 1)
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        x = self.embeddings(input_ids)
+        x = x.permute(0, 2, 1)
         conv_outs = [conv(x).squeeze(2) for conv in self.convs]
         features = torch.cat(conv_outs, dim=1)
         return self.network(features)
 
     def run_epoch(self, batch, stage):
-        text_ids = batch[self.text_name]
+        input_ids = batch[self.text_name]
         labels = batch.get(self.label_name) if stage != "pred" else None
 
         if labels is not None:
@@ -121,7 +120,7 @@ class TextCNN(pl.LightningModule):
                 else:
                     labels = labels.long()
 
-        logits = self(batch)
+        logits = self(input_ids)
         loss = self.loss_op(logits, labels) if labels is not None else None
 
         preds = torch.softmax(logits, dim=1)
@@ -176,12 +175,11 @@ class TextCNN(pl.LightningModule):
         self.pred_lst.extend(preds.detach().cpu().tolist())
         if labels is not None:
             self.label_lst.extend(labels.detach().cpu().tolist())
-        self.log("test_loss", loss, sync_dist=True, prog_bar=True)
+        self.log("test_loss", loss, prog_bar=True, sync_dist=True)
         if self.id_name:
             self.id_lst.extend(batch[self.id_name])
 
     def on_test_epoch_end(self):
-        import pandas as pd
         results = {}
         if self.is_binary:
             results["prob"] = self.pred_lst
@@ -208,16 +206,13 @@ class TextCNN(pl.LightningModule):
             def __init__(self, model: 'TextCNN'):
                 super().__init__()
                 self.model = model
-                self.text_key = model.text_name
 
             def forward(self, input_ids: torch.Tensor):
-                batch = {self.text_key: input_ids}
-                logits = self.model(batch)
+                logits = self.model(input_ids)
                 return nn.functional.softmax(logits, dim=1)
 
         self.eval()
 
-        # Unwrap from FSDP if needed
         model_to_export = self.module if hasattr(self, 'module') else self
         model_to_export = model_to_export.to("cpu")
         wrapper = TextCNNONNXWrapper(model_to_export).to("cpu").eval()
@@ -226,8 +221,6 @@ class TextCNN(pl.LightningModule):
         if not isinstance(input_ids_tensor, torch.Tensor):
             raise ValueError(f"Sample batch must provide {self.text_name} as a torch.Tensor.")
         input_ids_tensor = input_ids_tensor.to("cpu")
-
-        batch_size = input_ids_tensor.shape[0]
 
         input_names = [self.text_name]
         output_names = ["probs"]
