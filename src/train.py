@@ -318,10 +318,10 @@ def data_preprocess_pipeline(config: Config) -> Tuple[AutoTokenizer, Dict[str, P
     log_once(logger, f"Constructing tokenizer: {config.tokenizer}")
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer)
     dialogue_pipeline = (
-        HTMLNormalizerProcessor()
+        DialogueSplitterProcessor()
+        >> HTMLNormalizerProcessor()
         >> EmojiRemoverProcessor()
         >> TextNormalizationProcessor()
-        >> DialogueSplitterProcessor()
         >> DialogueChunkerProcessor(tokenizer=tokenizer, 
                                     max_tokens=config.max_sen_len,
                                     truncate=config.chunk_trancate,
