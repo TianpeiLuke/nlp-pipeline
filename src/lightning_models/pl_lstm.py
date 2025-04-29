@@ -1,13 +1,15 @@
-# Save this as: bsm/lightning_models/pl_lstm.py
 import os
+import json
+from pathlib import Path
 from datetime import datetime
-from typing import Union, List, Dict
+from typing import Dict, List, Union
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import pandas as pd
 import lightning.pytorch as pl
+import pandas as pd
+import onnx
 
 from .pl_model_plots import compute_metrics
 from .dist_utils import all_gather
@@ -17,133 +19,203 @@ class TextLSTM(pl.LightningModule):
     def __init__(self, config: Dict[str, Union[int, float, str, bool, List[str]]], vocab_size: int, word_embeddings: torch.FloatTensor):
         super().__init__()
         self.config = config
-        self.model_class = 'lstm'
+        self.model_class = "text_lstm"
 
         # === Core configuration ===
         self.id_name = config.get("id_name", None)
         self.label_name = config["label_name"]
-        # Use configurable key names for text input
         self.text_input_ids_key = config.get("text_input_ids_key", "input_ids")
-        self.text_attention_mask_key = config.get("text_attention_mask_key", "attention_mask")
         self.text_name = config["text_name"] + "_processed_" + self.text_input_ids_key
-        self.text_attention_mask = config["text_name"] + "_processed_" + self.text_attention_mask_key
 
-        # Class info
         self.is_binary = config.get("is_binary", True)
         self.task = 'binary' if self.is_binary else 'multiclass'
         self.num_classes = 2 if self.is_binary else config.get("num_classes", 2)
-
-        # Model parameters
         self.metric_choices = config.get("metric_choices", ["accuracy", "f1_score"])
+
         self.hidden_dimension = config.get("hidden_common_dim", 100)
         self.num_layers = config.get("num_layers", 1)
         self.dropout_keep = config.get("dropout_keep", 0.5)
         self.max_sen_len = config.get("max_sen_len", 512)
 
-        # Optimizer params
-        self.lr = config.get("lr", 2e-5)
-        self.weight_decay = config.get("weight_decay", 0.0)
-        self.adam_epsilon = config.get("adam_epsilon", 1e-8)
-        self.momentum = config.get("momentum", 0.9)
-        self.run_scheduler = config.get("run_scheduler", True)
+        self.model_path = config.get("model_path", ".")
+        self.id_lst, self.pred_lst, self.label_lst = [], [], []
+        self.test_output_folder = None
+        self.test_has_label = False
 
-        # Embedding
-        self.embed_size = config.get("embed_size", word_embeddings.shape[1])
+        # === Embedding ===
+        self.embed_size = word_embeddings.shape[1]
         if vocab_size != word_embeddings.shape[0]:
             raise ValueError("Mismatch in vocab size and embedding shape")
         self.embeddings = nn.Embedding(vocab_size, self.embed_size)
         self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=config.get("is_embeddings_trainable", True))
 
-        # LSTM + Linear
+        # === LSTM + Linear
         self.lstm = nn.LSTM(
             input_size=self.embed_size,
             hidden_size=self.hidden_dimension,
             num_layers=self.num_layers,
-            dropout=self.dropout_keep,
+            dropout=self.dropout_keep if self.num_layers > 1 else 0.0,
             batch_first=True,
-            bidirectional=True
+            bidirectional=True,
         )
         self.fc = nn.Linear(2 * self.hidden_dimension, self.num_classes)
 
-        # Loss
-        class_weights = config.get("class_weights")
-        if class_weights and len(class_weights) == self.num_classes:
-            self.loss_op = nn.CrossEntropyLoss(weight=torch.tensor(class_weights))
-        else:
-            self.loss_op = nn.CrossEntropyLoss()
+        # === Loss
+        class_weights = config.get("class_weights", [1.0] * self.num_classes)
+        self.register_buffer("class_weights_tensor", torch.tensor(class_weights))
+        self.loss_op = nn.CrossEntropyLoss(weight=self.class_weights_tensor)
 
-        # Misc
-        self.model_path = config.get("model_path", "./")
-        self.test_output_folder = None
         self.save_hyperparameters()
 
-    def configure_optimizers(self):
-        opt_type = self.config.get("optimizer", "SGD")
-        if opt_type == 'Adam':
-            return optim.AdamW(self.parameters(), lr=self.lr, eps=self.adam_epsilon, weight_decay=self.weight_decay)
-        return optim.SGD(self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
-
-    def forward(self, input_ids):
+    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        input_ids = batch[self.text_name]
         x = self.embeddings(input_ids)
         lstm_out, _ = self.lstm(x)
-        out_fwd = lstm_out[range(len(x)), self.max_sen_len - 1, :self.hidden_dimension]
+        out_fwd = lstm_out[:, -1, :self.hidden_dimension]
         out_rev = lstm_out[:, 0, self.hidden_dimension:]
         out_combined = torch.cat((out_fwd, out_rev), dim=1)
         return self.fc(out_combined)
 
     def run_epoch(self, batch, stage):
-        text_ids = batch[self.text_name]
-        labels = batch[self.label_name] if stage != 'pred' else None
-        logits = self(text_ids)
-        loss = self.loss_op(logits, labels) if stage != 'pred' else None
-        probs = torch.softmax(logits, dim=1)
-        preds = probs[:, 1] if self.is_binary else probs
+        input_ids = batch[self.text_name]
+        labels = batch.get(self.label_name) if stage != "pred" else None
+
+        if labels is not None:
+            if not isinstance(labels, torch.Tensor):
+                labels = torch.tensor(labels, device=self.device)
+
+            if self.is_binary:
+                labels = labels.long()
+            else:
+                if labels.dim() > 1:
+                    labels = labels.argmax(dim=1).long()
+                else:
+                    labels = labels.long()
+
+        logits = self(batch)
+        loss = self.loss_op(logits, labels) if labels is not None else None
+
+        preds = torch.softmax(logits, dim=1)
+        preds = preds[:, 1] if self.is_binary else preds
+
         return loss, preds, labels
 
+    def configure_optimizers(self):
+        optimizer_type = self.config.get("optimizer", "SGD")
+        lr = self.config.get("lr", 0.02)
+        momentum = self.config.get("momentum", 0.9)
+
+        if optimizer_type == "Adam":
+            return optim.AdamW(self.parameters(), lr=lr)
+        return optim.SGD(self.parameters(), lr=lr, momentum=momentum)
+
     def training_step(self, batch, batch_idx):
-        loss, _, _ = self.run_epoch(batch, 'train')
-        self.log("train_loss", loss, sync_dist=True, prog_bar=True)
+        loss, _, _ = self.run_epoch(batch, "train")
+        self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return {"loss": loss}
 
+    def on_validation_epoch_start(self):
+        self.pred_lst.clear()
+        self.label_lst.clear()
+
     def validation_step(self, batch, batch_idx):
-        loss, preds, labels = self.run_epoch(batch, 'val')
-        self.log("val_loss", loss, sync_dist=True, prog_bar=True)
-        return {"preds": preds.detach().cpu(), "labels": labels.detach().cpu()}
+        loss, preds, labels = self.run_epoch(batch, "val")
+        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        self.pred_lst.extend(preds.detach().cpu().tolist())
+        self.label_lst.extend(labels.detach().cpu().tolist())
 
     def on_validation_epoch_end(self):
-        outputs = self.trainer.callback_metrics
-        preds = torch.cat([o["preds"] for o in self.trainer.logged_metrics.values() if "preds" in o], dim=0)
-        labels = torch.cat([o["labels"] for o in self.trainer.logged_metrics.values() if "labels" in o], dim=0)
-        metrics = compute_metrics(preds, labels, self.metric_choices, self.task, self.num_classes, stage="val")
+        device = self.device
+        preds = torch.tensor(sum(all_gather(self.pred_lst), []))
+        labels = torch.tensor(sum(all_gather(self.label_lst), []))
+        metrics = compute_metrics(preds.to(device), labels.to(device), self.metric_choices, self.task, self.num_classes, "val")
         self.log_dict(metrics, prog_bar=True)
 
+    def on_test_epoch_start(self):
+        self.id_lst.clear()
+        self.pred_lst.clear()
+        self.label_lst.clear()
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        self.test_output_folder = Path(self.model_path) / f"{self.model_class}-{timestamp}"
+        self.test_output_folder.mkdir(parents=True, exist_ok=True)
+
     def test_step(self, batch, batch_idx):
-        loss, preds, labels = self.run_epoch(batch, 'test')
-        self.log("test_loss", loss, sync_dist=True, prog_bar=True)
-        output = {"preds": preds.detach().cpu()}
+        mode = "test" if self.label_name in batch else "pred"
+        self.test_has_label = mode == "test"
+
+        loss, preds, labels = self.run_epoch(batch, mode)
+        self.pred_lst.extend(preds.detach().cpu().tolist())
         if labels is not None:
-            output["labels"] = labels.detach().cpu()
+            self.label_lst.extend(labels.detach().cpu().tolist())
+        self.log("test_loss", loss, prog_bar=True, sync_dist=True)
         if self.id_name:
-            output["ids"] = batch[self.id_name]
-        return output
+            self.id_lst.extend(batch[self.id_name])
 
     def on_test_epoch_end(self):
-        preds, labels, ids = [], [], []
-        for output in self.trainer.logged_metrics.values():
-            if isinstance(output, dict):
-                preds.extend(output.get("preds", []))
-                labels.extend(output.get("labels", []))
-                ids.extend(output.get("ids", []))
-        df = pd.DataFrame({"prob": preds})
-        if labels:
-            df["label"] = labels
-        if ids:
-            df[self.id_name] = ids
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        folder = os.path.join(self.model_path, f"lstm-{timestamp}")
-        os.makedirs(folder, exist_ok=True)
-        df.to_csv(os.path.join(folder, "test_result.tsv"), sep='\t', index=False)
+        results = {}
+        if self.is_binary:
+            results["prob"] = self.pred_lst
+        else:
+            results["prob"] = [json.dumps(p) for p in self.pred_lst]
+
+        if self.test_has_label:
+            results["label"] = self.label_lst
+        if self.id_name:
+            results[self.id_name] = self.id_lst
+
+        df = pd.DataFrame(results)
+        test_file = self.test_output_folder / f"test_result_rank{self.global_rank}.tsv"
+        df.to_csv(test_file, sep="\t", index=False)
+        print(f"[Rank {self.global_rank}] Saved test results to {test_file}")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        _, preds, labels = self.run_epoch(batch, 'pred')
-        return preds
+        mode = "test" if self.label_name in batch else "pred"
+        _, preds, labels = self.run_epoch(batch, mode)
+        return preds if mode == "pred" else (preds, labels)
+
+    def export_to_onnx(self, save_path: Union[str, Path], sample_batch: Dict[str, Union[torch.Tensor, List]]):
+        class TextLSTMONNXWrapper(nn.Module):
+            def __init__(self, model: 'TextLSTM'):
+                super().__init__()
+                self.model = model
+                self.text_key = model.text_name
+
+            def forward(self, input_ids: torch.Tensor):
+                batch = {self.text_key: input_ids}
+                logits = self.model(batch)
+                return nn.functional.softmax(logits, dim=1)
+
+        self.eval()
+
+        model_to_export = self.module if hasattr(self, 'module') else self
+        model_to_export = model_to_export.to("cpu")
+        wrapper = TextLSTMONNXWrapper(model_to_export).to("cpu").eval()
+
+        input_ids_tensor = sample_batch.get(self.text_name)
+        if not isinstance(input_ids_tensor, torch.Tensor):
+            raise ValueError(f"Sample batch must provide {self.text_name} as a torch.Tensor.")
+        input_ids_tensor = input_ids_tensor.to("cpu")
+
+        input_names = [self.text_name]
+        output_names = ["probs"]
+
+        dynamic_axes = {
+            self.text_name: {0: "batch", 1: "seq_len"},
+            "probs": {0: "batch"},
+        }
+
+        try:
+            torch.onnx.export(
+                wrapper,
+                (input_ids_tensor,),
+                f=save_path,
+                input_names=input_names,
+                output_names=output_names,
+                dynamic_axes=dynamic_axes,
+                opset_version=14,
+            )
+            onnx_model = onnx.load(str(save_path))
+            onnx.checker.check_model(onnx_model)
+            print(f"ONNX model exported and verified at {save_path}")
+        except Exception as e:
+            print(f"ONNX export failed: {e}")
