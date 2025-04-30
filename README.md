@@ -12,12 +12,9 @@ This text pipeline is used as a pre-processing pipeline for a classification sys
 ## Code Structure
 The repository is organized as follows:
 
-- **`data/`**: Sample data and datasets for testing.
-- **`preprocessing/`**: Preprocessing modules (e.g., cleaning, tokenization).
-- **`models/`**: Model-related utilities and configurations.
-- **`tests/`**: Unit tests for the pipeline.
-- **`utils/`**: Helper functions and utilities.
-- **`main.py`**: Entry point for running the pipeline.
+- **`src/processing/`**: Preprocessing modules (e.g., cleaning, tokenization).
+- **`src/lightning_models/`**: Model-related utilities and configurations.
+- **`test/`**: Unit tests for the pipeline.
 - **`README.md`**: Documentation.
 
 ## Installation
@@ -32,21 +29,12 @@ pip install -r requirements.txt
 ## Usage
 You can run the pipeline using the main.py script. Below is an example of how to use it:
 
-```bash
-python main.py --input data/sample_emails.txt --output results/processed_output.txt
-```
 
-Command-line Arguments
-- `--input`: Path to the input file containing raw email or message data.
-- `--output`: Path to save the processed output.
-- `--config`: (Optional) Path to a configuration file for custom preprocessing settings.
 
 ## Testing
 To ensure everything is working correctly, run the unit tests:
 
-```bash
-pytest tests/
-```
+
 
 ## Contributing
 Contributions are welcome! Please fork the repository and submit a pull request with your changes.
