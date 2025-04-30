@@ -6,8 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import logging
+from typing import List
 
-
+# Import custom modules
 from .invoke_bedrock import analyze_dialogue_with_claude
 from .prompt_rnr_parse import BSMAnalysis, parse_claude_response
 
