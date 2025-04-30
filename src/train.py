@@ -72,7 +72,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator  # For C
 # ================== Model, Data and Hyperparameter Folder =================
 prefix = "/opt/ml/"
 input_path = os.path.join(prefix, "input/data")
-output_path = os.path.join(prefix, "output")
+output_path = os.path.join(prefix, "output/data")
 model_path = os.path.join(prefix, "model")
 hparam_path = os.path.join(prefix, "input/config/hyperparameters.json")
 checkpoint_path = os.environ.get("SM_CHECKPOINT_DIR", "/opt/ml/checkpoints")
