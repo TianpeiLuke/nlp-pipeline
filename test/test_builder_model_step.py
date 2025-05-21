@@ -108,6 +108,10 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
     @patch('src.workflow.builder_model_step.Parameter')
     @patch('src.workflow.builder_model_step.ModelStep')
     def test_create_model_step_correct_usage(self, mock_model_step_class, mock_parameter_class, mock_pytorch_model_class):
+        """Test correct usage of create_model_step"""
+        # Set pipeline_name in the config
+        self.mock_config.pipeline_name = "MyPipeline"
+
         mock_model_data = Mock(spec=Properties)
         mock_pytorch_model_instance = mock_pytorch_model_class.return_value
         mock_model_create_output = Mock(spec=_StepArguments)
@@ -115,12 +119,12 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
         mock_parameter_instance = mock_parameter_class.return_value
         mock_parameter_instance.name = "InferenceInstanceType"
         mock_parameter_instance.default_value = self.mock_config.inference_instance_type
-        
-        # Define the mock return value for _create_env_config consistently for this test
+
+        # Define the mock return value for _create_env_config
         mock_env_config_return = {'SAGEMAKER_PROGRAM': 'inference.py', 'ENV_VAR': 'true'}
 
         with patch.object(self.builder, '_get_image_uri', return_value='mocked-image-uri') as mock_get_uri, \
-             patch.object(self.builder, '_create_env_config', return_value=mock_env_config_return) as mock_get_env:
+            patch.object(self.builder, '_create_env_config', return_value=mock_env_config_return) as mock_get_env:
             returned_step = self.builder.create_model_step(mock_model_data)
 
             mock_parameter_class.assert_called_once_with(
@@ -135,16 +139,17 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
             self.assertEqual(kwargs_pytorch_model['role'], self.role)
             self.assertEqual(kwargs_pytorch_model['entry_point'], self.mock_config.inference_entry_point)
             self.assertEqual(kwargs_pytorch_model['source_dir'], self.mock_config.source_dir)
-            # **This is the critical assertion that was failing due to KeyError**
-            # It now checks against the consistent mock_env_config_return
             self.assertEqual(kwargs_pytorch_model['env'], mock_env_config_return)
             self.assertEqual(kwargs_pytorch_model['image_uri'], 'mocked-image-uri')
             mock_pytorch_model_instance.create.assert_called_once()
             args_model_create, kwargs_model_create = mock_pytorch_model_instance.create.call_args
             self.assertEqual(kwargs_model_create['instance_type'], mock_parameter_instance)
             self.assertIsNone(kwargs_model_create['accelerator_type'])
+
+            # Verify the ModelStep name
+            expected_step_name = "MyPipeline-CreateModel"
             mock_model_step_class.assert_called_once_with(
-                name="CreateInferenceModel",
+                name=expected_step_name,
                 step_args=mock_model_create_output
             )
             self.assertEqual(returned_step, mock_model_step_class.return_value)

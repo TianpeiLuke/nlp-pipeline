@@ -1,18 +1,15 @@
-import os
-import tarfile
-import tempfile
 from typing import Dict, Optional # Ensure these are imported
-import boto3
-
 
 from sagemaker.pytorch import PyTorchModel
+from sagemaker.workflow.pipeline_context import PipelineSession # Crucial import
+
 from sagemaker.workflow.model_step import ModelStep
 from sagemaker.workflow.parameters import Parameter
 from sagemaker.workflow.properties import Properties
 from sagemaker import image_uris
 import logging
 
-from .builder_workflow.workflow_config import ModelConfig
+from .workflow_config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +25,8 @@ class PytorchModelStepBuilder:
 
     def __init__(
         self,
-        config: ModelConfig
-        sagemaker_session: Optional[Session] = None,
+        config: ModelConfig,
+        sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None
     ):
         self.config = config
