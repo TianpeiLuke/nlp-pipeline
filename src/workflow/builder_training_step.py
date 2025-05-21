@@ -4,7 +4,7 @@ from sagemaker.inputs import TrainingInput
 from sagemaker.workflow.steps import TrainingStep
 from sagemaker.workflow.pipeline_context import PipelineSession # Crucial import
 
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, List
 import os
 
 from .workflow_config import ModelConfig, ModelHyperparameters
