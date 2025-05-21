@@ -138,10 +138,12 @@ class ModelHyperparameters(BaseModel):
 class ModelConfig(BaseModel):
     """Primary model configuration"""
     # Required fields from config
-    bucket: str = Field(default=bucket)
-    current_date: str = Field(default=cur_date)
-    region: str = Field(default=region)
-    pipeline_name: str = Field(default=pipeline_name)
+    bucket: str = Field(description="S3 bucket name")
+    current_date: str = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d"),
+        description="Current date in YYYY-MM-DD format")
+    region: str = Field(description="region (NA, EU, FE)")
+    pipeline_name: str = Field(description="Pipeline name")
 
     # S3 paths with updated pattern
     input_path: str = Field(

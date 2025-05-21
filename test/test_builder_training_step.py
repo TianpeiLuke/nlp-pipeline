@@ -14,6 +14,9 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         """Set up test fixtures"""
         # Mock ModelConfig
         self.mock_config = Mock()
+        self.mock_config.region = "us-east-1"
+        self.mock_config.role = "arn:aws:iam::123456789012:role/SageMakerRole"
+        self.mock_config.bucket = "bucket"
         self.mock_config.input_path = "s3://bucket/input"
         self.mock_config.output_path = "s3://bucket/output"
         self.mock_config.instance_type = "ml.g5.12xlarge"
