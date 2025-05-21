@@ -2,8 +2,8 @@ import unittest
 from unittest.mock import Mock, patch
 import os
 from sagemaker.debugger import ProfilerConfig
-from sagemaker.workflow.steps import TrainingStep
 from sagemaker.inputs import TrainingInput
+from sagemaker.workflow.steps import TrainingStep
 
 
 from src.workflow.builder_training_step import PyTorchTrainingStepBuilder
@@ -109,27 +109,32 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         # Configure mock
         mock_estimator = Mock()
         mock_pytorch_class.return_value = mock_estimator
-        
-        # Create training step
+
+        # Case 1: pipeline_name is set
+        self.mock_config.pipeline_name = "MyPipeline"
         training_step = self.builder.create_training_step()
-        
-        # Verify training step creation
-        self.assertIsInstance(training_step, TrainingStep)
-        self.assertEqual(training_step.name, "ModelTraining")
-        
+        expected_name = "MyPipeline-Training"
+        self.assertEqual(training_step.name, expected_name[:80])  # Verify the name
+
+        # Case 2: pipeline_name is not set
+        self.mock_config.pipeline_name = None
+        training_step = self.builder.create_training_step()
+        self.assertEqual(training_step.name, "DefaultModelTraining")  # Verify the default name
+
         # Verify input paths
         expected_train_path = os.path.join(self.mock_config.input_path, "train", "train.parquet")
         expected_val_path = os.path.join(self.mock_config.input_path, "val", "val.parquet")
         expected_test_path = os.path.join(self.mock_config.input_path, "test", "test.parquet")
-        
+
         inputs = training_step.inputs
         self.assertIsInstance(inputs['train'], TrainingInput)
         self.assertEqual(inputs['train'].config['DataSource']['S3DataSource']['S3Uri'], 
-                        expected_train_path)
+                     expected_train_path)
         self.assertEqual(inputs['val'].config['DataSource']['S3DataSource']['S3Uri'], 
-                        expected_val_path)
+                     expected_val_path)
         self.assertEqual(inputs['test'].config['DataSource']['S3DataSource']['S3Uri'], 
-                        expected_test_path)
+                     expected_test_path)
+        
 
     @patch('src.workflow.builder_training_step.PyTorch')
     def test_checkpoint_uri_handling(self, mock_pytorch_class):
