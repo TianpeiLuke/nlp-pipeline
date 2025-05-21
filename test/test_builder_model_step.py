@@ -8,8 +8,8 @@ from sagemaker.workflow.properties import Properties
 from sagemaker import Session
 from sagemaker.workflow.pipeline_context import _StepArguments # For spec'ing mock_model_create_output
 
-from src.workflow.workflow_config import ModelConfig
-from src.workflow.builder_model_step import PytorchModelStepBuilder
+from src.sagemaker_pipeline.workflow_config import ModelConfig
+from src.sagemaker_pipeline.builder_model_step import PytorchModelStepBuilder
 
 
 class TestPytorchModelStepBuilder(unittest.TestCase):
@@ -104,9 +104,9 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
             instance_type=self.mock_config.inference_instance_type, image_scope="inference"
         )
 
-    @patch('src.workflow.builder_model_step.PyTorchModel')
-    @patch('src.workflow.builder_model_step.Parameter')
-    @patch('src.workflow.builder_model_step.ModelStep')
+    @patch('src.sagemaker_pipeline.builder_model_step.PyTorchModel')
+    @patch('src.sagemaker_pipeline.builder_model_step.Parameter')
+    @patch('src.sagemaker_pipeline.builder_model_step.ModelStep')
     def test_create_model_step_correct_usage(self, mock_model_step_class, mock_parameter_class, mock_pytorch_model_class):
         """Test correct usage of create_model_step"""
         # Set pipeline_name in the config

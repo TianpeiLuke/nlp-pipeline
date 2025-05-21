@@ -6,7 +6,7 @@ from sagemaker.inputs import TrainingInput
 from sagemaker.workflow.steps import TrainingStep
 
 
-from src.workflow.builder_training_step import PyTorchTrainingStepBuilder
+from src.sagemaker_pipeline.builder_training_step import PyTorchTrainingStepBuilder
 
 
 class TestPyTorchTrainingStepBuilder(unittest.TestCase):
@@ -71,7 +71,7 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         self.assertIn('Regex', metrics[0])
         self.assertEqual(metrics[0]['Name'], 'Train Loss')
 
-    @patch('src.workflow.builder_training_step.PyTorch')
+    @patch('src.sagemaker_pipeline.builder_training_step.PyTorch')
     def test_create_estimator(self, mock_pytorch_class):
         """Test PyTorch estimator creation"""
         # Configure mock
@@ -103,7 +103,7 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         # Verify the returned estimator
         self.assertEqual(estimator, mock_estimator)
 
-    @patch('src.workflow.builder_training_step.PyTorch')
+    @patch('src.sagemaker_pipeline.builder_training_step.PyTorch')
     def test_create_training_step(self, mock_pytorch_class):
         """Test training step creation"""
         # Configure mock
@@ -136,7 +136,7 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
                      expected_test_path)
         
 
-    @patch('src.workflow.builder_training_step.PyTorch')
+    @patch('src.sagemaker_pipeline.builder_training_step.PyTorch')
     def test_checkpoint_uri_handling(self, mock_pytorch_class):
         """Test checkpoint URI handling"""
         # Configure mock
