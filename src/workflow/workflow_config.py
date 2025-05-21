@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 import json
+from datetime import datetime
 
 
 class ModelHyperparameters(BaseModel):
@@ -142,8 +143,8 @@ class ModelConfig(BaseModel):
     current_date: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d"),
         description="Current date in YYYY-MM-DD format")
-    region: str = Field(description="region (NA, EU, FE)")
-    pipeline_name: str = Field(description="Pipeline name")
+    region: str = Field(default='NA', description="region (NA, EU, FE)")
+    pipeline_name: str = Field(default='pipeline', description="Pipeline name")
 
     # S3 paths with updated pattern
     input_path: str = Field(
@@ -161,26 +162,38 @@ class ModelConfig(BaseModel):
     )
 
     # Rest of the configurations...
-    instance_type: str = Field(default=training_instance_type)
-    framework_version: str = Field(default=framework_version)
-    py_version: str = Field(default=py_version)
-    volume_size: int = Field(default=training_volume_size)
-    entry_point: str = Field(default=entry_point)
-    source_dir: str = Field(default=source_dir)
-    instance_count: int = Field(default=training_instance_count)
+    instance_type: str = Field(default='ml.g5.12xlarge', description="Instance type for training")
+    framework_version: str = Field(default='2.1.0', description="Framework version")
+    py_version: str = Field(default='py310', description="Python version")
+    volume_size: int = Field(default=500, ge=10, le=1000, description="Volume size in GB")
+    entry_point: str = Field(default='train.py', description="Entry point for training script")
+    source_dir: str = Field(default=None, description="Source directory for training script")
+    instance_count: int = Field(default=1)
     
-    inference_instance_type: str = Field(default=inference_instance_type)
-    container_startup_health_check_timeout: int = Field(default=300)
-    container_memory_limit: int = Field(default=6144, ge=1024)
-    data_download_timeout: int = Field(default=900)
-    inference_memory_limit: int = Field(default=6144)
-    max_concurrent_invocations: int = Field(default=1)
-    max_payload_size: int = Field(default=6)
+    inference_instance_type: str = Field(default='ml.m5.4xlarge', description="Instance type for inference")
+    inference_entry_point: str = Field(default='inference.py',  description="Entry point for inference script")
+    initial_instance_count: int = Field(default=1, ge=1, le=10, description="Initial instance count for inference")
+
+    endpoint_name_prefix: Optional[str] = Field(
+        default=None,
+        description="Prefix for the endpoint name. If None, a random name will be generated."
+    )
+    tags: Optional[List[Dict[str, str]]] = Field(
+        default=None,
+        description="List of tags to apply to the SageMaker resources"
+    )
+
+    container_startup_health_check_timeout: int = Field(default=300, ge=0, le=3600, description="Timeout for container startup health check")
+    container_memory_limit: int = Field(default=6144, ge=1024, le=61440, description="Memory limit for the container in MB")
+    data_download_timeout: int = Field(default=900, ge=0, le=3600, description="Timeout for data download in seconds")
+    inference_memory_limit: int = Field(default=6144, ge=1024, le=61440, description="Memory limit for inference in MB")
+    max_concurrent_invocations: int = Field(default=1, ge=1, le=10, description="Max concurrent invocations for the endpoint")
+    max_payload_size: int = Field(default=6, ge=1, le=6, description="Max payload size for the endpoint in MB")
     
-    processing_instance_type: str = Field(default=processing_sagemaker_instance_type_small)
-    processing_instance_count: int = Field(default=processing_instance_count)
-    processing_volume_size: int = Field(default=processing_volume_size)
-    sklearn_version: str = Field(default="1.0-1")
+    processing_instance_type: str = Field(default='ml.m5.4xlarge', description="Instance type for processing jobs")
+    processing_instance_count: int = Field(default=1, ge=1, le=10, description="Instance count for processing jobs")
+    processing_volume_size: int = Field(default=500, ge=10, le=1000, description="Volume size for processing jobs in GB")
+
 
     class Config:
         arbitrary_types_allowed = True
