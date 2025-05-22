@@ -193,6 +193,8 @@ class ModelConfig(BaseModel):
     processing_instance_count: int = Field(default=1, ge=1, le=10, description="Instance count for processing jobs")
     processing_volume_size: int = Field(default=500, ge=10, le=1000, description="Volume size for processing jobs in GB")
 
+    # Add reference to hyperparameters
+    hyperparameters: Optional[ModelHyperparameters] = Field(None, description="Model hyperparameters")
 
     class Config:
         arbitrary_types_allowed = True

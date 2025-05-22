@@ -1,40 +1,62 @@
 from sagemaker.pytorch import PyTorch
 from sagemaker.debugger import ProfilerConfig
 from sagemaker.inputs import TrainingInput
-from sagemaker.workflow.steps import TrainingStep
-from sagemaker.workflow.pipeline_context import PipelineSession # Crucial import
+from sagemaker.workflow.steps import TrainingStep, Step
+from sagemaker.workflow.pipeline_context import PipelineSession
+from pathlib import Path
 
 from typing import Optional, Dict, List
 import os
-
-from .workflow_config import ModelConfig, ModelHyperparameters
-
-
 import logging
+
+from .workflow_config import ModelConfig
+from .builder_step_base import StepBuilderBase
+
 logger = logging.getLogger(__name__)
 
-
-class PyTorchTrainingStepBuilder:
+class PyTorchTrainingStepBuilder(StepBuilderBase):
     """PyTorch model builder"""
-    def __init__(self, 
-                 config: ModelConfig, 
-                 hyperparams: ModelHyperparameters,
-                 sagemaker_session: Optional[PipelineSession] = None,
-                 role: str = None):
+    
+    def __init__(
+        self, 
+        config: ModelConfig, 
+        sagemaker_session: Optional[PipelineSession] = None,
+        role: Optional[str] = None,
+        notebook_root: Optional[Path] = None
+    ):
         """
         Initialize PyTorch model builder
         
         Args:
-            config: Pydantic ModelConfig instance
-            hyperparams: Pydantic ModelHyperparameters instance
+            config: Pydantic ModelConfig instance with hyperparameters
             sagemaker_session: SageMaker session
             role: IAM role ARN
+            notebook_root: Root directory of notebook
         """
-        self.config = config
-        self.hyperparams = hyperparams
-        self.session = sagemaker_session
-        self.role = role
-        logger.info(f"Initialized PyTorchModelBuilder with hyperparams: {hyperparams.get_config()}")
+        super().__init__(config, sagemaker_session, role, notebook_root)
+        
+        if not self.config.hyperparameters:
+            raise ValueError("ModelConfig must include hyperparameters for training")
+            
+        logger.info(f"Initialized PyTorchTrainingStepBuilder with hyperparams: {self.config.hyperparameters.get_config()}")
+
+    def validate_configuration(self) -> None:
+        """Validate configuration requirements"""
+        required_attrs = [
+            'entry_point',
+            'source_dir',
+            'instance_type',
+            'instance_count',
+            'framework_version',
+            'py_version',
+            'volume_size',
+            'input_path',
+            'output_path'
+        ]
+        
+        for attr in required_attrs:
+            if not hasattr(self.config, attr):
+                raise ValueError(f"ModelConfig missing required attribute: {attr}")
         
     def _create_profiler_config(self) -> ProfilerConfig:
         """Create profiler configuration"""
@@ -51,7 +73,8 @@ class PyTorchTrainingStepBuilder:
             {'Name': 'Validation AUC ROC', 'Regex': 'val/auroc=([0-9\\.]+)'},
         ]
     
-    def _create_pytorch_estimator(self, checkpoint_s3_uri) -> PyTorch:
+    def _create_pytorch_estimator(self, checkpoint_s3_uri: str) -> PyTorch:
+        """Create PyTorch estimator"""
         return PyTorch(
             entry_point=self.config.entry_point,
             source_dir=self.config.source_dir,
@@ -66,48 +89,32 @@ class PyTorchTrainingStepBuilder:
             checkpoint_s3_uri=checkpoint_s3_uri,
             checkpoint_local_path="/opt/ml/checkpoints",
             sagemaker_session=self.session,
-            hyperparameters=self.hyperparams.serialize_config(),
+            hyperparameters=self.config.hyperparameters.serialize_config(),
             profiler_config=self._create_profiler_config(),
             metric_definitions=self._get_metric_definitions()
         )
 
-    
-    def create_estimator(self) -> PyTorch:
-        """Create PyTorch estimator"""
-        # Use checkpoint path from config if available
-        checkpoint_s3_uri = None
+    def _get_checkpoint_uri(self) -> str:
+        """Get checkpoint URI for training"""
         if self.config.has_checkpoint():
-            checkpoint_s3_uri = self.config.get_checkpoint_uri()
-        else:
-            # Create default checkpoint path
-            checkpoint_s3_uri = os.path.join(
-                self.config.output_path,
-                "checkpoints",
-                self.config.current_date
-            )
-    
-        logger.info(
-            f"Creating PyTorch estimator:"
-            f"\n\tCheckpoint URI: {checkpoint_s3_uri}"
-            f"\n\tInstance Type: {self.config.instance_type}"
-            f"\n\tFramework Version: {self.config.framework_version}"
-            f"\n\tPython Version: {self.config.py_version}"
-        )
+            return self.config.get_checkpoint_uri()
         
-        return self._create_pytorch_estimator(checkpoint_s3_uri)
+        return os.path.join(
+            self.config.output_path,
+            "checkpoints",
+            self.config.current_date
+        )
 
-    def _sanitize_name_for_sagemaker(self, name: str, max_length: int = 63) -> str:
-        """Sanitize a string to be a valid SageMaker resource name component."""
-        if not name:
-            return "default-name"
-        # Replace non-alphanumeric characters (excluding hyphens) with a hyphen
-        sanitized = "".join(c if c.isalnum() else '-' for c in str(name))
-        # Remove leading/trailing hyphens and collapse multiple hyphens
-        sanitized = '-'.join(filter(None, sanitized.split('-')))
-        return sanitized[:max_length].rstrip('-')
-    
-    def create_training_step(self) -> TrainingStep:
-        """Create training step with dataset inputs"""
+    def create_step(self, dependencies: Optional[List] = None) -> Step:
+        """
+        Create training step with dataset inputs.
+        
+        Args:
+            dependencies: List of dependent steps
+            
+        Returns:
+            TrainingStep instance
+        """
         # Validate input path structure
         train_path = os.path.join(self.config.input_path, "train", "train.parquet")
         val_path = os.path.join(self.config.input_path, "val", "val.parquet")
@@ -120,20 +127,28 @@ class PyTorchTrainingStepBuilder:
             "test": TrainingInput(test_path)
         }
 
-        estimator = self.create_estimator()
+        # Get checkpoint URI and create estimator
+        checkpoint_uri = self._get_checkpoint_uri()
+        logger.info(
+            f"Creating PyTorch estimator:"
+            f"\n\tCheckpoint URI: {checkpoint_uri}"
+            f"\n\tInstance Type: {self.config.instance_type}"
+            f"\n\tFramework Version: {self.config.framework_version}"
+            f"\n\tPython Version: {self.config.py_version}"
+        )
+        estimator = self._create_pytorch_estimator(checkpoint_uri)
         
-        step_name = "DefaultModelTraining" # Default if pipeline_name is not available
-        # Max length for step names is 80 characters.
-        # Pattern: ^[a-zA-Z0-9](-*[a-zA-Z0-9]){0,79}$
-        if hasattr(self.config, 'pipeline_name') and self.config.pipeline_name:
-            sanitized_pipeline_name = self._sanitize_name_for_sagemaker(self.config.pipeline_name, max_length=60)
-            step_name = f"{sanitized_pipeline_name}-Training"
-        else:
-            logger.warning("pipeline_name not found in ModelConfig. Using default name 'DefaultModelTraining' for TrainingStep.")
+        # Get step name
+        step_name = self._get_step_name('Training')
         
         return TrainingStep(
-            name=step_name[:80], # Ensure name does not exceed max length
+            name=step_name,
             estimator=estimator,
             inputs=inputs,
-            depends_on=[]
+            depends_on=dependencies or []
         )
+
+    # Maintain backwards compatibility
+    def create_training_step(self, dependencies: Optional[List] = None) -> TrainingStep:
+        """Backwards compatible method for creating training step"""
+        return self.create_step(dependencies)
