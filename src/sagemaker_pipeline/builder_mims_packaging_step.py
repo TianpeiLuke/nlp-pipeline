@@ -1,11 +1,11 @@
-from typing import Dict, Optional, List, Union
+from typing import Optional, List, Union
 from pathlib import Path
 import os
 import logging
 
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.sklearn import SKLearnProcessor
-from sagemaker.workflow.steps import ProcessingStep, Step, CacheConfig
+from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.properties import Properties
 
