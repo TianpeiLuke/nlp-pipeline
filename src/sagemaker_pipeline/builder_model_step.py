@@ -9,13 +9,31 @@ from sagemaker.workflow.steps import Step
 from sagemaker import image_uris
 import logging
 
-from .workflow_config import ModelConfig
+from .config_model_step import ModelCreationConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
 
 class PytorchModelStepBuilder(StepBuilderBase):
     """Model step builder for PyTorch models"""
+
+    def __init__(
+        self, 
+        config: ModelCreationConfig, 
+        sagemaker_session: Optional[PipelineSession] = None,
+        role: Optional[str] = None,
+        notebook_root: Optional[Path] = None
+    ):
+        """
+        Initialize PyTorch model builder
+        
+        Args:
+            config: Pydantic ModelConfig instance with hyperparameters
+            sagemaker_session: SageMaker session
+            role: IAM role ARN
+            notebook_root: Root directory of notebook
+        """
+        super().__init__(config, sagemaker_session, role, notebook_root)
 
     def validate_configuration(self) -> None:
         """Validate configuration requirements"""

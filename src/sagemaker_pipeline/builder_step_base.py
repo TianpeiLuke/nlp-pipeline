@@ -23,6 +23,7 @@ class StepBuilderBase(ABC):
         'Training': 'TrainingStep',
         'Model': 'CreateModelStep',
         'Package': 'PackagingStep',
+        'Payload': 'PayloadTestStep',
         'Registration': 'RegistrationStep'
     }
 

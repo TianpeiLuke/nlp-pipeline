@@ -26,15 +26,24 @@ class ModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepConfig fo
     class Config(BasePipelineConfig.Config):
         pass
 
-    @field_validator('inference_instance_type')
-    @classmethod
-    def _validate_sagemaker_inference_instance_type(cls, v: str) -> str:
-        if not v.startswith('ml.'):
-            raise ValueError(f"Invalid inference instance type: {v}. Must start with 'ml.'")
-        return v
         
     @model_validator(mode='after')
     def _validate_memory_constraints(self) -> 'ModelCreationConfig':
         if self.inference_memory_limit > self.container_memory_limit:
             raise ValueError("Inference memory limit cannot exceed container memory limit.")
         return self
+    
+    @field_validator('inference_memory_limit')
+    @classmethod
+    def validate_memory_limits(cls, v: int, info) -> int:
+        container_memory_limit = info.data.get('container_memory_limit')
+        if container_memory_limit and v > container_memory_limit:
+            raise ValueError("Inference memory limit cannot exceed container memory limit")
+        return v
+
+    @field_validator('inference_instance_type')
+    @classmethod
+    def _validate_sagemaker_inference_instance_type(cls, v: str) -> str:
+        if not v.startswith('ml.'):
+            raise ValueError(f"Invalid inference instance type: {v}. Must start with 'ml.'")
+        return v
