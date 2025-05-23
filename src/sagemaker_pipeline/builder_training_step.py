@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 import os
 import logging
 
-from .workflow_config import ModelConfig
+from .config_training_step import TrainingConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
     
     def __init__(
         self, 
-        config: ModelConfig, 
+        config: TrainingConfig, 
         sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None
@@ -43,13 +43,13 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
     def validate_configuration(self) -> None:
         """Validate configuration requirements"""
         required_attrs = [
-            'entry_point',
+            'training_entry_point',
             'source_dir',
-            'instance_type',
-            'instance_count',
+            'training_instance_type',
+            'training_instance_count',
             'framework_version',
             'py_version',
-            'volume_size',
+            'training_volume_size',
             'input_path',
             'output_path'
         ]
@@ -76,7 +76,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
     def _create_pytorch_estimator(self, checkpoint_s3_uri: str) -> PyTorch:
         """Create PyTorch estimator"""
         return PyTorch(
-            entry_point=self.config.entry_point,
+            entry_point=self.config.training_entry_point,
             source_dir=self.config.source_dir,
             role=self.role,
             instance_count=self.config.instance_count,
