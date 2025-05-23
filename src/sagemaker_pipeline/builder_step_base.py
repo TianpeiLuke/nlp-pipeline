@@ -5,7 +5,7 @@ import logging
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.steps import Step
 
-from .workflow_config import ModelConfig
+from .config_base import BasePipelineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class StepBuilderBase(ABC):
 
     def __init__(
         self,
-        config: ModelConfig,
+        config: BasePipelineConfig,
         sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None
