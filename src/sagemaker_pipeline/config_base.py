@@ -65,22 +65,27 @@ class BasePipelineConfig(BaseModel):
         if 'aws_region' not in values or values['aws_region'] is None:
             values['aws_region'] = region_mapping.get(region_code, "us-east-1") # Default if mapping fails
 
-        # Construct pipeline name, description, version if not provided
+        # Construct pipeline name if not provided
         pipeline_name = values.get('pipeline_name')
         if not pipeline_name:
-            pipeline_name = f"{values['author']}-DefaultPipeline-{values['region']}"
+            pipeline_name = f'{author}-BSM-RnR-{region}'
             values['pipeline_name'] = pipeline_name
-        
-        if 'pipeline_description' not in values or values['pipeline_description'] is None:
-            values['pipeline_description'] = f"Default pipeline for {values['author']} in {values['region']}"
 
-        if 'pipeline_version' not in values or values['pipeline_version'] is None:
-            values['pipeline_version'] = datetime.now().strftime("%Y%m%d%H%M%S") # Timestamp-based default
+        # Construct pipeline description if not provided
+        if not values.get('pipeline_description'):
+            values['pipeline_description'] = f'BSM RnR {region}'
+
+        # Set default pipeline version if not provided
+        pipeline_version = values.get('pipeline_version')
+        if not pipeline_version:
+            pipeline_version = '0.1.0'
+            values['pipeline_version'] = pipeline_version
 
         # Construct pipeline S3 location if not provided
-        if 'pipeline_s3_loc' not in values or values['pipeline_s3_loc'] is None:
-            pipeline_subdir = values.get('pipeline_name', 'default-pipeline').replace('_', '-').lower()
-            values['pipeline_s3_loc'] = f"s3://{values['bucket']}/sagemaker-pipelines/{pipeline_subdir}/{values['pipeline_version']}"
+        if not values.get('pipeline_s3_loc'):
+            pipeline_subdirectory = 'MODS'  # You might want to make this configurable
+            pipeline_subsubdirectory = f"{pipeline_name}_{pipeline_version}"
+            values['pipeline_s3_loc'] = f"s3://{Path(bucket) / pipeline_subdirectory / pipeline_subsubdirectory}"
         
         return values
 
