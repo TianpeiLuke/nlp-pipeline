@@ -14,7 +14,7 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
     
     # Model registration specific fields
     model_owner: str = Field(
-        default="amzn1.abacus.team.djmdvixm5abr3p75c5ca",
+        default="team_id",
         description="Team ID of model owner"
     )
     model_registration_domain: str = Field(
