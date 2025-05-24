@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
-from typing import Literal, Optional, Dict, List
+from typing import Union, Optional, Dict, List
 from enum import Enum
 
 from .config_processing_step_base import ProcessingStepConfigBase
@@ -67,21 +67,27 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
 
     @field_validator('source_model_inference_output_variable_list', 'source_model_inference_input_variable_list')
     @classmethod
-    def validate_variable_list(cls, v: Dict[str, VariableType]) -> Dict[str, VariableType]:
-        """Validate variable lists to ensure proper format and types"""
+    def validate_variable_list(cls, v: Dict[str, Union[VariableType, str]]) -> Dict[str, str]:
+        """Validate variable lists and convert to string values"""
         if not v:  # If empty dictionary
             return v
-            
+        
+        result = {}
         for key, value in v.items():
             # Validate key is a string
             if not isinstance(key, str):
                 raise ValueError(f"Key must be string, got {type(key)} for key: {key}")
-            
-            # Validate value is correct type
-            if not isinstance(value, VariableType):
-                raise ValueError(f"Value must be either 'NUMERIC' or 'TEXT', got: {value}")
         
-        return v
+            # Convert VariableType to string or validate string value
+            if isinstance(value, VariableType):
+                result[key] = value.value
+            elif isinstance(value, str) and value in [vt.value for vt in VariableType]:
+                result[key] = value
+            else:
+                raise ValueError(f"Value must be either 'NUMERIC' or 'TEXT', got: {value}")
+    
+        return result
+
         
     def get_registration_job_name(self) -> str:
         """Generate a unique registration job name"""
