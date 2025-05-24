@@ -8,6 +8,7 @@ from sagemaker.sklearn import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.properties import Properties
+from sagemaker.workflow.steps import CacheConfig  # Add this import
 
 from .config_mims_packaging_step import PackageStepConfig
 from .builder_step_base import StepBuilderBase
@@ -36,7 +37,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         super().__init__(config, sagemaker_session, role, notebook_root)
         
-
     def _resolve_local_or_s3_path(self, configured_path: str, is_dir_check: bool = False) -> str:
         """Resolves a path from config. If local, prepends notebook_root. Returns str."""
         if str(configured_path).startswith('s3://'):
@@ -54,7 +54,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             )
         logger.info(f"Using resolved local {target_type_str} from config: {resolved_local_path}")
         return str(resolved_local_path)
-
 
     def _get_resolved_script_entry_point_for_processor(self) -> str:
         """
@@ -78,7 +77,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             )
         logger.info(f"Resolved packaging script entry point for processor: {full_local_script_path}")
         return str(full_local_script_path)
-
 
     def validate_configuration(self) -> None:
         """Validate required configuration settings for MIMS packaging."""
@@ -124,7 +122,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             
         logger.info("MIMS Packaging configuration paths validated.")
 
-
     def _create_processor(self) -> SKLearnProcessor:
         """Create SKLearn processor for MIMS packaging."""
         if self.config.use_large_processing_instance:
@@ -144,7 +141,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             sagemaker_session=self.session,
             base_job_name=f"{base_job_name_prefix}-mims-pkg"
         )
-
 
     def _get_processing_inputs(
         self,
@@ -178,7 +174,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         logger.info(f"Processing inputs defined: {inputs}")
         return inputs
 
-
     def _get_processing_outputs(self, step_name_for_s3_path: str) -> List[ProcessingOutput]:
         """
         Defines the list of ProcessingOutput objects for the MIMS packaging step.
@@ -201,6 +196,11 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         logger.info(f"Processing outputs defined: {outputs}")
         return outputs
 
+    def _get_cache_config(self, enable_caching: bool = True) -> Optional[CacheConfig]:
+        """Get cache configuration for the step"""
+        if not enable_caching:
+            return None
+        return CacheConfig(enable_caching=enable_caching)
 
     def create_step(
         self,
@@ -231,6 +231,10 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         processing_outputs = self._get_processing_outputs(step_name) # Pass step_name for S3 path
         
         job_arguments = self.config.packaging_script_arguments
+        # Create cache config properly
+        cache_config = self._get_cache_config(
+            getattr(self.config, 'enable_caching_package_step', True)
+        )
 
         return ProcessingStep(
             name=step_name,
@@ -240,7 +244,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             code=packaging_script_local_path, # Absolute local path to the entry script
             job_arguments=job_arguments,
             depends_on=dependencies or [],
-            cache_config=self._get_cache_config(getattr(self.config, 'enable_caching_package_step', True))
+            cache_config=cache_config  # Use the proper CacheConfig object
         )
 
     # Maintain backwards compatibilityity
