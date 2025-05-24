@@ -14,6 +14,7 @@ from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
 
+
 class MIMSPackagingStepBuilder(StepBuilderBase):
     """Builder for MIMS packaging processing step"""
 
