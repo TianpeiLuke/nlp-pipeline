@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, ClassVar
 from pathlib import Path
 import json
 from datetime import datetime
@@ -8,11 +8,22 @@ from datetime import datetime
 class BasePipelineConfig(BaseModel):
     """Base configuration with shared pipeline attributes."""
     
-    REGION_MAPPING: Dict[str, str] = {
+    # Class variables using ClassVar for Pydantic
+    REGION_MAPPING: ClassVar[Dict[str, str]] = {
         "NA": "us-east-1",
         "EU": "eu-west-1",
         "FE": "us-west-2"
     }
+    
+    STEP_NAMES: ClassVar[Dict[str, str]] = {
+        'BasePipelineConfig': 'Base',
+        'TrainingConfig': 'Training',
+        'ModelCreationConfig': 'Model',
+        'ProcessingStepConfigBase': 'Processing',
+        'PackageStepConfig': 'Package',
+        'ModelRegistrationConfig': 'Registration'
+    }
+    
     # Shared basic info
     bucket: str = Field(description="S3 bucket name for pipeline artifacts and data.")
     current_date: str = Field(
@@ -125,3 +136,14 @@ class BasePipelineConfig(BaseModel):
             if not Path(v).is_dir():
                 raise ValueError(f"Local source_dir is not a directory: {v}")
         return v
+    
+    @classmethod
+    def get_step_name(cls, config_class_name: str) -> str:
+        """Get the step name for a configuration class"""
+        return cls.STEP_NAMES.get(config_class_name, config_class_name)
+
+    @classmethod
+    def get_config_class_name(cls, step_name: str) -> str:
+        """Get the configuration class name from a step name"""
+        reverse_mapping = {v: k for k, v in cls.STEP_NAMES.items()}
+        return reverse_mapping.get(step_name, step_name)
