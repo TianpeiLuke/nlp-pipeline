@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
-from typing import Literal, Optional, Dict
+from typing import Optional, List, Dict
 from enum import Enum
+from datetime import datetime
 
 from .config_processing_step_base import ProcessingStepConfigBase
 
@@ -14,7 +15,7 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
     
     # Model registration specific fields
     model_owner: str = Field(
-        default="team_id",
+        default="team id",
         description="Team ID of model owner"
     )
     model_registration_domain: str = Field(
@@ -27,11 +28,11 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
     )
 
     # Content and response types with Literal type
-    source_model_inference_content_types: Literal[["text/csv"], ["application/json"]] = Field(
+    source_model_inference_content_types: List[str] = Field(
         default=["text/csv"],
         description="Content type for model inference input. Must be exactly ['text/csv'] or ['application/json']"
     )
-    source_model_inference_response_types: Literal[["text/csv"], ["application/json"]] = Field(
+    source_model_inference_response_types: List[str] = Field(
         default=["application/json"],
         description="Response type for model inference output. Must be exactly ['text/csv'] or ['application/json']"
     )
@@ -54,6 +55,11 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
         default=False,
         description="Whether to use large instance type for processing"
     )
+    
+    class Config:
+        arbitrary_types_allowed = True
+        validate_assignment = True
+        extra = 'forbid'
 
     @property
     def processing_instance_type(self) -> str:
@@ -77,8 +83,40 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
                 raise ValueError(f"Value must be either 'NUMERIC' or 'TEXT', got: {value}")
         
         return v
+        
+    def get_registration_job_name(self) -> str:
+        """Generate a unique registration job name"""
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return f"{self.pipeline_name}-register-{timestamp}"
 
-    class Config:
-        arbitrary_types_allowed = True
-        validate_assignment = True
-        extra = 'forbid'
+    def get_model_package_group_name(self) -> str:
+        """Generate model package group name"""
+        return f"{self.pipeline_name}-{self.model_registration_objective}"
+
+    def get_model_package_description(self) -> str:
+        """Generate model package description"""
+        return (f"Model package for {self.model_registration_objective} "
+                f"in {self.model_registration_domain} domain")
+        
+    def get_variable_schema(self) -> Dict[str, Dict[str, List[Dict[str, str]]]]:
+        """Generate variable schema for model registration"""
+        schema = {
+            "input": {"variables": []},
+            "output": {"variables": []}
+        }
+        
+        # Add input variables
+        for name, var_type in self.source_model_inference_input_variable_list.items():
+            schema["input"]["variables"].append({
+                "name": name,
+                "type": var_type.value
+            })
+            
+        # Add output variables
+        for name, var_type in self.source_model_inference_output_variable_list.items():
+            schema["output"]["variables"].append({
+                "name": name,
+                "type": var_type.value
+            })
+            
+        return schema
