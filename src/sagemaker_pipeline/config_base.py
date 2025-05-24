@@ -7,6 +7,12 @@ from datetime import datetime
 
 class BasePipelineConfig(BaseModel):
     """Base configuration with shared pipeline attributes."""
+    
+    REGION_MAPPING: Dict[str, str] = {
+        "NA": "us-east-1",
+        "EU": "eu-west-1",
+        "FE": "us-west-2"
+    }
     # Shared basic info
     bucket: str = Field(description="S3 bucket name for pipeline artifacts and data.")
     current_date: str = Field(
@@ -47,9 +53,9 @@ class BasePipelineConfig(BaseModel):
         """
         # Resolve bucket and author using sais_session if not provided
         if 'bucket' not in values or values['bucket'] is None:
-            values['bucket'] = 'my-default-bucket'  # Replace with actual logic to get the default bucket
+            values['bucket'] = 'my-default-bucket'
         if 'author' not in values or values['author'] is None:
-            values['author'] = 'my-default-author'  # Replace with actual logic to get the default author
+            values['author'] = 'my-default-author'
 
         # Ensure current_date is set
         if 'current_date' not in values or values['current_date'] is None:
@@ -59,9 +65,9 @@ class BasePipelineConfig(BaseModel):
         region_code = values.get('region', 'NA')
         values['region'] = region_code
 
-        region_mapping = {"NA": "us-east-1", "EU": "eu-west-1", "FE": "us-west-2"}
         if 'aws_region' not in values or values['aws_region'] is None:
-            values['aws_region'] = region_mapping.get(region_code, "us-east-1")
+            region_code = values.get('region', 'NA')
+            values['aws_region'] = cls.REGION_MAPPING.get(region_code, "us-east-1")
 
         # Construct pipeline name if not provided
         if not values.get('pipeline_name'):
