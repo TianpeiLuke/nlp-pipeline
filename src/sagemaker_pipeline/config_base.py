@@ -47,9 +47,9 @@ class BasePipelineConfig(BaseModel):
         """
         # Resolve bucket and author using sais_session if not provided
         if 'bucket' not in values or values['bucket'] is None:
-            values['bucket'] = sais_session.team_owned_s3_bucket_name()
+            values['bucket'] = 'my-default-bucket'  # Replace with actual logic to get the default bucket
         if 'author' not in values or values['author'] is None:
-            values['author'] = sais_session.owner_alias()
+            values['author'] = 'my-default-author'  # Replace with actual logic to get the default author
 
         # Ensure current_date is set
         if 'current_date' not in values or values['current_date'] is None:
