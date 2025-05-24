@@ -83,27 +83,45 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
     def validate_configuration(self) -> None:
         """Validate required configuration settings for MIMS packaging."""
         logger.info(f"Running {self.__class__.__name__} specific configuration validation.")
-        # Attributes from PackageStepConfig or its bases (ProcessingStepConfigBase, BasePipelineConfig)
+        
+        # Required attributes that must always be present
         required_attrs = [
-            'source_dir', 'packaging_entry_point', 'inference_scripts_input_path',
-            'processing_instance_count', 'processing_volume_size',
-            'pipeline_name', 'pipeline_s3_loc'
+            'source_dir', 
+            'packaging_entry_point',
+            'processing_instance_count', 
+            'processing_volume_size',
+            'pipeline_name', 
+            'pipeline_s3_loc'
         ]
-        if self.config.use_large_processing_instance: # Check which instance type is expected
+        
+        # Check instance type based on configuration
+        if self.config.use_large_processing_instance:
             required_attrs.append('processing_instance_type_large')
         else:
             required_attrs.append('processing_instance_type_small')
 
+        # Validate required attributes
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) is None:
                 raise ValueError(f"PackageStepConfig missing required attribute: {attr}")
 
         try:
-            self._get_resolved_script_entry_point_for_processor() # Validates main packaging script
-            # Validate inference_scripts_input_path (existence checked by _resolve_local_or_s3_path if local)
-            self._resolve_local_or_s3_path(self.config.inference_scripts_input_path, is_dir_check=True)
+            # Validate main packaging script
+            self._get_resolved_script_entry_point_for_processor()
+            
+            # Validate inference_scripts_input_path if provided
+            if self.config.inference_code_input_path:
+                self._resolve_local_or_s3_path(
+                    self.config.inference_code_input_path, 
+                    is_dir_check=True
+                )
+                logger.info("Inference code input path validated.")
+            else:
+                logger.info("No inference code input path provided (optional).")
+                
         except FileNotFoundError as e:
             raise ValueError(f"Configuration error for script/source paths: {e}")
+            
         logger.info("MIMS Packaging configuration paths validated.")
 
 
@@ -135,24 +153,28 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         Defines the list of ProcessingInput objects for the MIMS packaging step.
         """
-        # Resolve the path for inference scripts (this will be S3 URI or absolute local path)
-        resolved_inference_scripts_path = self._resolve_local_or_s3_path(
-            self.config.inference_scripts_input_path,
-            is_dir_check=True
-        )
-
         inputs = [
             ProcessingInput(
                 source=model_artifacts_input_source,
-                destination="/opt/ml/processing/input/model", # Corresponds to MODEL_PATH in mims_package.py
+                destination="/opt/ml/processing/input/model",
                 input_name=self.config.model_input_name_in_job
-            ),
-            ProcessingInput(
-                source=resolved_inference_scripts_path,
-                destination="/opt/ml/processing/input/script", # Corresponds to SCRIPT_PATH in mims_package.py
-                input_name=self.config.inference_scripts_input_name_in_job
-            ),
+            )
         ]
+
+        # Add inference scripts input if path is provided
+        if self.config.inference_code_input_path:
+            resolved_inference_scripts_path = self._resolve_local_or_s3_path(
+                self.config.inference_code_input_path,
+                is_dir_check=True
+            )
+            inputs.append(
+                ProcessingInput(
+                    source=resolved_inference_scripts_path,
+                    destination="/opt/ml/processing/input/script",
+                    input_name=self.config.inference_scripts_input_name_in_job
+                )
+            )
+
         logger.info(f"Processing inputs defined: {inputs}")
         return inputs
 
