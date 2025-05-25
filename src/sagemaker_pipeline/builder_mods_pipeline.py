@@ -26,6 +26,7 @@ from .config_model_step import ModelCreationConfig
 from .config_processing_step_base import ProcessingStepConfigBase
 from .config_mims_packaging_step import PackageStepConfig
 from .config_mims_registration_step import ModelRegistrationConfig
+from .config_mims_payload_step import PayloadConfig
 
 # Import Builders
 from .builder_model_step import PytorchModelStepBuilder
@@ -38,7 +39,8 @@ CONFIG_CLASSES = {
         'ModelCreationConfig': ModelCreationConfig,
         'ProcessingStepConfigBase': ProcessingStepConfigBase,
         'PackageStepConfig': PackageStepConfig,
-        'ModelRegistrationConfig': ModelRegistrationConfig
+        'ModelRegistrationConfig': ModelRegistrationConfig,
+        'PayloadConfig': PayloadConfig
     }
 
 
@@ -72,6 +74,7 @@ class PipelineBuilder:
         self.model_config = self.configs['Model']
         self.package_config = self.configs['Package']
         self.registration_config = self.configs['Registration']
+        self.payload_config = self.configs['Payload']
 
         self.session = sagemaker_session
         self.role = role
@@ -82,6 +85,12 @@ class PipelineBuilder:
     def _create_model_step(self, model_s3_path: str):
         """Create model step using provided model S3 path."""
         logger.info(f"Creating model step with model from: {model_s3_path}")
+        
+        logger.info("Force the model region to be NA")
+        self.model_config.region = 'NA'
+        self.model_config.aws_region = 'us-east-1'
+        logger.info(f"Model aws region {self.model_config.aws_region}")
+
         model_builder = PytorchModelStepBuilder(
             config=self.model_config,
             sagemaker_session=self.session,
@@ -111,14 +120,40 @@ class PipelineBuilder:
             sagemaker_session=self.session,
             role=self.role
         )
+        logger.info("Save Payload")
+        self.payload_config.generate_and_upload_payloads()
+    
+        try:
+            # Get output name from package config
+            output_name = self.package_config.packaged_model_output_name_from_job
+            logger.info(f"Looking for output with name: {output_name}")
         
-        return registration_builder.create_registration_steps(
-            packaging_step_output=packaging_step.properties.ProcessingOutputConfig.Outputs[
-                "output"
-            ].S3Uri,
-            dependencies=[packaging_step],
-            regions=[self.base_config.region]  # Use region from base config
-        )
+            # Get the S3 URI directly from the first output
+            outputs = packaging_step.properties.ProcessingOutputConfig.Outputs
+            s3_uri = outputs[0].S3Output.S3Uri
+        
+            # Log using expr
+            logger.info(f"Using output expression: {outputs[0].expr}")
+        
+            return registration_builder.create_registration_steps(
+                packaging_step_output=s3_uri,
+                payload_s3_key=self.payload_config.sample_payload_s3_key,
+                dependencies=[packaging_step],
+                regions=[self.base_config.region]
+            )
+        
+        except Exception as e:
+            logger.error(f"Error in creating registration steps: {str(e)}")
+            logger.error("Packaging step properties:")
+            # Only show non-private properties
+            logger.error(f"Available properties: {[p for p in dir(packaging_step.properties) if not p.startswith('_')]}")
+            if hasattr(packaging_step.properties, 'ProcessingOutputConfig'):
+                try:
+                    logger.error(f"Output config expression: {packaging_step.properties.ProcessingOutputConfig.expr}")
+                except:
+                    logger.error("Could not access output config expression")
+            raise
+
 
     def _get_pipeline_parameters(self) -> List[ParameterString]:
         """Get pipeline parameters"""
@@ -169,3 +204,4 @@ class PipelineBuilder:
             steps=steps,
             sagemaker_session=self.session
         )
+
