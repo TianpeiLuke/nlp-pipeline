@@ -112,7 +112,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                 input_name=self.config.model_input_name_in_job
             ),
             ProcessingInput(
-                source=self.config.inference_code_source_dir, # Directly use the validated & resolved path
+                source=self.config.source_dir, # Directly use the validated & resolved path
                 destination="/opt/ml/processing/input/script",
                 input_name=self.config.scripts_input_name_in_job
             )
