@@ -49,7 +49,10 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             'processing_instance_count', 
             'processing_volume_size',
             'pipeline_name', 
-            'pipeline_s3_loc'
+            'pipeline_s3_loc',
+            'model_input_name_in_job',
+            'scripts_input_name_in_job',
+            'packaged_model_output_name_from_job'
         ]
         # Add instance type check logic (processing_instance_type_small/large)
         if getattr(self.config, 'use_large_processing_instance', False):
