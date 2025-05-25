@@ -51,36 +51,18 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             'pipeline_name', 
             'pipeline_s3_loc'
         ]
-        
-        # Check instance type based on configuration
-        if self.config.use_large_processing_instance:
+        # Add instance type check logic (processing_instance_type_small/large)
+        if getattr(self.config, 'use_large_processing_instance', False):
             required_attrs.append('processing_instance_type_large')
         else:
             required_attrs.append('processing_instance_type_small')
 
-        # Validate required attributes
         for attr in required_attrs:
-            if not hasattr(self.config, attr) or getattr(self.config, attr) is None:
-                raise ValueError(f"PackageStepConfig missing required attribute: {attr}")
+            if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
+                raise ValueError(f"PackageStepConfig missing required attribute for builder: {attr}")
+        logger.info(f"{self.__class__.__name__} configuration attributes presence check passed.")
 
-        try:
-            # Validate main packaging script
-            self._get_resolved_script_entry_point_for_processor()
-            
-            # Validate inference_scripts_input_path if provided
-            if self.config.inference_code_input_path:
-                self._resolve_local_or_s3_path(
-                    self.config.inference_code_input_path, 
-                    is_dir_check=True
-                )
-                logger.info("Inference code input path validated.")
-            else:
-                logger.info("No inference code input path provided (optional).")
-                
-        except FileNotFoundError as e:
-            raise ValueError(f"Configuration error for script/source paths: {e}")
-            
-        logger.info("MIMS Packaging configuration paths validated.")
+
 
     def _create_processor(self) -> SKLearnProcessor:
         """Create SKLearn processor for MIMS packaging."""
