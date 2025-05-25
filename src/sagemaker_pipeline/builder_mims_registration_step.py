@@ -17,6 +17,7 @@ from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
 
+
 class ModelRegistrationStepBuilder(StepBuilderBase):
     """Builder for model registration steps"""
 
@@ -45,14 +46,14 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
     def _get_processing_inputs(
         self, 
         packaging_step_output: Union[str, Properties],
-        performance_metadata_location: Optional[str] = None
+        payload_s3_key: Optional[str] = None
     ) -> List[ProcessingInput]:
         """
         Get processing inputs for registration step.
         
         Args:
             packaging_step_output: S3 path or Properties object from packaging step
-            performance_metadata_location: Optional path to performance metadata
+            payload_s3_key: Optional path to key for sample payload
             
         Returns:
             List of ProcessingInput objects
@@ -67,11 +68,13 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         
         inputs = [model_input]
 
-        if performance_metadata_location:
+        if payload_s3_key:
+            # Assume that the payload is uploaded to default bucket
+            payload_url = f"s3://{self.config.bucket}/{payload_s3_key}"
             inputs.append(
                 ProcessingInput(
-                    source=performance_metadata_location,
-                    destination="/opt/ml/processing/input/performance",
+                    source=payload_url,
+                    destination="/opt/ml/processing/mims_payload",
                     s3_data_distribution_type="FullyReplicated",
                     s3_input_mode="File"
                 )
@@ -92,7 +95,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         self,
         packaging_step_output: Union[str, Properties],
         dependencies: Optional[List[Step]] = None,
-        performance_metadata_location: Optional[str] = None,
+        payload_s3_key: Optional[str] = None,
         regions: Optional[List[str]] = None,
     ) -> Union[Step, Dict[str, Step]]:
         """
@@ -101,7 +104,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Args:
             packaging_step_output: S3 path or Properties object from packaging step
             dependencies: List of dependent steps
-            performance_metadata_location: Optional path to performance metadata
+            payload_s3_key: Optional path to key for sample payload
             regions: List of regions (defaults to config region)
             
         Returns:
@@ -128,9 +131,10 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                     sagemaker_session=self.session,
                     processing_input=self._get_processing_inputs(
                         packaging_step_output,
-                        performance_metadata_location
+                        payload_s3_key
                     ),
                     depends_on=dependencies or []
+                    #performance_metadata_location is an attribute for this step but need additional evaluation step to confirm
                 )
                 registration_steps[region] = step
                 logger.info(f"Created registration step for {region}")
@@ -148,14 +152,14 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         self,
         packaging_step_output: str,
         dependencies: Optional[List[Step]] = None,
-        performance_metadata_location: Optional[str] = None,
+        payload_s3_key: Optional[str] = None,
         regions: Optional[List[str]] = None
     ) -> Dict[str, ProcessingStep]:
         """Backwards compatible method for creating registration steps"""
         result = self.create_step(
             packaging_step_output=packaging_step_output,
             dependencies=dependencies,
-            performance_metadata_location=performance_metadata_location,
+            payload_s3_key=payload_s3_key,
             regions=regions
         )
         # Ensure we always return a dictionary for backwards compatibility
