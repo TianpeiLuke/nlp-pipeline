@@ -62,8 +62,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                 raise ValueError(f"PackageStepConfig missing required attribute for builder: {attr}")
         logger.info(f"{self.__class__.__name__} configuration attributes presence check passed.")
 
-
-
     def _create_processor(self) -> SKLearnProcessor:
         """Create SKLearn processor for MIMS packaging."""
         if self.config.use_large_processing_instance:
