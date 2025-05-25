@@ -1,13 +1,26 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
-from typing import Union, Optional, Dict, List
+from typing import Union, Optional, Dict, List, Any
 from enum import Enum
 from datetime import datetime
 
 from .config_processing_step_base import ProcessingStepConfigBase
 
+
 class VariableType(str, Enum):
     NUMERIC = "NUMERIC"
     TEXT = "TEXT"
+    
+    @classmethod
+    def _missing_(cls, value: str) -> Optional['VariableType']:
+        """Handle string values"""
+        try:
+            return cls(value.upper())
+        except ValueError:
+            return None
+
+    def __str__(self) -> str:
+        """String representation"""
+        return self.value
     
     
 class ModelRegistrationConfig(ProcessingStepConfigBase):
@@ -60,6 +73,9 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
         arbitrary_types_allowed = True
         validate_assignment = True
         extra = 'forbid'
+        json_encoders = {
+            VariableType: lambda v: v.value
+        }
 
     @property
     def processing_instance_type(self) -> str:
@@ -126,3 +142,19 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
             })
             
         return schema
+    
+    def model_dump(self, **kwargs) -> Dict[str, Any]:
+        """Custom serialization"""
+        data = super().model_dump(**kwargs)
+        # Convert enums to strings in variable lists
+        if 'source_model_inference_input_variable_list' in data:
+            data['source_model_inference_input_variable_list'] = {
+                k: v.value if isinstance(v, VariableType) else v
+                for k, v in data['source_model_inference_input_variable_list'].items()
+            }
+        if 'source_model_inference_output_variable_list' in data:
+            data['source_model_inference_output_variable_list'] = {
+                k: v.value if isinstance(v, VariableType) else v
+                for k, v in data['source_model_inference_output_variable_list'].items()
+            }
+        return data

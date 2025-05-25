@@ -15,16 +15,22 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
     # Add step name to metadata
     config_dict['_step_name'] = BasePipelineConfig.get_step_name(config.__class__.__name__)
     
-    # Handle special types
-    for key, value in config_dict.items():
+    def serialize_value(value: Any) -> Any:
+        """Recursively serialize values"""
         if isinstance(value, datetime):
-            config_dict[key] = value.isoformat()
+            return value.isoformat()
         elif isinstance(value, Enum):
-            config_dict[key] = value.value
+            return value.value
         elif isinstance(value, Path):
-            config_dict[key] = str(value)
+            return str(value)
+        elif isinstance(value, dict):
+            return {k: serialize_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [serialize_value(item) for item in value]
+        return value
     
-    return config_dict
+    # Handle special types recursively
+    return {key: serialize_value(value) for key, value in config_dict.items()}
 
 
 def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Dict[str, Any]:
