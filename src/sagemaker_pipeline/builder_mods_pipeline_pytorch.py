@@ -154,7 +154,6 @@ class PytorchPipelineBuilder:
                     logger.error("Could not access output config expression")
             raise
 
-
     def _get_pipeline_parameters(self) -> List[ParameterString]:
         """Get pipeline parameters"""
         return [
@@ -170,7 +169,7 @@ class PytorchPipelineBuilder:
             raise ValueError(f"Invalid S3 path: {model_s3_path}. Must start with 's3://'")
         logger.info(f"Validated model S3 path: {model_s3_path}")
 
-    def create_pipeline(self, model_s3_path: str) -> Pipeline:
+    def generate_pipeline(self, model_s3_path: str) -> Pipeline:
         """
         Create deployment pipeline using existing model.
         
