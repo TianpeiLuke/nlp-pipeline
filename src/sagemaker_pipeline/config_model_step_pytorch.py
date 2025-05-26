@@ -27,7 +27,7 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
         pass
     
     @model_validator(mode='after')
-    def validate_configuration(self) -> 'ModelCreationConfig':
+    def validate_configuration(self) -> 'PytorchModelCreationConfig':
         """Validate the complete configuration"""
         self._validate_memory_constraints()
         self._validate_timeouts()
