@@ -63,7 +63,7 @@ class PytorchTrainingConfig(BasePipelineConfig):
         return values
 
     @model_validator(mode='after')
-    def _validate_training_paths_logic(self) -> 'TrainingConfig':
+    def _validate_training_paths_logic(self) -> 'PytorchTrainingConfig':
         """Validates S3 path requirements for training."""
         # Example: Ensure input_path and output_path are different
         paths = {
@@ -88,7 +88,7 @@ class PytorchTrainingConfig(BasePipelineConfig):
 
 
     @model_validator(mode='after')
-    def validate_field_lists(self) -> 'TrainingConfig':
+    def validate_field_lists(self) -> 'PytorchTrainingConfig':
         """Validate field lists from hyperparameters"""
         if not self.hyperparameters:
             raise ValueError("hyperparameters must be provided")
