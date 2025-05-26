@@ -19,7 +19,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
     
     def __init__(
         self, 
-        config: TrainingConfig, 
+        config: PytorchTrainingConfig, 
         sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None
