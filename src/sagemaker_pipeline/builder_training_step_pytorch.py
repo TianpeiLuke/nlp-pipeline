@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 import os
 import logging
 
-from .config_training_step import TrainingConfig
+from .config_training_step_pytorch import PytorchTrainingConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)

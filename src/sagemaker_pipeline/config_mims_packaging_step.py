@@ -31,7 +31,7 @@ class PackageStepConfig(ProcessingStepConfigBase):
 
     # Input names for clarity in the ProcessingStep definition
     model_input_name_in_job: str = Field(default="model_input", description="Input name for model artifacts in the processing job.")
-    inference_scripts_input_name_in_job: str = Field(default="inference_scripts_input", description="Input name for inference scripts in the processing job.")
+    scripts_input_name_in_job: str = Field(default="inference_scripts_input", description="Input name for inference scripts in the processing job.")
     
     # Output name for clarity
     packaged_model_output_name_from_job: str = Field(default="packaged_model_output", description="Output name for the packaged model from the processing job.")

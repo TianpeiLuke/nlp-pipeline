@@ -20,9 +20,9 @@ class PayloadConfig(ModelRegistrationConfig):
     """Configuration for payload generation and testing."""
     
     # Performance metrics
-    expected_tps: float = Field(
-        default=2.0,
-        ge=0.1,
+    expected_tps: int = Field(
+        default=2,
+        ge=1,
         description="Expected transactions per second"
     )
     max_latency_in_millisecond: int = Field(

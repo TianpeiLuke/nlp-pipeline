@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator, ValidationInfo
 from typing import List, Optional, Dict, Any, ClassVar
 from pathlib import Path
 import json
@@ -17,8 +17,8 @@ class BasePipelineConfig(BaseModel):
     
     STEP_NAMES: ClassVar[Dict[str, str]] = {
         'BasePipelineConfig': 'Base',
-        'TrainingConfig': 'Training',
-        'ModelCreationConfig': 'Model',
+        'PytorchTrainingConfig': 'Training',
+        'PytorchModelCreationConfig': 'Model',
         'ProcessingStepConfigBase': 'Processing',
         'PackageStepConfig': 'Package',
         'ModelRegistrationConfig': 'Registration',
@@ -120,6 +120,7 @@ class BasePipelineConfig(BaseModel):
         
         return self
 
+
     @field_validator('region')
     @classmethod
     def _validate_custom_region(cls, v: str) -> str:
@@ -137,7 +138,7 @@ class BasePipelineConfig(BaseModel):
             if not Path(v).is_dir():
                 raise ValueError(f"Local source_dir is not a directory: {v}")
         return v
-    
+
     @classmethod
     def get_step_name(cls, config_class_name: str) -> str:
         """Get the step name for a configuration class"""

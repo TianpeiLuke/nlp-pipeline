@@ -7,7 +7,7 @@ from datetime import datetime
 from .config_base import BasePipelineConfig
 
 
-class ModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepConfig for clarity
+class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepConfig for clarity
     """Configuration specific to the SageMaker Model creation (for inference)."""
     inference_instance_type: str = Field(default='ml.m5.large', description="Instance type for inference endpoint/transform job.")
     inference_entry_point: str = Field(default='inference.py', description="Entry point script for inference.")
