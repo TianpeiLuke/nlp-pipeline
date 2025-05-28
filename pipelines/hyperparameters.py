@@ -7,20 +7,10 @@ from datetime import datetime
 from .hyperparameters_base import ModelHyperparameters
 
 class BSMModelHyperparameters(ModelHyperparameters):
-    # Field lists
-    full_field_list: List[str] = Field(default=[
-        'order_id', 'net_conc_amt', 'ttm_conc_amt', 'ttm_conc_count',
-        'concsi', 'deliverable_flag', 'undeliverable_flag',
-        'dialogue', 'llm_reversal_flag'
-    ],  description="Full field list")
+    """Hyperparameters for the BSM model training"""
+    # Inherit all fields from ModelHyperparameters
+    # Note: The ModelHyperparameters class should already define the necessary fields
     
-    cat_field_list: List[str] = Field(default=['dialogue'], description="Categorical fields")
-    
-    tab_field_list: List[str] = Field(default=[
-        'net_conc_amt', 'ttm_conc_amt', 'ttm_conc_count',
-        'concsi', 'deliverable_flag', 'undeliverable_flag'
-    ], description="Tabular fields")
-
     # Training parameters
     batch_size: int = Field(default=2, gt=0, le=256, description="Batch size for training")
     adam_epsilon: float = Field(default=1e-08, description="Epsilon for Adam optimizer")
