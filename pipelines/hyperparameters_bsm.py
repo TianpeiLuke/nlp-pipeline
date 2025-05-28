@@ -14,7 +14,6 @@ class BSMModelHyperparameters(ModelHyperparameters):
 
     # Trainer and Optimization parameters
     # For optimizer
-    lr: float = Field(default=3e-05, description="Learning rate")
     lr_decay: float = Field(default=0.05, description="Learning rate decay")
     adam_epsilon: float = Field(default=1e-08, description="Epsilon for Adam optimizer")
     momentum: float = Field(default=0.9, description="Momentum for SGD optimizer (if SGD is chosen)")

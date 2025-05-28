@@ -39,7 +39,7 @@ class ModelHyperparameters(BaseModel):
     input_tab_dim: int  = Field(default=6, description="Input tabular dimension")
 
     # Training parameters
-    learning_rate: float = Field(default=3e-05, description="Learning rate")
+    lr: float = Field(default=3e-05, description="Learning rate")
     batch_size: int = Field(default=2, gt=0, le=256, description="Batch size for training")
     max_epochs: int = Field(default=3, gt=0, le=10, description="Maximum epochs for training")
     metric_choices: List[str] = Field(default=['f1_score', 'auroc'], description="Metric choices for evaluation")
