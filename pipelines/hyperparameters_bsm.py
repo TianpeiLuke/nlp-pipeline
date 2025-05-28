@@ -8,9 +8,8 @@ class BSMModelHyperparameters(ModelHyperparameters):
     Hyperparameters for the BSM (Buyer Seller Messaging) model training,
     extending the base ModelHyperparameters.
     """
-
-    # NEW: For identifying categorical features that need specific encoding (e.g., for tabular part)
-    categorical_features_to_encode: List[str] = Field(default_factory=list, description="List of categorical fields that require label encoding or one-hot encoding from the tabular data")    
+    # Override model_class from base
+    model_class: str = Field(default="multimodal_bert", description="Model class identifier, set to XGBoost.")
 
     # Trainer and Optimization parameters
     # For optimizer

@@ -20,6 +20,9 @@ class ModelHyperparameters(BaseModel):
         'concsi', 'deliverable_flag', 'undeliverable_flag'
     ], description="Tabular fields")
 
+    # NEW: For identifying categorical features that need specific encoding (e.g., for tabular part)
+    categorical_features_to_encode: List[str] = Field(default_factory=list, description="List of categorical fields that require label encoding or one-hot encoding from the tabular data")    
+
     # Identifier and label fields
     id_name: str = Field(default='order_id', description="ID field name")    
     label_name: str = Field(default='llm_reversal_flag', description="Label field name")
@@ -32,7 +35,7 @@ class ModelHyperparameters(BaseModel):
     device: int = Field(default=-1, description="Device ID for training")
     
     # Model configuration
-    model_class: str = Field(default='multimodal_bert', description="Model class name")
+    model_class: str = Field(default='base_model', description="Model class name")
 
     # Input configuration
     header: int = Field(default=0,  description="Header row for CSV files")
