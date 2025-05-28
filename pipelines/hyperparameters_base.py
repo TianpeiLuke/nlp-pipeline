@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Union, Dict, Any
 from pathlib import Path
 import json
 from datetime import datetime
@@ -27,7 +27,7 @@ class ModelHyperparameters(BaseModel):
     # Classification parameters
     is_binary: bool = Field(default=True, description="Binary classification flag")
     num_classes: int = Field(default=2, description="Number of classes for classification")
-    multiclass_categories: List[int] = Field(default=[0, 1], description="Multiclass categories")
+    multiclass_categories: List[Union[int, str]] = Field(default=[0, 1], description="List of unique category labels (e.g., [0, 1] for binary, or ['A', 'B', 'C'] for multiclass)")
     class_weights: List[float] = Field(default=[1.0, 1.0], description="Class weights for loss function")
     device: int = Field(default=-1, description="Device ID for training")
     
@@ -70,11 +70,36 @@ class ModelHyperparameters(BaseModel):
                 f"length of tab_field_list ({len(self.tab_field_list)})"
             )
         
-        # Validate binary classification setting
-        if self.is_binary and len(self.multiclass_categories) != 2:
-            raise ValueError(
-                f"is_binary is True but number of classes is {len(self.multiclass_categories)}"
-            )
+        # Validate binary classification settings
+        if self.is_binary:
+            if len(self.multiclass_categories) != 2:
+                raise ValueError(
+                    f"For binary classification (is_binary=True), multiclass_categories must contain exactly 2 items. "
+                    f"Got {len(self.multiclass_categories)}."
+                )
+            if self.num_classes != 2:
+                 raise ValueError(
+                    f"For binary classification (is_binary=True), num_classes must be 2. "
+                    f"Got {self.num_classes}."
+                )
+        # Validate multiclass classification settings (num_classes vs. multiclass_categories)
+        # This check should apply regardless of is_binary, as num_classes should reflect multiclass_categories length.
+        # However, the primary driver for num_classes definition is multiclass_categories.
+        elif not self.is_binary: # Explicitly for multiclass scenarios
+            if len(self.multiclass_categories) < 2:
+                 raise ValueError(
+                    f"For multiclass classification (is_binary=False), multiclass_categories must contain at least 2 items. "
+                    f"Got {len(self.multiclass_categories)}."
+                )
+            if self.num_classes != len(self.multiclass_categories):
+                 raise ValueError(
+                    f"For multiclass classification (is_binary=False), num_classes ({self.num_classes}) "
+                    f"must match the number of unique multiclass_categories ({len(self.multiclass_categories)})."
+                )
+            
+        # Ensure multiclass_categories themselves are unique
+        if len(set(self.multiclass_categories)) != len(self.multiclass_categories):
+            raise ValueError("multiclass_categories must contain unique values.")
         
         return self
 
