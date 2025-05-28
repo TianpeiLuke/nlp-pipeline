@@ -6,6 +6,8 @@ from datetime import datetime
 
 
 class ModelHyperparameters(BaseModel):
+    """Base model hyperparameters for training tasks"""
+
     # Field lists
     full_field_list: List[str] = Field(default=[
         'order_id', 'net_conc_amt', 'ttm_conc_amt', 'ttm_conc_count',
