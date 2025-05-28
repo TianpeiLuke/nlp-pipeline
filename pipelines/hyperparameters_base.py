@@ -4,9 +4,8 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-from .hyperparameters_base import ModelHyperparameters
 
-class BSMModelHyperparameters(ModelHyperparameters):
+class ModelHyperparameters(BaseModel):
     # Field lists
     full_field_list: List[str] = Field(default=[
         'order_id', 'net_conc_amt', 'ttm_conc_amt', 'ttm_conc_count',

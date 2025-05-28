@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-from .hyperparameters import ModelHyperparameters
+from .hyperparameters_base import ModelHyperparameters
 from .config_base import BasePipelineConfig
 
 
