@@ -6,7 +6,7 @@ from sagemaker.inputs import TrainingInput
 from sagemaker.workflow.steps import TrainingStep
 
 
-from src.sagemaker_pipeline.builder_training_step import PyTorchTrainingStepBuilder
+from pipelines.builder_training_step_pytorch import PyTorchTrainingStepBuilder
 
 
 class TestPyTorchTrainingStepBuilder(unittest.TestCase):
