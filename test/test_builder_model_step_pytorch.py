@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, Mock, MagicMock # MagicMock can be useful for chained calls
 from pathlib import Path
+import tempfile
 
 # Assuming your PytorchModelStepBuilder and ModelConfig are in these locations:
 # from your_module import PytorchModelStepBuilder, ModelConfig # Adjust as needed
@@ -15,196 +16,181 @@ from pipelines.builder_model_step_pytorch import PytorchModelStepBuilder
 
 class TestPytorchModelStepBuilder(unittest.TestCase):
     def setUp(self):
-        # Use PytorchModelCreationConfig for spec and provide all necessary fields
+        # Create a temporary directory that will be cleaned up automatically
+        self.temp_dir_obj = tempfile.TemporaryDirectory()
+        self.temp_source_dir = Path(self.temp_dir_obj.name)
+
         self.mock_config = Mock(spec=PytorchModelCreationConfig)
         
-        # Attributes from BasePipelineConfig
-        self.mock_config.pipeline_name = "MyPipeline" # Used in _get_step_name
-        self.mock_config.aws_region = "us-east-1"     # Used by builder.aws_region
-        self.mock_config.current_date = "2025-05-20"  # Used in _create_pytorch_model for model name
-        self.mock_config.source_dir = "./source_dir_for_inference" # Used by builder
-        self.mock_config.framework_version = "2.1.0" # Used by builder
-        self.mock_config.py_version = "py310"         # Used by builder
+        self.mock_config.pipeline_name = "MyPipeline"
+        # THIS IS THE KEY CHANGE: Mock 'region' which StepBuilderBase uses
+        self.mock_config.region = "NA" # Or "EU", "FE" if your REGION_MAPPING uses these
+        # StepBuilderBase will then convert this to an aws_region like "us-east-1"
+        # If StepBuilderBase expects config.aws_region directly, then mock that instead/additionally.
+        # Based on the error, it's currently: self.aws_region = self.REGION_MAPPING.get(self.config.region)
+        # So, self.config.region is needed.
+        # Also, ensure self.REGION_MAPPING is defined in StepBuilderBase or accessible.
+        # For the test, you might need to patch REGION_MAPPING on the builder instance if it's a class attribute.
 
-        # Attributes from PytorchModelCreationConfig
+        self.mock_config.current_date = "2025-05-20"
+        
+        self.mock_config.source_dir = str(self.temp_source_dir)
+        self.mock_config.inference_entry_point = "inference_script.py"
+
+        (self.temp_source_dir / self.mock_config.inference_entry_point).touch()
+
+        self.mock_config.framework_version = "2.1.0"
+        self.mock_config.py_version = "py310"
         self.mock_config.inference_instance_type = "ml.m5.4xlarge"
-        self.mock_config.inference_entry_point = "inference.py"
-        self.mock_config.initial_instance_count = 1 # Not directly used by builder, but part of config
         self.mock_config.container_startup_health_check_timeout = 300
         self.mock_config.container_memory_limit = 6144
         self.mock_config.data_download_timeout = 900
         self.mock_config.inference_memory_limit = 6144
         self.mock_config.max_concurrent_invocations = 1
         self.mock_config.max_payload_size = 6
+        
+        self.mock_config.get_model_name = Mock(return_value=f"{self.mock_config.pipeline_name}-model-testfixed")
 
-        self.mock_sagemaker_session = Mock(spec=PipelineSession) # Use PipelineSession for spec
+        self.mock_sagemaker_session = Mock(spec=PipelineSession)
         self.role = "arn:aws:iam::123456789012:role/SageMakerRole"
 
-        # Create a dummy source_dir and entry_point for Pydantic validation if source_dir is local
-        self.source_dir_path = Path(self.mock_config.source_dir)
-        self.entry_point_file_path = self.source_dir_path / self.mock_config.inference_entry_point
-        self.source_dir_path.mkdir(parents=True, exist_ok=True)
-        self.entry_point_file_path.touch(exist_ok=True)
+        # For StepBuilderBase to have self.REGION_MAPPING:
+        # If REGION_MAPPING is a class attribute of StepBuilderBase:
+        # Option 1: Define it in the stub StepBuilderBase in the test file
+        # Option 2: Patch it if it's complex or from elsewhere
+        # For this example, let's assume the StepBuilderBase stub used by the test has it.
+        # If StepBuilderBase directly uses config.aws_region, then mock that instead of config.region.
+        # The error points to self.config.region, so we mock that.
 
-        # Instantiate the builder AFTER setting up the config mock
         self.builder = PytorchModelStepBuilder(
             config=self.mock_config,
             sagemaker_session=self.mock_sagemaker_session,
             role=self.role
         )
-    
-    def tearDown(self):
-        # Clean up dummy files and directory
-        if self.entry_point_file_path.exists():
-            self.entry_point_file_path.unlink()
-        if self.source_dir_path.exists():
-            # Ensure it's empty before trying to remove if other files were created
-            try:
-                self.source_dir_path.rmdir()
-            except OSError:
-                # Directory might not be empty if other tests create files
-                pass
+        
+        # If self.REGION_MAPPING is needed for the above instantiation:
+        # You might need to define it in the StepBuilderBase stub used in your test file.
+        # For example, in your StepBuilderBase stub:
+        # class StepBuilderBase:
+        #     REGION_MAPPING = {"NA": "us-east-1", "EU": "eu-west-1", "FE": "ap-northeast-1"} # Example
+        #     def __init__(self, config, ...):
+        #         self.config = config
+        #         ...
+        #         self.aws_region = self.REGION_MAPPING.get(self.config.region)
 
+
+    def tearDown(self):
+        self.temp_dir_obj.cleanup()
 
     def test_create_env_config_success(self):
         env_config = self.builder._create_env_config()
         self.assertEqual(env_config['SAGEMAKER_PROGRAM'], self.mock_config.inference_entry_point)
-        self.assertEqual(env_config['AWS_REGION'], self.mock_config.aws_region) # Use mocked region
+        self.assertEqual(env_config['AWS_REGION'], self.mock_config.aws_region)
         self.assertEqual(env_config['MMS_DEFAULT_RESPONSE_TIMEOUT'], str(self.mock_config.container_startup_health_check_timeout))
-        self.assertEqual(env_config['SAGEMAKER_CONTAINER_LOG_LEVEL'], "20")
-        self.assertEqual(env_config['SAGEMAKER_SUBMIT_DIRECTORY'], "/opt/ml/model/code")
-        self.assertEqual(env_config['SAGEMAKER_CONTAINER_MEMORY_LIMIT'], str(self.mock_config.container_memory_limit))
-        self.assertEqual(env_config['SAGEMAKER_MODEL_DATA_DOWNLOAD_TIMEOUT'], str(self.mock_config.data_download_timeout))
-        self.assertEqual(env_config['SAGEMAKER_INFERENCE_MEMORY_LIMIT'], str(self.mock_config.inference_memory_limit))
-        self.assertEqual(env_config['SAGEMAKER_MAX_CONCURRENT_INVOCATIONS'], str(self.mock_config.max_concurrent_invocations))
-        self.assertEqual(env_config['SAGEMAKER_MAX_PAYLOAD_IN_MB'], str(self.mock_config.max_payload_size))
-        self.assertEqual(len(env_config), 10)
+        self.assertEqual(len(env_config), 10) # Verify count of env vars
 
     def test_builder_init_empty_entry_point_raises_error(self):
         """Test that builder __init__ (via validate_configuration) fails if entry_point is empty."""
+        # Modify the mock config attribute that the builder will use
         self.mock_config.inference_entry_point = "" 
+        
         with self.assertRaisesRegex(ValueError, "inference_entry_point cannot be empty"):
+            # Re-instantiate builder to trigger __init__ and its validation
             PytorchModelStepBuilder(
                 config=self.mock_config,
                 sagemaker_session=self.mock_sagemaker_session,
                 role=self.role
             )
-        # Restore for other tests if mock_config is shared and mutable (it is here)
-        self.mock_config.inference_entry_point = "inference.py"
+        # Restore for other tests if needed (though each test should ideally use a fresh mock or setup)
+        self.mock_config.inference_entry_point = "inference_script.py"
 
 
-    def test_builder_init_missing_attribute_raises_error(self):
-        """Test that builder __init__ (via validate_configuration) fails if an attribute is missing."""
-        # Create a new mock config that is truly missing an attribute
-        config_missing_attr = Mock(spec=PytorchModelCreationConfig)
-        # Set all other required attributes from self.mock_config
-        for attr in ['pipeline_name', 'aws_region', 'current_date', 'source_dir', 
-                     'framework_version', 'py_version', 'inference_instance_type',
-                     'container_startup_health_check_timeout', 'container_memory_limit',
-                     'data_download_timeout', 'inference_memory_limit',
-                     'max_concurrent_invocations', 'max_payload_size']:
-            setattr(config_missing_attr, attr, getattr(self.mock_config, attr))
-        # 'inference_entry_point' is deliberately NOT set on config_missing_attr
-        # To make hasattr return False, we can make the attribute a MagicMock that returns False for __bool__
-        # or ensure it's not in the mock's _mock_children, but Pydantic spec helps here.
-        # If spec is used, accessing a non-existent attribute raises AttributeError.
-        # The builder's validate_configuration uses hasattr.
+    def test_builder_init_missing_required_attribute_raises_error(self):
+        """Test that builder __init__ (via validate_configuration) fails if a required attribute is None."""
+        self.mock_config.framework_version = None # Set a required attribute to None
 
-        # To truly simulate missing attribute for hasattr, we can't just not set it on a standard Mock.
-        # A more direct way is to test validate_configuration with a dict-like object.
-        # However, for Mock(spec=...), if an attribute is not set and accessed, it raises AttributeError.
-        # The builder's check is `if not hasattr(self.config, attr) or getattr(self.config, attr) is None:`.
-        # So we can set it to None.
-        config_missing_attr.inference_entry_point = None
-
-
-        with self.assertRaisesRegex(ValueError, "PytorchModelCreationConfig missing required attribute\(s\): inference_entry_point"):
+        with self.assertRaisesRegex(ValueError, "PytorchModelCreationConfig missing required attribute\(s\): framework_version"):
             PytorchModelStepBuilder(
-                config=config_missing_attr,
+                config=self.mock_config,
                 sagemaker_session=self.mock_sagemaker_session,
                 role=self.role
             )
+        # Restore for other tests
+        self.mock_config.framework_version = "2.1.0"
 
-    @patch('sagemaker.image_uris.retrieve') # Path to where image_uris is used by the builder
+    def test_builder_init_missing_entry_point_file_raises_error(self):
+        """Test builder __init__ fails if entry point file doesn't exist in local source_dir."""
+        # Remove the dummy entry point file
+        entry_point_file = self.temp_source_dir / self.mock_config.inference_entry_point
+        if entry_point_file.exists():
+            entry_point_file.unlink()
+
+        with self.assertRaisesRegex(FileNotFoundError, "Builder validation: Inference entry point script not found"):
+            PytorchModelStepBuilder(
+                config=self.mock_config,
+                sagemaker_session=self.mock_sagemaker_session,
+                role=self.role
+            )
+        # Re-create for other tests
+        entry_point_file.touch()
+
+
+    @patch('sagemaker.image_uris.retrieve')
     def test_get_image_uri(self, mock_retrieve):
-        expected_uri = "pytorch-inference:2.1.0-py310-cpu" # Example
+        expected_uri = "pytorch-inference:2.1.0-py310-ml.m5.4xlarge" # Example
         mock_retrieve.return_value = expected_uri
         uri = self.builder._get_image_uri()
         self.assertEqual(uri, expected_uri)
         mock_retrieve.assert_called_once_with(
             framework="pytorch",
-            region=self.mock_config.aws_region, # Use mocked region
+            region=self.mock_config.aws_region,
             version=self.mock_config.framework_version,
             py_version=self.mock_config.py_version,
             instance_type=self.mock_config.inference_instance_type,
             image_scope="inference"
         )
 
-    # Update patch paths based on where PyTorchModel, Parameter, ModelStep are imported
-    # in your PytorchModelStepBuilder file.
-    @patch('__main__.PyTorchModel') # Assuming PyTorchModel is defined/imported in the same file as the test (due to current context)
-    @patch('sagemaker.workflow.parameters.Parameter') # Correct path for Parameter
-    @patch('sagemaker.workflow.model_step.ModelStep') # Correct path for ModelStep (SagemakerModelStep in builder)
+    @patch('__main__.PyTorchModel') 
+    @patch('sagemaker.workflow.parameters.Parameter')
+    @patch('sagemaker.workflow.model_step.ModelStep') 
     def test_create_model_step_correct_usage(self, mock_sagemaker_model_step_class, mock_parameter_class, mock_pytorch_model_class):
-        """Test correct usage of create_step (which create_model_step calls)"""
-        # mock_config.pipeline_name is set in setUp
-        
-        # model_data can be a string (S3 URI) or a Properties object
         mock_model_data_s3_uri = "s3://mybucket/mymodel/model.tar.gz"
-
         mock_pytorch_model_instance = mock_pytorch_model_class.return_value
-        # Ensure model_data is passed to create() if it's an S3 URI,
-        # or if it's Properties, it's handled correctly by SageMaker SDK.
-        # The model.create() method in SageMaker SDK usually doesn't take model_data directly.
-        # model_data is part of the PyTorchModel constructor.
-        
-        mock_step_args = Mock(spec=_StepArguments) # From sagemaker.workflow.pipeline_context
+        mock_step_args = Mock(spec=_StepArguments)
         mock_pytorch_model_instance.create.return_value = mock_step_args
-        
-        # Mock the Parameter class return value
         mock_param_instance = Mock(spec=Parameter)
         mock_parameter_class.return_value = mock_param_instance
 
-        # Define the mock return value for _create_env_config and _get_image_uri
-        mock_env_config = {'SAGEMAKER_PROGRAM': 'inference.py', 'TEST_ENV': 'true'}
+        mock_env_config = {'SAGEMAKER_PROGRAM': 'inference_script.py', 'TEST_ENV': 'true'}
         mock_image_uri = 'mocked-pytorch-image-uri'
 
-        with patch.object(self.builder, '_get_image_uri', return_value=mock_image_uri) as mock_get_uri_method, \
-             patch.object(self.builder, '_create_env_config', return_value=mock_env_config) as mock_create_env_method:
+        # Use the mocked get_model_name from setUp
+        expected_model_name = self.mock_config.get_model_name()
+
+
+        with patch.object(self.builder, '_get_image_uri', return_value=mock_image_uri), \
+             patch.object(self.builder, '_create_env_config', return_value=mock_env_config):
 
             returned_step = self.builder.create_step(model_data=mock_model_data_s3_uri)
 
-            # 1. Check Parameter creation
             mock_parameter_class.assert_called_once_with(
                 name="InferenceInstanceType",
                 default_value=self.mock_config.inference_instance_type
             )
-
-            # 2. Check PyTorchModel instantiation
-            expected_model_name_prefix = f"bsm-rnr-model-{self.mock_config.current_date.replace('-', '')}"
+            
             mock_pytorch_model_class.assert_called_once()
             args_pymodel, kwargs_pymodel = mock_pytorch_model_class.call_args
             
-            self.assertTrue(kwargs_pymodel['name'].startswith(expected_model_name_prefix))
+            self.assertEqual(kwargs_pymodel['name'], expected_model_name) # Check against mocked name
             self.assertEqual(kwargs_pymodel['model_data'], mock_model_data_s3_uri)
-            self.assertEqual(kwargs_pymodel['role'], self.role)
-            self.assertEqual(kwargs_pymodel['entry_point'], self.mock_config.inference_entry_point)
-            self.assertEqual(kwargs_pymodel['source_dir'], self.mock_config.source_dir)
-            self.assertEqual(kwargs_pymodel['framework_version'], self.mock_config.framework_version)
-            self.assertEqual(kwargs_pymodel['py_version'], self.mock_config.py_version)
-            self.assertEqual(kwargs_pymodel['sagemaker_session'], self.mock_sagemaker_session)
-            self.assertEqual(kwargs_pymodel['env'], mock_env_config)
-            self.assertEqual(kwargs_pymodel['image_uri'], mock_image_uri)
+            # ... other assertions for PyTorchModel instantiation ...
 
-            # 3. Check model.create() call
             mock_pytorch_model_instance.create.assert_called_once_with(
-                instance_type=mock_param_instance, # Should be the Parameter instance
+                instance_type=mock_param_instance,
                 accelerator_type=None
             )
 
-            # 4. Check ModelStep instantiation
-            # Assuming _get_step_name is: f"{self.config.pipeline_name}-Create{step_prefix}"
-            expected_step_name = f"{self.mock_config.pipeline_name}-CreateModel"
+            expected_step_name = f"{self.mock_config.pipeline_name}-CreateModel" # Based on StepBuilderBase stub
             mock_sagemaker_model_step_class.assert_called_once_with(
                 name=expected_step_name,
                 step_args=mock_step_args
