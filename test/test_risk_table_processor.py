@@ -6,10 +6,10 @@ import tempfile
 import json
 
 
-from src.processing.binning_processor import BinningProcessor
+from src.processing.risk_table_processor import RiskTableMappingProcessor
 
 
-class TestBinningProcessor(unittest.TestCase):
+class TestRiskTableMappingProcessor(unittest.TestCase):
     def setUp(self):
         """Set up test data and common objects."""
         self.column_to_bin = 'category'
@@ -38,14 +38,14 @@ class TestBinningProcessor(unittest.TestCase):
     def test_initialization(self):
         """Test processor initialization."""
         # Test basic initialization
-        processor = BinningProcessor(column_name=self.column_to_bin, label_name=self.label_column)
+        processor = RiskTableMappingProcessor(column_name=self.column_to_bin, label_name=self.label_column)
         self.assertEqual(processor.column_name, self.column_to_bin)
         self.assertEqual(processor.label_name, self.label_column)
         self.assertFalse(processor.is_fitted)
         self.assertEqual(processor.get_name(), 'binning_processor')
         
         # Test initialization with risk tables
-        processor_with_tables = BinningProcessor(
+        processor_with_tables = RiskTableMappingProcessor(
             column_name=self.column_to_bin,
             label_name=self.label_column,
             risk_tables=self.risk_tables_for_category_col
@@ -55,22 +55,22 @@ class TestBinningProcessor(unittest.TestCase):
 
         # Test initialization error with empty column_name
         with self.assertRaisesRegex(ValueError, "column_name must be a non-empty string"):
-            BinningProcessor(column_name="", label_name=self.label_column)
+            RiskTableMappingProcessor(column_name="", label_name=self.label_column)
 
     def test_validation_risk_tables_structure(self):
         """Test input validation for the risk_tables structure."""
         with self.assertRaisesRegex(ValueError, "Risk tables must be a dictionary"):
-            BinningProcessor(column_name="cat", label_name="lbl", risk_tables="not_a_dict")
+            RiskTableMappingProcessor(column_name="cat", label_name="lbl", risk_tables="not_a_dict")
         with self.assertRaisesRegex(ValueError, "Risk tables must contain 'bins' and 'default_bin' keys"):
-            BinningProcessor(column_name="cat", label_name="lbl", risk_tables={"invalid_key": "format"})
+            RiskTableMappingProcessor(column_name="cat", label_name="lbl", risk_tables={"invalid_key": "format"})
         with self.assertRaisesRegex(ValueError, "Risk tables 'bins' must be a dictionary"):
-            BinningProcessor(column_name="cat", label_name="lbl", risk_tables={"bins": "not_a_dict", "default_bin": 0.5})
+            RiskTableMappingProcessor(column_name="cat", label_name="lbl", risk_tables={"bins": "not_a_dict", "default_bin": 0.5})
         with self.assertRaisesRegex(ValueError, "Risk tables 'default_bin' must be a number"):
-            BinningProcessor(column_name="cat", label_name="lbl", risk_tables={"bins": {}, "default_bin": "not_a_number"})
+            RiskTableMappingProcessor(column_name="cat", label_name="lbl", risk_tables={"bins": {}, "default_bin": "not_a_number"})
 
     def test_fit_and_risk_calculation(self):
         """Test fitting the processor and the calculated risk values."""
-        processor = BinningProcessor(
+        processor = RiskTableMappingProcessor(
             column_name=self.column_to_bin,
             label_name=self.label_column,
             smooth_factor=0.0, # No smoothing for direct comparison
@@ -95,7 +95,7 @@ class TestBinningProcessor(unittest.TestCase):
 
     def test_fit_with_smoothing_and_threshold(self):
         """Test fitting with smoothing and count threshold."""
-        processor = BinningProcessor(
+        processor = RiskTableMappingProcessor(
             column_name=self.column_to_bin,
             label_name=self.label_column,
             smooth_factor=0.1,
@@ -114,16 +114,16 @@ class TestBinningProcessor(unittest.TestCase):
 
     def test_fit_errors(self):
         """Test error conditions during fit."""
-        processor_bad_label = BinningProcessor(column_name=self.column_to_bin, label_name="invalid_label_name")
+        processor_bad_label = RiskTableMappingProcessor(column_name=self.column_to_bin, label_name="invalid_label_name")
         with self.assertRaisesRegex(ValueError, "Label variable 'invalid_label_name' not found"):
             processor_bad_label.fit(self.test_data)
 
-        processor_bad_col = BinningProcessor(column_name="non_existent_column", label_name=self.label_column)
+        processor_bad_col = RiskTableMappingProcessor(column_name="non_existent_column", label_name=self.label_column)
         with self.assertRaisesRegex(ValueError, "Column to bin 'non_existent_column' not found"):
             processor_bad_col.fit(self.test_data)
 
         empty_df_for_fit = pd.DataFrame({self.column_to_bin: ['X'], self.label_column: [-1]})
-        processor_empty_data = BinningProcessor(column_name=self.column_to_bin, label_name=self.label_column)
+        processor_empty_data = RiskTableMappingProcessor(column_name=self.column_to_bin, label_name=self.label_column)
         processor_empty_data.fit(empty_df_for_fit) # Should now handle empty filtered data
         self.assertTrue(processor_empty_data.is_fitted)
         self.assertEqual(processor_empty_data.risk_tables["bins"], {})
@@ -132,7 +132,7 @@ class TestBinningProcessor(unittest.TestCase):
 
     def test_process_single_value(self):
         """Test processing single values (via __call__ or direct process)."""
-        processor = BinningProcessor(
+        processor = RiskTableMappingProcessor(
             column_name=self.column_to_bin,
             label_name=self.label_column,
             risk_tables=self.risk_tables_for_category_col
@@ -145,7 +145,7 @@ class TestBinningProcessor(unittest.TestCase):
 
     def test_transform_series_and_dataframe(self):
         """Test transforming pandas Series and DataFrame."""
-        processor = BinningProcessor(
+        processor = RiskTableMappingProcessor(
             column_name=self.column_to_bin,
             label_name=self.label_column,
             risk_tables=self.risk_tables_for_category_col
@@ -188,7 +188,7 @@ class TestBinningProcessor(unittest.TestCase):
 
     def test_save_load_risk_tables(self):
         """Test saving and loading risk tables."""
-        processor = BinningProcessor(
+        processor = RiskTableMappingProcessor(
             column_name=self.column_to_bin,
             label_name=self.label_column,
             risk_tables=self.risk_tables_for_category_col
@@ -208,7 +208,7 @@ class TestBinningProcessor(unittest.TestCase):
             self.assertTrue(pkl_file_path.exists())
             self.assertTrue(json_file_path.exists())
             
-            new_processor = BinningProcessor(column_name=self.column_to_bin, label_name=self.label_column)
+            new_processor = RiskTableMappingProcessor(column_name=self.column_to_bin, label_name=self.label_column)
             new_processor.load_risk_tables(pkl_file_path) # Load from the correctly named file
             
             self.assertTrue(new_processor.is_fitted)
@@ -225,23 +225,23 @@ class TestBinningProcessor(unittest.TestCase):
 
     def test_runtime_errors_if_not_fitted(self):
         """Test error handling for operations before fitting."""
-        processor = BinningProcessor(column_name=self.column_to_bin, label_name=self.label_column)
+        processor = RiskTableMappingProcessor(column_name=self.column_to_bin, label_name=self.label_column)
         
         # For process()
-        # Actual message: "BinningProcessor must be fitted or initialized with risk tables before processing."
-        process_error_regex = r"BinningProcessor must be fitted or initialized with risk tables before processing\."
+        # Actual message: "RiskTableMappingProcessor must be fitted or initialized with risk tables before processing."
+        process_error_regex = r"RiskTableMappingProcessor must be fitted or initialized with risk tables before processing\."
         with self.assertRaisesRegex(RuntimeError, process_error_regex):
             processor.process("A")
         
         # For transform()
-        # Actual message: "BinningProcessor must be fitted or initialized with risk tables before transforming."
-        transform_error_regex = r"BinningProcessor must be fitted or initialized with risk tables before transforming\."
+        # Actual message: "RiskTableMappingProcessor must be fitted or initialized with risk tables before transforming."
+        transform_error_regex = r"RiskTableMappingProcessor must be fitted or initialized with risk tables before transforming\."
         with self.assertRaisesRegex(RuntimeError, transform_error_regex):
             processor.transform(pd.Series(['A']))
         
         # For get_risk_tables()
-        # Actual message: "BinningProcessor has not been fitted or initialized with risk tables."
-        get_tables_error_regex = r"BinningProcessor has not been fitted or initialized with risk tables\."
+        # Actual message: "RiskTableMappingProcessor has not been fitted or initialized with risk tables."
+        get_tables_error_regex = r"RiskTableMappingProcessor has not been fitted or initialized with risk tables\."
         with self.assertRaisesRegex(RuntimeError, get_tables_error_regex):
             processor.get_risk_tables()
         
@@ -260,7 +260,7 @@ class TestBinningProcessor(unittest.TestCase):
         })
         # Overall mean for this data: (2 positive for X + 3 positive for Y) / (3 X's + 5 Y's) = 5/8 = 0.625
 
-        proc_no_smooth = BinningProcessor(column_name='my_feature', label_name='my_target', smooth_factor=0.0, count_threshold=0)
+        proc_no_smooth = RiskTableMappingProcessor(column_name='my_feature', label_name='my_target', smooth_factor=0.0, count_threshold=0)
         proc_no_smooth.fit(data_for_smooth_test)
         risk_X_no_smooth = proc_no_smooth.risk_tables["bins"]['X'] # Expected: 2/3
         risk_Y_no_smooth = proc_no_smooth.risk_tables["bins"]['Y'] # Expected: 3/5
@@ -270,7 +270,7 @@ class TestBinningProcessor(unittest.TestCase):
         # With smoothing (smooth_factor=1.0 means smooth_samples = N = 8)
         # Default_risk = 0.625
         # For X: count=3, risk_raw=2/3. smooth_risk_X = (3 * 2/3 + 8 * 0.625) / (3 + 8) = (2 + 5) / 11 = 7/11
-        proc_full_smooth = BinningProcessor(column_name='my_feature', label_name='my_target', smooth_factor=1.0, count_threshold=0)
+        proc_full_smooth = RiskTableMappingProcessor(column_name='my_feature', label_name='my_target', smooth_factor=1.0, count_threshold=0)
         proc_full_smooth.fit(data_for_smooth_test)
         risk_X_full_smooth = proc_full_smooth.risk_tables["bins"]['X']
         self.assertAlmostEqual(risk_X_full_smooth, 7/11, places=5)

@@ -7,9 +7,9 @@ import json
 from .processors import Processor
 
 
-class BinningProcessor(Processor):
+class RiskTableMappingProcessor(Processor):
     """
-    A processor that performs risk-based binning on a specified categorical variable.
+    A processor that performs risk-table-based mapping on a specified categorical variable.
     The 'process' method (called via __call__) handles single values.
     The 'transform' method handles pandas Series or DataFrames.
     """
@@ -70,7 +70,7 @@ class BinningProcessor(Processor):
         self.risk_tables = risk_tables
         self.is_fitted = True
 
-    def fit(self, data: pd.DataFrame) -> 'BinningProcessor':
+    def fit(self, data: pd.DataFrame) -> 'RiskTableMappingProcessor':
         if not isinstance(data, pd.DataFrame):
             raise TypeError("fit() requires a pandas DataFrame.")
         if self.label_name not in data.columns:
