@@ -23,7 +23,7 @@ class RiskTableMappingProcessor(Processor):
         risk_tables: Optional[Dict] = None
     ):
         """
-        Initialize BinningProcessor.
+        Initialize RiskTableMappingProcessor.
         
         Args:
             column_name: Name of the categorical column to be binned.
@@ -33,7 +33,7 @@ class RiskTableMappingProcessor(Processor):
             risk_tables: Optional pre-computed risk tables.
         """
         super().__init__() # Initialize base Processor
-        self.processor_name = 'binning_processor'
+        self.processor_name = 'risk_table_mapping_processor'
         # Lists primary public methods for potential introspection
         self.function_name_list = ['process', 'transform', 'fit'] 
         
@@ -152,7 +152,7 @@ class RiskTableMappingProcessor(Processor):
         This method is called when the processor instance is called as a function.
         """
         if not self.is_fitted:
-            raise RuntimeError("BinningProcessor must be fitted or initialized with risk tables before processing.")
+            raise RuntimeError("RiskTableMappingProcessor must be fitted or initialized with risk tables before processing.")
         str_value = str(input_value)
         return self.risk_tables["bins"].get(str_value, self.risk_tables["default_bin"])
 
@@ -164,7 +164,7 @@ class RiskTableMappingProcessor(Processor):
         - If data is a single value, uses the 'process' method.
         """
         if not self.is_fitted:
-            raise RuntimeError("BinningProcessor must be fitted or initialized with risk tables before transforming.")
+            raise RuntimeError("RiskTableMappingProcessor must be fitted or initialized with risk tables before transforming.")
             
         if isinstance(data, pd.DataFrame):
             if self.column_name not in data.columns:
@@ -179,7 +179,7 @@ class RiskTableMappingProcessor(Processor):
 
     def get_risk_tables(self) -> Dict:
         if not self.is_fitted:
-            raise RuntimeError("BinningProcessor has not been fitted or initialized with risk tables.")
+            raise RuntimeError("RiskTableMappingProcessor has not been fitted or initialized with risk tables.")
         return self.risk_tables
 
     def save_risk_tables(self, output_dir: Union[Path, str]) -> None:
