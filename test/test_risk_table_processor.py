@@ -42,7 +42,7 @@ class TestRiskTableMappingProcessor(unittest.TestCase):
         self.assertEqual(processor.column_name, self.column_to_bin)
         self.assertEqual(processor.label_name, self.label_column)
         self.assertFalse(processor.is_fitted)
-        self.assertEqual(processor.get_name(), 'binning_processor')
+        self.assertEqual(processor.get_name(), 'risk_table_mapping_processor')
         
         # Test initialization with risk tables
         processor_with_tables = RiskTableMappingProcessor(

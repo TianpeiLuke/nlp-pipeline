@@ -7,13 +7,15 @@ import logging
 
 # Configure logging for tests to capture warnings
 def setUpModule():
-    logging.basicConfig(level=logging.WARNING) # Set to WARNING or DEBUG to see logs
+    logging.basicConfig(level=logging.WARNING, force=True)
 
 
 from src.processing.numerical_binning_processor import NumericalBinningProcessor
 
 
 class TestNumericalBinningProcessor(unittest.TestCase):
+
+    PROCESSOR_MODULE_LOGGER_NAME = "src.processing.numerical_binning_processor"
 
     def setUp(self):
         self.column_to_bin = 'value'
@@ -30,8 +32,9 @@ class TestNumericalBinningProcessor(unittest.TestCase):
         self.data_all_nan_for_fit = pd.DataFrame({
             self.column_to_bin: [np.nan, np.nan, np.nan]
         })
-        self.data_qcut_fail = pd.DataFrame({ # This data will cause qcut to fail if n_bins > 1
-            self.column_to_bin: [1.0] * 10
+        self.data_qcut_fail = pd.DataFrame({ 
+            self.column_to_bin: [1.0] * 10 # This data will NOT cause qcut to raise ValueError with duplicates='drop'
+                                          # It will trigger "fewer unique values" and "bin adjustment" warnings.
         })
 
 
@@ -95,21 +98,35 @@ class TestNumericalBinningProcessor(unittest.TestCase):
         self.assertTrue(1 <= processor.n_bins_actual_ <= 4)
         self.assertFalse(processor.actual_labels_) 
 
-    def test_fit_quantile_fallback(self):
+    def test_fit_quantile_behavior_with_few_uniques(self): # Renamed from test_fit_quantile_fallback
         processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=4, strategy='quantile')
-        with self.assertLogs(logger='numerical_binning_processor', level='WARNING') as log_capture:
-            processor.fit(self.data_qcut_fail) # This data will cause qcut to fail
-        self.assertTrue(any("Quantile binning failed" in message for message in log_capture.output) and \
-                        any("Falling back to equal-width binning" in message for message in log_capture.output))
-        self.assertEqual(processor.strategy, 'quantile') 
+        # self.data_qcut_fail has only 1 unique value.
+        # Expect "fewer unique values", "Could not create valid bins", and "Number of bins ... adjusted" warnings.
+        with self.assertLogs(level='WARNING') as log_capture: # Capture from root
+            processor.fit(self.data_qcut_fail)
+        
+        # Filter for messages from the specific logger
+        module_logs = [record.getMessage() for record in log_capture.records if record.name == self.PROCESSOR_MODULE_LOGGER_NAME]
+
+        self.assertTrue(any("fewer unique values" in message for message in module_logs), "Missing 'fewer unique values' warning.")
+        self.assertTrue(any("Could not create valid bins" in message for message in module_logs), "Missing 'Could not create valid bins' warning.")
+        self.assertTrue(any("Number of bins for column 'value' was adjusted" in message for message in module_logs), "Missing 'Number of bins adjusted' warning.")
+        
+        # The "Quantile binning failed... Falling back" message should NOT be present for this data
+        self.assertFalse(any("Quantile binning failed" in message and "Falling back" in message for message in module_logs),
+                         "'Quantile binning failed... Falling back' log should not occur for this data.")
+        
+        self.assertEqual(processor.strategy, 'quantile') # Strategy itself doesn't change unless qcut fails with ValueError
         self.assertTrue(processor.is_fitted)
-        self.assertTrue(processor.n_bins_actual_ > 0) # Should have at least 1 bin after fallback
+        self.assertEqual(processor.n_bins_actual_, 1) # Should default to 1 bin
 
     def test_fit_single_unique_value(self):
         processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
-        with self.assertLogs(logger='numerical_binning_processor', level='WARNING') as log_capture:
+        with self.assertLogs(level='WARNING') as log_capture: # Capture from root
             processor.fit(self.data_single_value)
-        self.assertTrue(any("single unique value" in message and "Creating one bin" in message for message in log_capture.output))
+        
+        module_logs = [record.getMessage() for record in log_capture.records if record.name == self.PROCESSOR_MODULE_LOGGER_NAME]
+        self.assertTrue(any("single unique value" in message and "Creating one bin" in message for message in module_logs))
         self.assertEqual(processor.n_bins_actual_, 1)
         self.assertEqual(len(processor.bin_edges_), 2) 
         self.assertEqual(processor.actual_labels_, ['Bin_0'])
@@ -129,19 +146,23 @@ class TestNumericalBinningProcessor(unittest.TestCase):
             strategy='quantile', 
             bin_labels=['Label1', 'Label2'] 
         )
-        with self.assertLogs(logger='numerical_binning_processor', level='WARNING') as log_capture:
+        with self.assertLogs(level='WARNING') as log_capture: # Capture from root
             processor.fit(self.data_few_unique) 
         
-        label_mismatch_warning_present = any("Provided bin_labels length" in message for message in log_capture.output)
-        bin_adjustment_warning_present = any("Number of bins for column" in message for message in log_capture.output)
+        module_logs = [record.getMessage() for record in log_capture.records if record.name == self.PROCESSOR_MODULE_LOGGER_NAME]
+        
+        label_mismatch_warning_present = any("Provided bin_labels length" in message for message in module_logs)
+        bin_adjustment_warning_present = any("Number of bins for column" in message for message in module_logs)
         
         self.assertTrue(label_mismatch_warning_present or bin_adjustment_warning_present, 
                         "Expected a warning for either bin adjustment or label mismatch.")
 
-        if processor.n_bins_actual_ != 2 or processor.actual_labels_ != ['Label1', 'Label2']:
-             self.assertEqual(processor.actual_labels_, [f"Bin_{i}" for i in range(processor.n_bins_actual_)])
-        else: 
-            self.assertEqual(processor.actual_labels_, ['Label1', 'Label2'])
+        # Logic for checking actual_labels_ after potential warnings
+        if processor.n_bins_actual_ == 2 and processor.actual_labels_ == ['Label1', 'Label2']:
+            pass # Labels matched the adjusted number of bins
+        else:
+            # If labels didn't match n_bins_actual_, default labels should have been used
+            self.assertEqual(processor.actual_labels_, [f"Bin_{i}" for i in range(processor.n_bins_actual_)])
 
 
     def test_process_value(self):
@@ -161,33 +182,37 @@ class TestNumericalBinningProcessor(unittest.TestCase):
             column_name=self.column_to_bin, n_bins=2, strategy='equal-width',
             handle_missing_value="MISSING_VAL", handle_out_of_range="OOR_VAL"
         )
-        processor.fit(self.data[self.data[self.column_to_bin].between(1, 10, inclusive='both')])
+        # Fit on data [1..10]
+        fit_data = self.data[self.data[self.column_to_bin].between(1, 10, inclusive='both')].copy()
+        processor.fit(fit_data)
+        # Expected: min_fitted=1, max_fitted=10. Edges for 2 bins: [1, 5.5, 10]
 
         self.assertEqual(processor.process(np.nan), "MISSING_VAL")
-        self.assertEqual(processor.process(0.0), "OOR_VAL")   
-        self.assertEqual(processor.process(101.0), "OOR_VAL") 
-        self.assertEqual(processor.process(3.0), "Bin_0") 
+        self.assertEqual(processor.process(0.0), "OOR_VAL")   # Below min_fitted_value_
+        self.assertEqual(processor.process(101.0), "OOR_VAL") # Above max_fitted_value_
+        self.assertEqual(processor.process(3.0), "Bin_0") # Within range
 
         processor_boundary = NumericalBinningProcessor(
-            column_name=self.column_to_bin, n_bins=2, strategy='equal-width', handle_out_of_range="boundary_bins"
+            column_name=self.column_to_bin, n_bins=2, strategy='equal-width', 
+            handle_out_of_range="boundary_bins", handle_missing_value="as_is"
         )
-        processor_boundary.fit(self.data[self.data[self.column_to_bin].between(1, 10, inclusive='both')])
-        self.assertEqual(processor_boundary.process(0.0), "Bin_0") 
-        self.assertEqual(processor_boundary.process(101.0), "Bin_1")
-        self.assertIsNone(processor_boundary.process(np.nan)) 
+        processor_boundary.fit(fit_data)
+        self.assertEqual(processor_boundary.process(0.0), "Bin_0") # Should go to the first bin
+        self.assertEqual(processor_boundary.process(101.0), "Bin_1")# Should go to the last bin
+        self.assertIsNone(processor_boundary.process(np.nan)) # "as_is" for missing
 
     def test_transform_series(self):
         processor = NumericalBinningProcessor(
             column_name=self.column_to_bin, n_bins=2, strategy='equal-width', 
             bin_labels=['Low', 'High'], handle_missing_value="SpecialMissing",
-            handle_out_of_range="BoundaryValue" # Using a specific OOR for this test
+            handle_out_of_range="BoundaryValueAssigned" 
         )
         processor.fit(self.data[self.data[self.column_to_bin].between(1, 10, inclusive='both')])
         
         series_to_transform = pd.Series([1.0, 3.0, 5.5, 6.0, 10.0, np.nan, 0.0, 100.0])
         transformed = processor.transform(series_to_transform)
         
-        expected_values = ['Low', 'Low', 'Low', 'High', 'High', 'SpecialMissing', 'BoundaryValue', 'BoundaryValue']
+        expected_values = ['Low', 'Low', 'Low', 'High', 'High', 'SpecialMissing', 'BoundaryValueAssigned', 'BoundaryValueAssigned']
         expected_pd_series = pd.Series(expected_values, dtype=str)
         
         pd.testing.assert_series_equal(transformed, expected_pd_series, check_dtype=False)
