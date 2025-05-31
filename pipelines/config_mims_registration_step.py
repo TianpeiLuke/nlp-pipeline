@@ -3,7 +3,7 @@ from typing import Union, Optional, Dict, List, Any
 from enum import Enum
 from datetime import datetime
 
-from .config_processing_step_base import ProcessingStepConfigBase
+from .config_base import BasePipelineConfig
 
 
 class VariableType(str, Enum):
@@ -23,8 +23,8 @@ class VariableType(str, Enum):
         return self.value
     
     
-class ModelRegistrationConfig(ProcessingStepConfigBase):
-    """Configuration for model registration step, extending ProcessingStepConfigBase."""
+class ModelRegistrationConfig(BasePipelineConfig):
+    """Configuration for model registration step."""
     
     # Model registration specific fields
     model_owner: str = Field(
@@ -40,7 +40,7 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
         description="Objective of model registration"
     )
 
-    # Content and response types with Literal type
+    # Content and response types
     source_model_inference_content_types: List[str] = Field(
         default=["text/csv"],
         description="Content type for model inference input. Must be exactly ['text/csv'] or ['application/json']"
@@ -63,13 +63,7 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
         description="Dictionary of input variables and their types (NUMERIC or TEXT)"
     )
 
-    # Override or specify which processing instance type to use
-    use_large_instance: bool = Field(
-        default=False,
-        description="Whether to use large instance type for processing"
-    )
-    
-    class Config:
+    class Config(BasePipelineConfig.Config):
         arbitrary_types_allowed = True
         validate_assignment = True
         extra = 'forbid'
@@ -77,10 +71,14 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
             VariableType: lambda v: v.value
         }
 
-    @property
-    def processing_instance_type(self) -> str:
-        """Get the appropriate instance type based on configuration"""
-        return self.processing_instance_type_large if self.use_large_instance else self.processing_instance_type_small
+    @field_validator('source_model_inference_content_types', 'source_model_inference_response_types')
+    @classmethod
+    def validate_content_types(cls, v: List[str]) -> List[str]:
+        """Validate content and response types"""
+        valid_types = [["text/csv"], ["application/json"]]
+        if v not in valid_types:
+            raise ValueError(f"Content/Response types must be one of {valid_types}")
+        return v
 
     @field_validator('source_model_inference_output_variable_list', 'source_model_inference_input_variable_list')
     @classmethod
@@ -105,6 +103,13 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
     
         return result
 
+    @model_validator(mode='after')
+    def validate_registration_configs(self) -> 'ModelRegistrationConfig':
+        """Validate registration-specific configurations"""
+        if not self.model_registration_objective:
+            raise ValueError("model_registration_objective must be provided")
+        
+        return self
         
     def get_registration_job_name(self) -> str:
         """Generate a unique registration job name"""
@@ -131,14 +136,14 @@ class ModelRegistrationConfig(ProcessingStepConfigBase):
         for name, var_type in self.source_model_inference_input_variable_list.items():
             schema["input"]["variables"].append({
                 "name": name,
-                "type": var_type.value
+                "type": var_type if isinstance(var_type, str) else var_type.value
             })
             
         # Add output variables
         for name, var_type in self.source_model_inference_output_variable_list.items():
             schema["output"]["variables"].append({
                 "name": name,
-                "type": var_type.value
+                "type": var_type if isinstance(var_type, str) else var_type.value
             })
             
         return schema

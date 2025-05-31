@@ -24,7 +24,8 @@ class StepBuilderBase(ABC):
         'Model': 'CreateModelStep',
         'Package': 'PackagingStep',
         'Payload': 'PayloadTestStep',
-        'Registration': 'RegistrationStep'
+        'Registration': 'RegistrationStep',
+        'Currency_Conversion': 'CurrencyConversionStep'
     }
 
     def __init__(

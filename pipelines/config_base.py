@@ -4,6 +4,16 @@ from pathlib import Path
 import json
 from datetime import datetime
 
+STEP_REGISTRY = {
+        'BasePipelineConfig': 'Base',
+        'PytorchTrainingConfig': 'Training',
+        'PytorchModelCreationConfig': 'Model',
+        'ProcessingStepConfigBase': 'Processing',
+        'PackageStepConfig': 'Package',
+        'ModelRegistrationConfig': 'Registration',
+        'PayloadConfig': 'Payload'
+    }
+
 
 class BasePipelineConfig(BaseModel):
     """Base configuration with shared pipeline attributes."""
@@ -15,15 +25,7 @@ class BasePipelineConfig(BaseModel):
         "FE": "us-west-2"
     }
     
-    STEP_NAMES: ClassVar[Dict[str, str]] = {
-        'BasePipelineConfig': 'Base',
-        'PytorchTrainingConfig': 'Training',
-        'PytorchModelCreationConfig': 'Model',
-        'ProcessingStepConfigBase': 'Processing',
-        'PackageStepConfig': 'Package',
-        'ModelRegistrationConfig': 'Registration',
-        'PayloadConfig': 'Payload'
-    }
+    STEP_NAMES: ClassVar[Dict[str, str]] = STEP_REGISTRY
     
     # Shared basic info
     bucket: str = Field(description="S3 bucket name for pipeline artifacts and data.")

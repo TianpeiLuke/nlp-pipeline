@@ -7,7 +7,6 @@ from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.properties import Properties
 
-
 from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_registration_processing_step import (
     MimsModelRegistrationProcessingStep,
 )
@@ -29,18 +28,48 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         notebook_root: Optional[Path] = None
     ):
         super().__init__(config, sagemaker_session, role, notebook_root)
-        self.config: ModelRegistrationConfig = config  # Type hint for IDE support
+        self.config: ModelRegistrationConfig = config
 
     def validate_configuration(self) -> None:
         """Validate required configuration settings"""
-        # Most validations are handled by ModelRegistrationConfig
-        # Additional business logic validations can be added here
+        logger.info("Validating model registration configuration...")
+
+        # Validate required attributes
+        required_attrs = [
+            'model_owner',
+            'model_registration_domain',
+            'model_registration_objective',
+            'source_model_inference_content_types',
+            'source_model_inference_response_types'
+        ]
+
+        for attr in required_attrs:
+            if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
+                raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
+
+        # Validate variable lists
         if not self.config.source_model_inference_output_variable_list:
             raise ValueError("At least one output variable must be defined")
 
+        if not self.config.source_model_inference_input_variable_list:
+            logger.warning("No input variables defined for model registration")
+
+        # Validate content types
+        valid_content_types = ["text/csv", "application/json"]
+        for content_type in self.config.source_model_inference_content_types:
+            if content_type not in valid_content_types:
+                raise ValueError(f"Invalid content type: {content_type}. Must be one of {valid_content_types}")
+
+        for response_type in self.config.source_model_inference_response_types:
+            if response_type not in valid_content_types:
+                raise ValueError(f"Invalid response type: {response_type}. Must be one of {valid_content_types}")
+
         logger.info(
-            f"Validated registration configuration for region {self.config.region} "
-            f"with {len(self.config.source_model_inference_output_variable_list)} output variables"
+            f"Validated registration configuration for region {self.config.region}\n"
+            f"Domain: {self.config.model_registration_domain}\n"
+            f"Objective: {self.config.model_registration_objective}\n"
+            f"Input variables: {len(self.config.source_model_inference_input_variable_list)}\n"
+            f"Output variables: {len(self.config.source_model_inference_output_variable_list)}"
         )
 
     def _get_processing_inputs(
@@ -48,17 +77,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         packaging_step_output: Union[str, Properties],
         payload_s3_key: Optional[str] = None
     ) -> List[ProcessingInput]:
-        """
-        Get processing inputs for registration step.
-        
-        Args:
-            packaging_step_output: S3 path or Properties object from packaging step
-            payload_s3_key: Optional path to key for sample payload
-            
-        Returns:
-            List of ProcessingInput objects
-        """
-        # Create model input without string formatting of Properties object
+        """Get processing inputs for registration step."""
         model_input = ProcessingInput(
             source=packaging_step_output,
             destination="/opt/ml/processing/input/model",
@@ -69,7 +88,6 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         inputs = [model_input]
 
         if payload_s3_key:
-            # Assume that the payload is uploaded to default bucket
             payload_url = f"s3://{self.config.bucket}/{payload_s3_key}"
             inputs.append(
                 ProcessingInput(
@@ -84,11 +102,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
 
     def _validate_regions(self, regions: List[str]) -> None:
         """Validate region codes"""
-        invalid_regions = [r for r in regions if r not in self.REGION_MAPPING]
+        invalid_regions = [r for r in regions if r not in self.config.REGION_MAPPING]
         if invalid_regions:
             raise ValueError(
                 f"Invalid region(s): {invalid_regions}. "
-                f"Must be one of: {', '.join(self.REGION_MAPPING.keys())}"
+                f"Must be one of: {', '.join(self.config.REGION_MAPPING.keys())}"
             )
 
     def create_step(
@@ -98,22 +116,10 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         payload_s3_key: Optional[str] = None,
         regions: Optional[List[str]] = None,
     ) -> Union[Step, Dict[str, Step]]:
-        """
-        Create registration steps for specified regions.
-        
-        Args:
-            packaging_step_output: S3 path or Properties object from packaging step
-            dependencies: List of dependent steps
-            payload_s3_key: Optional path to key for sample payload
-            regions: List of regions (defaults to config region)
-            
-        Returns:
-            Single step or dictionary mapping region codes to registration steps
-        """
+        """Create registration steps for specified regions."""
         regions = regions or [self.config.region]
         self._validate_regions(regions)
 
-        # Log the packaging step output reference instead of the value
         if isinstance(packaging_step_output, Properties):
             logger.info("Creating registration steps with packaging output from Properties")
         else:
@@ -125,16 +131,17 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             logger.info(f"Creating registration step for region {region}")
             
             try:
+                registration_inputs = self._get_processing_inputs(
+                    packaging_step_output,
+                    payload_s3_key
+                )
+
                 step = MimsModelRegistrationProcessingStep(
                     step_name=step_name,
                     role=self.role,
                     sagemaker_session=self.session,
-                    processing_input=self._get_processing_inputs(
-                        packaging_step_output,
-                        payload_s3_key
-                    ),
-                    depends_on=dependencies or []
-                    #performance_metadata_location is an attribute for this step but need additional evaluation step to confirm
+                    processing_input=registration_inputs,
+                    depends_on=dependencies or [],
                 )
                 registration_steps[region] = step
                 logger.info(f"Created registration step for {region}")
@@ -146,7 +153,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if len(regions) == 1:
             return registration_steps[regions[0]]
         return registration_steps
-
+    
     # Maintain backwards compatibility
     def create_registration_steps(
         self,
