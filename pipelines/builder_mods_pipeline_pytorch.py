@@ -104,6 +104,7 @@ class PytorchPipelineBuilder:
         logger.info(f"Creating model step with model from: {model_s3_path}")
         
         # Force the model region to be NA
+        logger.info("Forcing model region to NA")
         self.model_config.region = 'NA'
         self.model_config.aws_region = 'us-east-1'
         logger.info(f"Model aws region: {self.model_config.aws_region}")
@@ -167,15 +168,6 @@ class PytorchPipelineBuilder:
             
             # Log using expr
             logger.info(f"Using output expression: {outputs[0].expr}")
-
-            '''
-            return registration_builder.create_step(
-                packaging_step_output=s3_uri,
-                payload_s3_key=self.payload_config.sample_payload_s3_key,
-                dependencies=[packaging_step],
-                regions=[self.base_config.region]
-            )
-            '''
             
             result = registration_builder.create_step(
                 packaging_step_output=s3_uri,
