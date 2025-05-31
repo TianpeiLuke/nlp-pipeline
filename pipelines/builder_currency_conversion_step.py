@@ -9,7 +9,7 @@ from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.properties import Properties
 
-from .config_currency_conversion import CurrencyConversionConfig
+from .config_currency_conversion_step import CurrencyConversionConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
