@@ -11,7 +11,8 @@ STEP_REGISTRY = {
         'ProcessingStepConfigBase': 'Processing',
         'PackageStepConfig': 'Package',
         'ModelRegistrationConfig': 'Registration',
-        'PayloadConfig': 'Payload'
+        'PayloadConfig': 'Payload',
+        'CradleDataLoadConfig': 'CradleDataLoading',
     }
 
 

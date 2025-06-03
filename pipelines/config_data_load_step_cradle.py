@@ -295,6 +295,12 @@ class CradleDataLoadConfig(BasePipelineConfig):
       - output_schema, output_path, output_format, output_save_mode, ...
       - cluster_type, cradle_account, extra_spark_job_arguments, job_retry_count
     """
+    # 0) New field: what this job is for (training / validation / test)
+    job_type: str = Field(
+        ...,
+        description="One of ['training','validation','test'] to indicate which dataset this job is pulling"
+    )
+
     # 1) MDS + EDX source configs
     mds_source: MdsDataSourceConfig = Field(
         ...,
@@ -388,6 +394,13 @@ class CradleDataLoadConfig(BasePipelineConfig):
         default=None,
         description="If set, skip Cradle data pull and use this S3 prefix directly"
     )
+
+    @validator("job_type")
+    def validate_job_type(cls, v: str) -> str:
+        allowed = {"training", "validation", "test"}
+        if v not in allowed:
+            raise ValueError(f"job_type must be one of {allowed}, got '{v}'")
+        return v
 
     @validator("start_date", "end_date")
     def check_exact_datetime_format(cls, v: str, field):

@@ -65,23 +65,29 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         Called by StepBuilderBase.__init__(). Ensures required fields are set
         and in the correct format.
 
-        In particular, 'start_date' and 'end_date' must exactly match
-        'YYYY-mm-DD'T'HH:MM:SS' (e.g., '2025-01-01T00:00:00').
+        In particular:
+          - job_type ∈ {'training','validation','test'}
+          - mds_source & tag_source must exist
+          - start_date and end_date must exactly match 'YYYY-mm-DDTHH:MM:SS'
+          - start_date < end_date
         """
-
         logger.info("Validating CradleDataLoadConfig…")
 
-        # (1) MDS & EDX source must both exist
+        # (1) job_type is already validated by Pydantic, but double-check presence:
+        if not self.config.job_type:
+            raise ValueError("job_type must be provided (e.g. 'training','validation','test').")
+
+        # (2) MDS & EDX source must both exist
         if not self.config.mds_source:
             raise ValueError("mds_source must be provided.")
         if not self.config.tag_source:
             raise ValueError("tag_source must be provided.")
 
-        # (2) Verify that the EDX ARN is a nonempty string
+        # (3) Verify that the EDX ARN is a nonempty string
         if not self.config.tag_source.edx_arn:
             raise ValueError("tag_source.edx_arn must be provided.")
 
-        # (3) Check that start_date & end_date match exact format YYYY-mm-DD'T'HH:MM:SS
+        # (4) Check that start_date & end_date match exact format YYYY-mm-DDTHH:MM:SS
         for field_name in ("start_date", "end_date"):
             value = getattr(self.config, field_name)
             try:
@@ -91,21 +97,18 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                     f"'{field_name}' must be in format YYYY-mm-DD'T'HH:MM:SS "
                     f"(e.g. '2025-01-01T00:00:00'), got: {value!r}"
                 )
-            # Double‐check that re‐formatted string matches exactly
             if parsed.strftime("%Y-%m-%dT%H:%M:%S") != value:
                 raise ValueError(
                     f"'{field_name}' does not match the required format exactly; got {value!r}"
                 )
 
-        # (4) Also ensure start_date < end_date
+        # (5) Also ensure start_date < end_date
         s = datetime.strptime(self.config.start_date, "%Y-%m-%dT%H:%M:%S")
         e = datetime.strptime(self.config.end_date, "%Y-%m-%dT%H:%M:%S")
         if s >= e:
             raise ValueError("start_date must be strictly before end_date.")
 
-        # (5) The rest of the field‐level validation is handled by Pydantic
-        #     (e.g. output_path must start with 's3://', output_format must be valid, etc.)
-        #     so no need to re‐validate those here.
+        # (6) Everything else (S3 URI, output_format, cluster_type, etc.) is validated by Pydantic already.
 
         logger.info("CradleDataLoadConfig validation succeeded.")
 
@@ -207,7 +210,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         logger.debug("CradleDataLoad request (dict): %s", request_dict)
 
         # Instantiate the actual CradleDataLoadingStep
-        step_name = self._get_step_name('CradleDataLoadingStep')
+        step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
         step = CradleDataLoadingStep(
             step_name=step_name,
             role=self.role,
