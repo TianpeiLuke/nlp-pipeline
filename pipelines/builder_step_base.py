@@ -9,6 +9,20 @@ from .config_base import BasePipelineConfig
 
 logger = logging.getLogger(__name__)
 
+
+STEP_NAMES = {
+    'Base': 'BaseStep',
+    'Processing': 'ProcessingStep',
+    'Training': 'TrainingStep',
+    'Model': 'CreateModelStep',
+    'Package': 'PackagingStep',
+    'Payload': 'PayloadTestStep',
+    'Registration': 'RegistrationStep',
+    'CurrencyConversion': 'CurrencyConversionStep',
+    'CradleDataLoading': 'CradleDataLoadingStep',
+    }
+
+
 class StepBuilderBase(ABC):
     """Base class for all step builders"""
 
@@ -19,15 +33,7 @@ class StepBuilderBase(ABC):
     }
 
     # Define standard step names
-    STEP_NAMES = {
-        'Training': 'TrainingStep',
-        'Model': 'CreateModelStep',
-        'Package': 'PackagingStep',
-        'Payload': 'PayloadTestStep',
-        'Registration': 'RegistrationStep',
-        'CurrencyConversion': 'CurrencyConversionStep',
-        'CradleDataLoading': 'CradleDataLoadingStep',
-    }
+    STEP_NAMES = STEP_NAMES
 
     def __init__(
         self,
