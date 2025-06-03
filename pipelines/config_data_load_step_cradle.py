@@ -390,11 +390,23 @@ class CradleDataLoadConfig(BasePipelineConfig):
     )
 
     @validator("start_date", "end_date")
-    def check_iso_format(cls, v: str) -> str:
+    def check_exact_datetime_format(cls, v: str, field):
+        """
+        Ensure value matches exactly "YYYY-mm-DD'T'HH:MM:SS".
+        Raises ValueError if parsing fails or format deviates.
+        """
         try:
-            datetime.fromisoformat(v.replace("Z", "+00:00"))
+            # Try parsing with the exact format. This will fail if any part is off.
+            parsed = datetime.strptime(v, "%Y-%m-%dT%H:%M:%S")
         except Exception:
-            raise ValueError(f"{v!r} is not a valid ISO‐8601 timestamp")
+            raise ValueError(
+                f"{field.name!r} must be in format YYYY-mm-DD'T'HH:MM:SS (e.g. '2025-01-01T00:00:00'), got: {v!r}"
+            )
+        # Optionally, re‐stringify to catch things like out‐of‐range months/days.
+        if parsed.strftime("%Y-%m-%dT%H:%M:%S") != v:
+            raise ValueError(
+                f"{field.name!r} does not match the required format exactly; got {v!r}"
+            )
         return v
 
     @validator("merge_sql", always=True)
@@ -425,7 +437,7 @@ class CradleDataLoadConfig(BasePipelineConfig):
 
     @validator("cluster_type")
     def validate_cluster_type(cls, v: str) -> str:
-        allowed = {"SMALL", "MEDIUM", "LARGE"}
+        allowed = {"STANDARD", "SMALL", "MEDIUM", "LARGE"}
         if v not in allowed:
             raise ValueError(f"cluster_type must be one of {allowed}")
         return v
