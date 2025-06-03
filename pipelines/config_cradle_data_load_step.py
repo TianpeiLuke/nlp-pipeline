@@ -9,7 +9,7 @@ from .config_base import BasePipelineConfig
 class MdsDataSourceConfig(BaseModel):
     """
     Corresponds to MdsDataSourceProperties:
-      - service_name: e.g. "AtoZ"
+      - service_name
       - org_id: integer organization ID
       - region: e.g. "NA", "EU", or "FE"
       - output_schema: list of Field-like dicts (each with field_name & field_type)
@@ -17,7 +17,7 @@ class MdsDataSourceConfig(BaseModel):
     """
     service_name: str = Field(
         ...,
-        description="Name of the MDS service (e.g. 'AtoZ')"
+        description="Name of the MDS service"
     )
     org_id: int = Field(
         ...,
