@@ -1,15 +1,54 @@
 from typing import Dict, Optional, List, Union
 from pathlib import Path
+import os
+import importlib
 import logging
+from dotenv import load_dotenv # For loading .env file
 
 from sagemaker.processing import ProcessingInput
 from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.properties import Properties
 
-from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_registration_processing_step import (
-    MimsModelRegistrationProcessingStep,
+# Load environment variables from .env file
+# Ensure load_dotenv() is called early in your application's entry point.
+# If .env is in a specific location relative to the script, you might use:
+# from pathlib import Path
+# dotenv_path = Path(__file__).resolve().parent / '.env' # Assuming .env is in the same dir as script
+# load_dotenv(dotenv_path=dotenv_path)
+# Or, if .env is in the project root and scripts are in subdirectories:
+# dotenv_path = Path(__file__).resolve().parent.parent / '.env' # Go up one level for project root
+# load_dotenv(dotenv_path=dotenv_path)
+# For SageMaker, environment variables are typically set directly in the job configuration.
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# Helper function for dynamic imports
+def import_from_env(env_var_name_for_module: str, class_or_object_name: str):
+    module_path = os.environ.get(env_var_name_for_module)
+    if not module_path:
+        logger.error(f"Environment variable '{env_var_name_for_module}' not set. Cannot import '{class_or_object_name}'.")
+        return None
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_or_object_name)
+    except ImportError:
+        logger.error(f"Could not import module '{module_path}' for '{class_or_object_name}'.")
+        return None
+    except AttributeError:
+        logger.error(f"'{class_or_object_name}' not found in module '{module_path}'.")
+        return None
+    
+
+MimsModelRegistrationProcessingStep = import_from_env(
+    "SECUREAI_MIMS_REGISTRATION_STEP_MODULE",
+    "MimsModelRegistrationProcessingStep"
 )
+if MimsModelRegistrationProcessingStep:
+    logger.info("MimsModelRegistrationProcessingStep class is available.")
+else:
+    logger.warning("MimsModelRegistrationProcessingStep class is not available.")
 
 from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
