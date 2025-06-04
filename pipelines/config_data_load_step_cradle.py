@@ -1,7 +1,9 @@
+# File: pipelines/config_cradle_data_load.py
+
 from typing import List, Optional, Dict, Any
-from pathlib import Path
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pathlib import Path
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config_base import BasePipelineConfig
 
@@ -20,8 +22,8 @@ class MdsDataSourceConfig(BaseModel):
         description="Name of the MDS service"
     )
     org_id: int = Field(
-        ...,
-        description="Organization ID (integer) for MDS"
+        default=0,
+        description="Organization ID (integer) for MDS. Default as 0 for regional MDS bucket."
     )
     region: str = Field(
         ...,
@@ -37,7 +39,8 @@ class MdsDataSourceConfig(BaseModel):
         description="Whether to use the hourly EDX dataset flag in MDS"
     )
 
-    @validator("region")
+    @field_validator("region")
+    @classmethod
     def validate_region(cls, v: str) -> str:
         valid = {"NA", "EU", "FE"}
         if v not in valid:
@@ -47,19 +50,57 @@ class MdsDataSourceConfig(BaseModel):
 
 class EdxDataSourceConfig(BaseModel):
     """
-    Corresponds to EdxDataSourceProperties:
-      - edx_arn: string ARN for the EDX manifest
+    Corresponds to EdxDataSourceProperties, but now:
+      - edx_manifest: must begin with
+          "arn:amazon:edx:iad::manifest/{edx_provider}/{edx_subject}/{edx_dataset}/"
+      - edx_provider: part of ARN path
+      - edx_subject: part of ARN path
+      - edx_dataset: part of ARN path
       - schema_overrides: list of Field-like dicts (each with field_name & field_type)
     """
-    edx_arn: str = Field(
+    edx_provider: str = Field(
         ...,
-        description="ARN string for the EDX manifest (e.g. 'arn:amazon:edx:…')"
+        description="Provider portion of the EDX manifest ARN"
+    )
+    edx_subject: str = Field(
+        ...,
+        description="Subject portion of the EDX manifest ARN"
+    )
+    edx_dataset: str = Field(
+        ...,
+        description="Dataset portion of the EDX manifest ARN"
+    )
+    edx_manifest: str = Field(
+        ...,
+        description=(
+            "Full ARN of the EDX manifest. Must begin with "
+            "'arn:amazon:edx:iad::manifest/{edx_provider}/{edx_subject}/{edx_dataset}/…'"
+        )
     )
     schema_overrides: List[Dict[str, Any]] = Field(
         ...,
-        description="List of dicts overriding the EDX schema, "
-                    "e.g. [{'field_name':'order_id','field_type':'STRING'}, …]"
+        description=(
+            "List of dicts overriding the EDX schema, e.g. "
+            "[{'field_name':'order_id','field_type':'STRING'}, …]"
+        )
     )
+
+    @model_validator(mode="after")
+    @classmethod
+    def check_manifest_prefix(cls, model: "EdxDataSourceConfig") -> "EdxDataSourceConfig":
+        """
+        Ensure edx_manifest starts with the exact prefix:
+            "arn:amazon:edx:iad::manifest/{edx_provider}/{edx_subject}/{edx_dataset}/"
+        """
+        prefix = (
+            f"arn:amazon:edx:iad::manifest/"
+            f"{model.edx_provider}/{model.edx_subject}/{model.edx_dataset}/"
+        )
+        if not model.edx_manifest.startswith(prefix):
+            raise ValueError(
+                f"edx_manifest must begin with '{prefix}', got '{model.edx_manifest}'"
+            )
+        return model
 
 
 class DataSourceConfig(BaseModel):
@@ -86,55 +127,62 @@ class DataSourceConfig(BaseModel):
         description="If data_source_type=='EDX', this must be provided"
     )
 
-    @validator("data_source_type")
+    @field_validator("data_source_type")
+    @classmethod
     def validate_type(cls, v: str) -> str:
         allowed = {"MDS", "EDX"}
         if v not in allowed:
             raise ValueError(f"data_source_type must be one of {allowed}, got '{v}'")
         return v
 
-    @validator("mds_data_source_properties", always=True)
-    def check_mds_props_for_mds_type(cls, v, values):
-        t = values.get("data_source_type")
-        if t == "MDS" and v is None:
+    @model_validator(mode="after")
+    @classmethod
+    def check_properties(cls, model: "DataSourceConfig") -> "DataSourceConfig":
+        t = model.data_source_type
+        if t == "MDS" and model.mds_data_source_properties is None:
             raise ValueError("mds_data_source_properties must be set when data_source_type=='MDS'")
-        return v
-
-    @validator("edx_data_source_properties", always=True)
-    def check_edx_props_for_edx_type(cls, v, values):
-        t = values.get("data_source_type")
-        if t == "EDX" and v is None:
+        if t == "EDX" and model.edx_data_source_properties is None:
             raise ValueError("edx_data_source_properties must be set when data_source_type=='EDX'")
-        return v
+        return model
 
 
 class DataSourcesSpecificationConfig(BaseModel):
     """
     Corresponds to com.amazon.secureaisandboxproxyservice.models.datasourcesspecification.DataSourcesSpecification:
-      - start_date (ISO string)
-      - end_date (ISO string)
+      - start_date (exact format 'YYYY-mm-DDTHH:MM:SS')
+      - end_date (exact format 'YYYY-mm-DDTHH:MM:SS')
       - data_sources: list of DataSourceConfig
     """
     start_date: str = Field(
         ...,
-        description="ISO‐8601 start date/time for data pull (e.g. '2025-01-01T00:00:00')"
+        description="Start timestamp exactly 'YYYY-mm-DDTHH:MM:SS', e.g. '2025-01-01T00:00:00'"
     )
     end_date: str = Field(
         ...,
-        description="ISO‐8601 end date/time for data pull (e.g. '2025-04-17T00:00:00')"
+        description="End timestamp exactly 'YYYY-mm-DDTHH:MM:SS', e.g. '2025-04-17T00:00:00'"
     )
     data_sources: List[DataSourceConfig] = Field(
         ...,
         description="List of DataSourceConfig objects (both MDS and EDX)"
     )
 
-    @validator("start_date", "end_date")
-    def validate_iso8601(cls, v: str) -> str:
-        # A quick check: must parse as datetime
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_exact_datetime_format(cls, v: str, field) -> str:
+        """
+        Must match exactly "%Y-%m-%dT%H:%M:%S"
+        """
         try:
-            datetime.fromisoformat(v.replace("Z", "+00:00"))
+            parsed = datetime.strptime(v, "%Y-%m-%dT%H:%M:%S")
         except Exception:
-            raise ValueError(f"'{v}' is not a valid ISO‐8601 timestamp")
+            raise ValueError(
+                f"{field.name!r} must be in format YYYY-mm-DD'T'HH:MM:SS "
+                f"(e.g. '2025-01-01T00:00:00'), got {v!r}"
+            )
+        if parsed.strftime("%Y-%m-%dT%H:%M:%S") != v:
+            raise ValueError(
+                f"{field.name!r} does not match the required format exactly; got {v!r}"
+            )
         return v
 
 
@@ -159,17 +207,19 @@ class JobSplitOptionsConfig(BaseModel):
                     "For example: 'SELECT * FROM INPUT'."
     )
 
-    @validator("days_per_split")
+    @field_validator("days_per_split")
+    @classmethod
     def days_must_be_positive(cls, v: int) -> int:
         if v < 1:
             raise ValueError("days_per_split must be ≥ 1")
         return v
 
-    @validator("merge_sql", always=True)
-    def require_merge_sql_if_split(cls, v, values):
-        if values.get("split_job") and not v:
+    @model_validator(mode="after")
+    @classmethod
+    def require_merge_sql_if_split(cls, model: "JobSplitOptionsConfig") -> "JobSplitOptionsConfig":
+        if model.split_job and not model.merge_sql:
             raise ValueError("If split_job=True, merge_sql must be provided")
-        return v
+        return model
 
 
 class TransformSpecificationConfig(BaseModel):
@@ -229,20 +279,23 @@ class OutputSpecificationConfig(BaseModel):
         description="Whether to write the header row in S3 output files"
     )
 
-    @validator("output_path")
+    @field_validator("output_path")
+    @classmethod
     def validate_s3_uri(cls, v: str) -> str:
         if not v.startswith("s3://"):
             raise ValueError("output_path must start with 's3://'")
         return v
 
-    @validator("output_format")
+    @field_validator("output_format")
+    @classmethod
     def validate_format(cls, v: str) -> str:
         allowed = {"CSV", "UNESCAPED_TSV", "JSON", "ION", "PARQUET"}
         if v not in allowed:
             raise ValueError(f"output_format must be one of {allowed}")
         return v
 
-    @validator("output_save_mode")
+    @field_validator("output_save_mode")
+    @classmethod
     def validate_save_mode(cls, v: str) -> str:
         allowed = {"ERRORIFEXISTS", "OVERWRITE", "APPEND", "IGNORE"}
         if v not in allowed:
@@ -259,8 +312,8 @@ class CradleJobSpecificationConfig(BaseModel):
       - job_retry_count: int
     """
     cluster_type: str = Field(
-        ...,
-        description="Cluster size for Cradle job (e.g. 'SMALL', 'MEDIUM', 'LARGE')"
+        default='STANDARD',
+        description="Cluster size for Cradle job (e.g. 'STANDARD', 'SMALL', 'MEDIUM', 'LARGE')"
     )
     cradle_account: str = Field(
         ...,
@@ -276,9 +329,10 @@ class CradleJobSpecificationConfig(BaseModel):
         description="Number of times to retry on failure (default=1)"
     )
 
-    @validator("cluster_type")
+    @field_validator("cluster_type")
+    @classmethod
     def validate_cluster_type(cls, v: str) -> str:
-        allowed = {"SMALL", "MEDIUM", "LARGE"}
+        allowed = {"STANDARD", "SMALL", "MEDIUM", "LARGE"}
         if v not in allowed:
             raise ValueError(f"cluster_type must be one of {allowed}, got '{v}'")
         return v
@@ -287,170 +341,58 @@ class CradleJobSpecificationConfig(BaseModel):
 class CradleDataLoadConfig(BasePipelineConfig):
     """
     Top‐level Pydantic config for creating a CreateCradleDataLoadJobRequest.
-    In addition to BasePipelineConfig fields (bucket, author, etc.), it defines:
-      - mds_source: MdsDataSourceConfig
-      - tag_source: EdxDataSourceConfig
-      - start_date, end_date
-      - transform_sql, job_split_options
-      - output_schema, output_path, output_format, output_save_mode, ...
-      - cluster_type, cradle_account, extra_spark_job_arguments, job_retry_count
+
+    Instead of requiring each subfield directly, the user now provides:
+      - job_type: str, one of ["training","validation","test"]
+      - data_sources_spec: DataSourcesSpecificationConfig
+      - transform_spec: TransformSpecificationConfig
+      - output_spec: OutputSpecificationConfig
+      - cradle_job_spec: CradleJobSpecificationConfig
+      - (optional) s3_input_override
     """
-    # 0) New field: what this job is for (training / validation / test)
     job_type: str = Field(
         ...,
         description="One of ['training','validation','test'] to indicate which dataset this job is pulling"
     )
-
-    # 1) MDS + EDX source configs
-    mds_source: MdsDataSourceConfig = Field(
+    data_sources_spec: DataSourcesSpecificationConfig = Field(
         ...,
-        description="Configuration for the MDS data source"
+        description="Full data‐sources specification (start/end dates plus list of sources)."
     )
-    tag_source: EdxDataSourceConfig = Field(
+    transform_spec: TransformSpecificationConfig = Field(
         ...,
-        description="Configuration for the EDX (tag) data source"
+        description="Transform specification: SQL + job‐split options."
     )
-
-    # 2) DataSourcesSpecification fields
-    start_date: str = Field(
+    output_spec: OutputSpecificationConfig = Field(
         ...,
-        description="ISO‐8601 start timestamp (e.g. '2025-01-01T00:00:00')"
+        description="Output specification: schema, path, format, save mode, etc."
     )
-    end_date: str = Field(
+    cradle_job_spec: CradleJobSpecificationConfig = Field(
         ...,
-        description="ISO‐8601 end timestamp (e.g. '2025-04-17T00:00:00')"
+        description="Cradle job specification: cluster type, account, retry count, etc."
     )
-
-    # 3) TransformSpecification fields
-    transform_sql: str = Field(
-        ...,
-        description="SQL string that joins MDS and TAG tables"
-    )
-    split_job: bool = Field(
-        default=False,
-        description="Whether to split the Cradle job into daily runs"
-    )
-    days_per_split: int = Field(
-        default=7,
-        description="Number of days per split if split_job=True"
-    )
-    merge_sql: Optional[str] = Field(
-        default=None,
-        description="SQL used to merge split outputs if split_job=True (e.g. 'SELECT * FROM INPUT')"
-    )
-
-    # 4) OutputSpecification fields
-    output_schema: List[str] = Field(
-        ...,
-        description="List of output columns to write (matching transform_sql SELECT clause)"
-    )
-    output_path: str = Field(
-        ...,
-        description="S3 URI where Cradle should write its output (e.g. 's3://my-bucket/output/…')"
-    )
-    output_format: str = Field(
-        default="PARQUET",
-        description="Cradle output format (one of 'CSV','UNESCAPED_TSV','JSON','ION','PARQUET')"
-    )
-    output_save_mode: str = Field(
-        default="ERRORIFEXISTS",
-        description="Cradle save mode (one of 'ERRORIFEXISTS','OVERWRITE','APPEND','IGNORE')"
-    )
-    output_file_count: int = Field(
-        default=0,
-        ge=0,
-        description="Number of files to produce (0 means auto)"
-    )
-    keep_dot_in_output_schema: bool = Field(
-        default=False,
-        description="If False, Cradle replaces '.' with '__DOT__' in output column names"
-    )
-    include_header_in_s3_output: bool = Field(
-        default=True,
-        description="Whether to write header row in S3 output files"
-    )
-
-    # 5) CradleJobSpecification fields
-    cluster_type: str = Field(
-        ...,
-        description="Cluster size for Cradle job (one of 'SMALL','MEDIUM','LARGE')"
-    )
-    cradle_account: str = Field(
-        ...,
-        description="Cradle account name (e.g. 'Buyer-Abuse-RnD-Dev')"
-    )
-    extra_spark_job_arguments: Optional[str] = Field(
-        default="",
-        description="Any extra Spark driver arguments (string or blank)"
-    )
-    job_retry_count: int = Field(
-        default=1,
-        ge=0,
-        description="Number of times to retry the Cradle job on failure (≥0)"
-    )
-
-    # 6) (Optional) An override for s3 path if you already have raw data downloaded
     s3_input_override: Optional[str] = Field(
         default=None,
         description="If set, skip Cradle data pull and use this S3 prefix directly"
     )
 
-    @validator("job_type")
+    @field_validator("job_type")
+    @classmethod
     def validate_job_type(cls, v: str) -> str:
         allowed = {"training", "validation", "test"}
         if v not in allowed:
             raise ValueError(f"job_type must be one of {allowed}, got '{v}'")
         return v
 
-    @validator("start_date", "end_date")
-    def check_exact_datetime_format(cls, v: str, field):
-        """
-        Ensure value matches exactly "YYYY-mm-DD'T'HH:MM:SS".
-        Raises ValueError if parsing fails or format deviates.
-        """
-        try:
-            # Try parsing with the exact format. This will fail if any part is off.
-            parsed = datetime.strptime(v, "%Y-%m-%dT%H:%M:%S")
-        except Exception:
-            raise ValueError(
-                f"{field.name!r} must be in format YYYY-mm-DD'T'HH:MM:SS (e.g. '2025-01-01T00:00:00'), got: {v!r}"
-            )
-        # Optionally, re‐stringify to catch things like out‐of‐range months/days.
-        if parsed.strftime("%Y-%m-%dT%H:%M:%S") != v:
-            raise ValueError(
-                f"{field.name!r} does not match the required format exactly; got {v!r}"
-            )
-        return v
-
-    @validator("merge_sql", always=True)
-    def require_merge_if_split(cls, v: Optional[str], values: Dict[str, Any]) -> Optional[str]:
-        if values.get("split_job") and not v:
+    @model_validator(mode="after")
+    @classmethod
+    def check_split_and_override(cls, model: "CradleDataLoadConfig") -> "CradleDataLoadConfig":
+        # (1) If splitting is enabled, merge_sql must be provided
+        if model.transform_spec.job_split_options.split_job \
+           and not model.transform_spec.job_split_options.merge_sql:
             raise ValueError("When split_job=True, merge_sql must be provided")
-        return v
 
-    @validator("output_path")
-    def validate_output_path_s3(cls, v: str) -> str:
-        if not v.startswith("s3://"):
-            raise ValueError("output_path must start with 's3://'")
-        return v
+        # (2) If user supplied s3_input_override, they can skip transform or data sources,
+        #     but we don't enforce that here. We simply allow s3_input_override to bypass usage.
+        #     No extra checks are necessary—downstream code should look at s3_input_override first.
 
-    @validator("output_format")
-    def validate_output_format(cls, v: str) -> str:
-        allowed = {"CSV", "UNESCAPED_TSV", "JSON", "ION", "PARQUET"}
-        if v not in allowed:
-            raise ValueError(f"output_format must be one of {allowed}")
-        return v
-
-    @validator("output_save_mode")
-    def validate_output_save_mode(cls, v: str) -> str:
-        allowed = {"ERRORIFEXISTS", "OVERWRITE", "APPEND", "IGNORE"}
-        if v not in allowed:
-            raise ValueError(f"output_save_mode must be one of {allowed}")
-        return v
-
-    @validator("cluster_type")
-    def validate_cluster_type(cls, v: str) -> str:
-        allowed = {"STANDARD", "SMALL", "MEDIUM", "LARGE"}
-        if v not in allowed:
-            raise ValueError(f"cluster_type must be one of {allowed}")
-        return v
+        return model
