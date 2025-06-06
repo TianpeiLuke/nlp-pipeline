@@ -1,11 +1,11 @@
-from typing import Optional, Dict, Any
+# File: pipelines/builder_tabular_preprocessing.py
+
+from typing import Dict, Optional, Any
 from pathlib import Path
 import logging
 
-from sagemaker.sklearn import SKLearnProcessor
-from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.workflow.steps import ProcessingStep, Step
-from sagemaker.workflow.pipeline_context import PipelineSession
+from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
+from sagemaker.workflow.steps import ProcessingStep
 
 from .config_tabular_preprocessing_step import TabularPreprocessingConfig
 from .builder_step_base import StepBuilderBase
@@ -15,18 +15,24 @@ logger = logging.getLogger(__name__)
 
 class TabularPreprocessingStepBuilder(StepBuilderBase):
     """
-    Builder for a tabular preprocessing ProcessingStep. 
-    Takes a TabularPreprocessingConfig, validates it, and returns a ProcessingStep
-    that runs preprocess.py on SageMaker.
+    Builder for a Tabular Preprocessing ProcessingStep. Takes a TabularPreprocessingConfig,
+    validates it, constructs a ProcessingStep which runs tabular_preprocess.py, and returns it.
     """
 
     def __init__(
         self,
         config: TabularPreprocessingConfig,
-        sagemaker_session: Optional[PipelineSession] = None,
+        sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
     ):
+        """
+        Args:
+            config: TabularPreprocessingConfig (Pydantic‐validated).
+            sagemaker_session: SageMaker PipelineSession (optional).
+            role: IAM role ARN for the Processing job.
+            notebook_root: If running locally, used to validate local paths.
+        """
         if not isinstance(config, TabularPreprocessingConfig):
             raise ValueError("TabularPreprocessingStepBuilder requires a TabularPreprocessingConfig instance.")
         super().__init__(config=config, sagemaker_session=sagemaker_session, role=role, notebook_root=notebook_root)
@@ -34,174 +40,122 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
 
     def validate_configuration(self) -> None:
         """
-        Ensures required fields are set and valid. Most validation is done by Pydantic.
-        Additional checks:
-          - processing_source_dir must exist (handled by base class)
-          - processing_entry_point must be provided
-          - hyperparameters.tab_field_list and hyperparameters.cat_field_list are non-empty
-          - label_name is not in tab_field_list or cat_field_list (handled by config validator)
+        Called by StepBuilderBase.__init__(). Ensures required fields are set
+        and in the correct format.
+
+        Checks:
+          - hyperparameters.label_name is nonempty (already Pydantic‐checked).
+          - data_type is provided and valid.
+          - train_ratio, test_val_ratio are in (0,1).
+          - processing_entry_point is relative.
+          - input_names contains 'data_input'.
+          - output_names contains 'processed_data' and 'full_data'.
         """
         logger.info("Validating TabularPreprocessingConfig…")
 
-        # 1) Ensure entry point is set
-        if not self.config.processing_entry_point:
-            raise ValueError("processing_entry_point must be provided for tabular preprocessing")
+        # (1) label_name (already validated in Pydantic)
+        if not self.config.hyperparameters.label_name:
+            raise ValueError("hyperparameters.label_name must be provided and non‐empty")
 
-        # 2) Hyperparameters must include at least one tab or categorical field
-        hp = self.config.hyperparameters
-        if not hp.tab_field_list and not hp.cat_field_list:
-            raise ValueError("At least one of tab_field_list or cat_field_list must be non‐empty in hyperparameters")
+        # (2) data_type must exist
+        if not self.config.data_type:
+            raise ValueError("data_type must be provided (e.g. 'training','validation','testing','calibration')")
 
-        # 3) Label name must not overlap (already enforced by Pydantic model_validator)
-        # 4) Input / Output names keys
-        inp = self.config.input_names
-        out = self.config.output_names
-        if "data_input" not in inp or "config_input" not in inp:
-            raise ValueError("input_names must contain 'data_input' and 'config_input'")
-        if "processed_data" not in out or "full_data" not in out:
-            raise ValueError("output_names must contain 'processed_data' and 'full_data'")
+        # (3) train_ratio/test_val_ratio were validated by Pydantic
+
+        # (4) Check input_names / output_names
+        if "data_input" not in self.config.input_names:
+            raise ValueError("input_names must contain key 'data_input'")
+        if "processed_data" not in self.config.output_names or "full_data" not in self.config.output_names:
+            raise ValueError("output_names must contain keys 'processed_data' and 'full_data'")
 
         logger.info("TabularPreprocessingConfig validation succeeded.")
 
-    def _create_processor(self) -> SKLearnProcessor:
-        """
-        Create an SKLearnProcessor to run the preprocessing script.
-        """
-        instance_type = self.config.get_instance_type(
-            'large' if self.config.use_large_processing_instance else 'small'
-        )
-        base_job_name = self._sanitize_name_for_sagemaker(
-            f"{self.config.pipeline_name}-tabular-preprocessing",
-            max_length=30
-        )
-        logger.info(f"Creating SKLearnProcessor with instance_type={instance_type}, count={self.config.processing_instance_count}")
-        return SKLearnProcessor(
-            framework_version="1.2-1",
-            role=self.role,
-            instance_type=instance_type,
-            instance_count=self.config.processing_instance_count,
-            volume_size_in_gb=self.config.processing_volume_size,
-            sagemaker_session=self.session,
-            base_job_name=base_job_name
-        )
-
-    def _get_processing_inputs(
-        self,
-        data_input: str,
-        config_input: str
-    ) -> list[ProcessingInput]:
-        """
-        Returns ProcessingInput definitions for:
-          - raw data channel
-          - configuration/artifacts channel
-        """
-        inputs = [
-            ProcessingInput(
-                source=data_input,
-                destination="/opt/ml/processing/input/data",
-                input_name=self.config.input_names["data_input"]
-            ),
-            ProcessingInput(
-                source=config_input,
-                destination="/opt/ml/processing/input/config",
-                input_name=self.config.input_names["config_input"]
-            ),
-        ]
-        logger.info(f"Configured processing inputs: {[inp.source for inp in inputs]}")
-        return inputs
-
-    def _get_processing_outputs(self) -> list[ProcessingOutput]:
-        """
-        Returns ProcessingOutput definitions for:
-          - processed_data (only features + label)
-          - full_data (all columns)
-        """
-        base_dest = f"{self.config.pipeline_s3_loc}/tabular_preprocessing"
-        processed_dest = f"{base_dest}/{self.config.hyperparameters.label_name}/processed"
-        full_dest = f"{base_dest}/{self.config.hyperparameters.label_name}/full"
-
-        outputs = [
-            ProcessingOutput(
-                output_name=self.config.output_names["processed_data"],
-                source="/opt/ml/processing/output/processed",
-                destination=processed_dest
-            ),
-            ProcessingOutput(
-                output_name=self.config.output_names["full_data"],
-                source="/opt/ml/processing/output/full",
-                destination=full_dest
-            ),
-        ]
-        logger.info(f"Configured processing outputs: {[out.destination for out in outputs]}")
-        return outputs
-
-    def _get_environment(self) -> Dict[str, str]:
-        """
-        Build environment variables for preprocess.py from hyperparameters:
-          - TAB_FIELDS: comma‐separated tabular feature names
-          - CAT_FIELDS: comma‐separated categorical feature names
-          - LABEL_FIELD: label name
-          - N_WORKERS: number of parallel workers
-        """
-        hp = self.config.hyperparameters
-        tab_fields = ",".join(hp.tab_field_list)
-        cat_fields = ",".join(hp.cat_field_list)
-        env = {
-            "TAB_FIELDS": tab_fields,
-            "CAT_FIELDS": cat_fields,
-            "LABEL_FIELD": hp.label_name,
-            "N_WORKERS": str(self.config.n_workers)
-        }
-        return env
-
     def create_step(
         self,
-        data_input: str,
-        config_input: str,
-        dependencies: Optional[list[Step]] = None
+        inputs: Optional[Dict[str, Any]] = None,
+        outputs: Optional[Dict[str, Any]] = None,
+        enable_caching: bool = True
     ) -> ProcessingStep:
         """
-        Build the ProcessingStep for tabular preprocessing.
+        Build and return a SageMaker ProcessingStep that runs tabular_preprocess.py.
 
         Args:
-          data_input: S3 URI or Properties object for raw data channel
-          config_input: S3 URI or Properties object for config/artifacts channel
-          dependencies: Optional list of prior Steps this depends on
+          inputs:  Dict mapping "RawData" → S3 URI where shards live.
+          outputs: Dict mapping "ProcessedTabularData" and "FullTabularData" → S3 URIs.
+          enable_caching: whether to enable caching.
+
+        Returns:
+          A fully‐configured ProcessingStep.
         """
         logger.info("Creating TabularPreprocessing ProcessingStep…")
 
-        # (a) Create processor
-        processor = self._create_processor()
+        # (A) Validate that inputs/outputs dicts contain the required channel names:
+        if inputs is None or self.config.input_names["data_input"] not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{self.config.input_names['data_input']}' in 'inputs'")
+        if outputs is None \
+           or self.config.output_names["processed_data"] not in outputs \
+           or self.config.output_names["full_data"] not in outputs:
+            raise ValueError(
+                f"Must supply S3 URIs for '{self.config.output_names['processed_data']}' "
+                f"and '{self.config.output_names['full_data']}' in 'outputs'"
+            )
 
-        # (b) Define inputs and outputs
-        processing_inputs = self._get_processing_inputs(data_input, config_input)
-        processing_outputs = self._get_processing_outputs()
+        s3_input_uri    = inputs[self.config.input_names["data_input"]]
+        s3_out_processed= outputs[self.config.output_names["processed_data"]]
+        s3_out_full     = outputs[self.config.output_names["full_data"]]
 
-        # (c) Build environment variables
-        environment = self._get_environment()
-
-        # (d) Build script arguments (if any) – none in this case
-        script_args: list[str] = []
-
-        # (e) Create the ProcessingStep
-        step_name = f"{self._get_step_name('Processing')}-{self.config.hyperparameters.label_name}"
-        step = ProcessingStep(
-            name=step_name,
-            processor=processor,
-            inputs=processing_inputs,
-            outputs=processing_outputs,
-            code=self.config.get_script_path(),
-            job_arguments=script_args,
-            environment=environment,
-            depends_on=dependencies or [],
-            cache_config=self._get_cache_config(True)
+        # (B) Create a ScriptProcessor that will run `tabular_preprocess.py`
+        script_processor = ScriptProcessor(
+            role=self.role,
+            instance_count=self.config.processing_instance_count,
+            instance_type=self.config.get_instance_type(),
+            sagemaker_session=self.session,
+            base_job_name=self._sanitize_name_for_sagemaker(
+                f"{self._get_step_name('Processing')}-{self.config.data_type}"
+            )
         )
 
-        logger.info(f"Created ProcessingStep with name: {step_name}")
-        return step
+        # (C) Define ProcessingInput / ProcessingOutput
+        processor_inputs = [
+            ProcessingInput(
+                input_name=self.config.input_names["data_input"],
+                source=s3_input_uri,
+                destination="/opt/ml/processing/input/data"
+            )
+        ]
 
-    def get_environment(self) -> Dict[str, str]:
-        """
-        Expose environment dict for external use (e.g., for testing).
-        """
-        return self._get_environment()
+        processor_outputs = [
+            ProcessingOutput(
+                output_name=self.config.output_names["processed_data"],
+                source="/opt/ml/processing/output",  # script writes under /opt/ml/processing/output/<split>/
+                destination=s3_out_processed
+            ),
+            ProcessingOutput(
+                output_name=self.config.output_names["full_data"],
+                source="/opt/ml/processing/output",
+                destination=s3_out_full
+            )
+        ]
+
+        # (D) Build the ProcessingStep
+        step_name = f"{self._get_step_name('Processing')}-{self.config.data_type.capitalize()}"
+
+        processing_step = ProcessingStep(
+            name=step_name,
+            processor=script_processor,
+            inputs=processor_inputs,
+            outputs=processor_outputs,
+            code=self.config.get_script_path(),
+            job_arguments=["--data_type", self.config.data_type],
+            environment={
+                "LABEL_FIELD":     self.config.hyperparameters.label_name,
+                "TRAIN_RATIO":     str(self.config.train_ratio),
+                "TEST_VAL_RATIO":  str(self.config.test_val_ratio)
+            },
+            cache_config=self._get_cache_config(enable_caching)
+        )
+
+        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
+        return processing_step
+

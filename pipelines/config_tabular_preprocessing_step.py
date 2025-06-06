@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, Dict, Any
+from typing import Dict, Optional, Any
 from pathlib import Path
 import logging
 
@@ -11,87 +11,111 @@ logger = logging.getLogger(__name__)
 
 class TabularPreprocessingConfig(ProcessingStepConfigBase):
     """
-    Configuration for the Tabular Preprocessing processing step.
+    Configuration for the Tabular Preprocessing step.
     Inherits from ProcessingStepConfigBase.
 
-    Replaces separate numeric_fields / categorical_fields with a single
-    ModelHyperparameters object that contains tab_field_list and cat_field_list.
+    In addition to the usual fields, it now defines:
+      - train_ratio    : float in (0,1) fraction for train vs (test+val)
+      - test_val_ratio : float in (0,1) fraction for test vs val within the holdout
     """
 
-    # Override entry point to our preprocess script
+    # 1) Entry point for the preprocessing script (relative to processing_source_dir)
     processing_entry_point: str = Field(
-        default="preprocess.py",
-        description="Name of the preprocessing script (relative to processing_source_dir)."
+        default="tabular_preprocess.py",
+        description="Relative path (within processing_source_dir) to the tabular preprocessing script."
     )
 
-    # Include full set of model hyperparameters
+    # 2) Full set of model hyperparameters, of which we only use label_name here
     hyperparameters: ModelHyperparameters = Field(
         default_factory=ModelHyperparameters,
-        description="Model hyperparameters (includes tab_field_list, cat_field_list, label_name, etc.)"
+        description="Model hyperparameters (only label_name is used by the preprocessing step)."
     )
 
-    # Number of parallel workers
-    n_workers: int = Field(
-        default=50,
-        ge=1,
-        description="Number of parallel worker processes for imputation and mapping."
+    # 3) Which data_type are we processing?
+    data_type: str = Field(
+        ...,
+        description="One of ['training','validation','testing','calibration']"
     )
 
-    # Input/Output channel names
+    # 4) Train/Test+Val split ratios (floats in (0,1))
+    train_ratio: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of data to allocate to the training set (only used if data_type=='training')."
+    )
+    test_val_ratio: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of the holdout to allocate to the test set vs. validation (only if data_type=='training')."
+    )
+
+    # 5) Exactly one input channel, two output channels
     input_names: Dict[str, str] = Field(
-        default_factory=lambda: {
-            "data_input": "RawData",
-            "config_input": "PreprocessingConfig"
-        },
-        description="Mapping of input channel names to their descriptions."
+        default_factory=lambda: {"data_input": "RawData"},
+        description="Mapping of input channel name to its description. (Must contain 'data_input'.)"
     )
     output_names: Dict[str, str] = Field(
         default_factory=lambda: {
             "processed_data": "ProcessedTabularData",
-            "full_data": "FullTabularData"
+            "full_data":      "FullTabularData"
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of output channel names to their descriptions. (Must contain 'processed_data' & 'full_data'.)"
     )
 
     class Config(ProcessingStepConfigBase.Config):
         arbitrary_types_allowed = True
         validate_assignment = True
 
-    @field_validator("n_workers")
-    @classmethod
-    def validate_n_workers_positive(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("n_workers must be ≥ 1")
-        return v
-
     @field_validator("processing_entry_point")
     @classmethod
     def validate_entry_point_relative(cls, v: Optional[str]) -> Optional[str]:
+        """
+        Ensure processing_entry_point is a non‐empty relative path.
+        """
         if v is None or not v.strip():
             raise ValueError("processing_entry_point must be a non‐empty relative path")
         if Path(v).is_absolute() or v.startswith("/") or v.startswith("s3://"):
             raise ValueError("processing_entry_point must be a relative path within source directory")
         return v
 
+    @field_validator("data_type")
+    @classmethod
+    def validate_data_type(cls, v: str) -> str:
+        allowed = {"training", "validation", "testing", "calibration"}
+        if v not in allowed:
+            raise ValueError(f"data_type must be one of {allowed}, got '{v}'")
+        return v
+
+    @field_validator("train_ratio", "test_val_ratio")
+    @classmethod
+    def validate_ratios(cls, v: float) -> float:
+        """
+        Ensure the ratio is strictly between 0 and 1 (not including 0 or 1).
+        """
+        if not (0.0 < v < 1.0):
+            raise ValueError(f"Split ratio must be strictly between 0 and 1, got {v}")
+        return v
+
     @model_validator(mode="after")
-    def validate_hyperparameters_and_fields(self) -> "TabularPreprocessingConfig":
+    def validate_label_and_channels(self) -> "TabularPreprocessingConfig":
         """
         Cross‐field checks:
-         - Ensure that tab_field_list and cat_field_list come from hyperparameters
-         - Ensure label_name is not included in tab_field_list or cat_field_list
-         - Ensure input_names contains 'data_input' and 'config_input'
-         - Ensure output_names contains 'processed_data' and 'full_data'
+         - hyperparameters.label_name must be nonempty and not whitespace.
+         - input_names must contain 'data_input'
+         - output_names must contain 'processed_data' and 'full_data'
         """
         hp = self.hyperparameters
 
-        # Ensure label_name is not in tab or cat lists
-        if hp.label_name in hp.tab_field_list or hp.label_name in hp.cat_field_list:
-            raise ValueError("hyperparameters.label_name must not appear in tab_field_list or cat_field_list")
+        if not hp.label_name or not hp.label_name.strip():
+            raise ValueError("hyperparameters.label_name must be provided and non‐empty")
 
-        # Check required I/O channel keys
-        if "data_input" not in self.input_names or "config_input" not in self.input_names:
-            raise ValueError("input_names must contain keys 'data_input' and 'config_input'")
+        if "data_input" not in self.input_names:
+            raise ValueError("input_names must contain key 'data_input'")
+
         if "processed_data" not in self.output_names or "full_data" not in self.output_names:
             raise ValueError("output_names must contain keys 'processed_data' and 'full_data'")
 
         return self
+
