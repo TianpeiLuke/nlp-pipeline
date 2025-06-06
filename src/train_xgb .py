@@ -2,32 +2,26 @@
 import os
 import sys
 import json
-import pickle as pkl
 import logging
 import traceback
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, List, Any, Optional, Union
 
 import pandas as pd
 import numpy as np
+import pickle as pkl
 import xgboost as xgb
 
-# ================== Model, Data and Hyperparameter Folder =================
-prefix = "/opt/ml/"
-input_path = os.path.join(prefix, "input/data")
-output_path = os.path.join(prefix, "output/data")
-model_path = os.path.join(prefix, "model")
-hparam_path = os.path.join(prefix, "input/config/hyperparameters.json")
-checkpoint_path = os.environ.get("SM_CHECKPOINT_DIR", os.path.join(prefix, "checkpoints"))
+from pydantic import BaseModel, Field, model_validator
 
-train_channel = "train"
-train_path = os.path.join(input_path, train_channel)
-val_channel = "val"
-val_path = os.path.join(input_path, val_channel)
-test_channel = "test"
-test_path = os.path.join(input_path, test_channel)
+# -------------------------------------------------------------------------
+# Import the RiskTableMappingProcessor from its new path
+# -------------------------------------------------------------------------
+from processing.risk_table_processor import RiskTableMappingProcessor
 
-# =================== Logging Setup =================================
+# -------------------------------------------------------------------------
+# Logging setup
+# -------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
@@ -35,285 +29,384 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter("%(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-logger.propagate = False
 
-
-def load_hyperparameters(hparam_file: str) -> Dict[str, Any]:
+# -------------------------------------------------------------------------
+# Pydantic V2 model: flatten everything (formerly in ModelHyperparameters)
+# plus XGBoost-specific fields and risk-smoothing parameters.
+# -------------------------------------------------------------------------
+class XGBoostConfig(BaseModel):
     """
-    Load hyperparameters JSON into a plain dictionary.
+    Pydantic V2 model for all hyperparameters expected from hyperparameters.json,
+    including:
+      - full_field_list, cat_field_list, tab_field_list, etc.
+      - XGBoost-specific parameters
+      - Risk‐table smoothing parameters
     """
-    if not os.path.isfile(hparam_file):
-        raise FileNotFoundError(f"Hyperparameter file not found: {hparam_file}")
 
-    with open(hparam_file, "r") as f:
-        hparams = json.load(f)
-
-    logger.info("Loaded hyperparameters:")
-    for k, v in hparams.items():
-        logger.info("  %s = %s", k, v)
-    return hparams
-
-
-def build_risk_mapping(
-    df: pd.DataFrame,
-    cat_fields: List[str],
-    label_col: str
-) -> Dict[str, Dict[Any, float]]:
-    """
-    For each categorical field in cat_fields, compute risk = P(label=1 | category).
-    Returns a dict: { field_name: { category_value: risk, ..., "default_bin": default_risk } }
-    """
-    risk_map: Dict[str, Dict[Any, float]] = {}
-    default_risk = df[label_col].mean()
-
-    for var in cat_fields:
-        if df[var].isna().all():
-            risk_map[var] = {"default_bin": default_risk}
-            continue
-
-        grouped = df.groupby(var)[label_col].mean().reset_index()
-        bins = dict(zip(grouped[var].tolist(), grouped[label_col].tolist()))
-
-        mapping = bins.copy()
-        mapping["default_bin"] = default_risk
-        risk_map[var] = mapping
-
-    return risk_map
-
-
-def apply_risk_mapping(
-    df: pd.DataFrame,
-    cat_fields: List[str],
-    risk_map: Dict[str, Dict[Any, float]]
-) -> pd.DataFrame:
-    """
-    Replace each categorical column in cat_fields by its risk value, using risk_map.
-    Missing or unseen categories map to default_bin.
-    """
-    for var in cat_fields:
-        mapping = risk_map.get(var, {})
-        default_bin = mapping.get("default_bin", 0.0)
-        df[var] = df[var].map(lambda x: mapping.get(x, default_bin))
-    return df
-
-
-def compute_imputation_dict(
-    df: pd.DataFrame,
-    num_fields: List[str]
-) -> Dict[str, float]:
-    """
-    Compute median-based imputation values for each numeric field in num_fields.
-    Returns { field_name: median_value }.
-    """
-    impute_dict: Dict[str, float] = {}
-    for var in num_fields:
-        if df[var].isna().all():
-            impute_dict[var] = 0.0
-        else:
-            impute_dict[var] = float(df[var].median())
-    return impute_dict
-
-
-def apply_imputation(
-    df: pd.DataFrame,
-    num_fields: List[str],
-    impute_dict: Dict[str, float]
-) -> pd.DataFrame:
-    """
-    Fill NaN in each numeric column with its corresponding value from impute_dict.
-    """
-    for var in num_fields:
-        fill_val = impute_dict.get(var, 0.0)
-        df[var] = df[var].fillna(fill_val)
-    return df
-
-
-def load_csv_file(
-    directory: str,
-    filename: str
-) -> pd.DataFrame:
-    """
-    Given a directory (e.g., "/opt/ml/input/data/train") and a filename
-    (e.g., "train_processed_data.csv"), load the CSV into a DataFrame.
-    """
-    csv_path = Path(directory) / filename
-    if not csv_path.is_file():
-        raise FileNotFoundError(f"Expected file not found: {csv_path}")
-    return pd.read_csv(csv_path)
-
-
-def train_xgboost(
-    raw_hparams: Dict[str, Any],
-    train_df: pd.DataFrame,
-    val_df: pd.DataFrame,
-    feature_cols: List[str],
-    label_col: str
-) -> xgb.Booster:
-    """
-    Train an XGBoost model using the provided DataFrames and hyperparameters dict.
-    Returns the trained Booster.
-    """
-    # Extract parameters from raw_hparams, with defaults
-    params: Dict[str, Any] = {
-        "booster":          raw_hparams.get("booster", "gbtree"),
-        "eta":              raw_hparams.get("eta", 0.3),
-        "gamma":            raw_hparams.get("gamma", 0.0),
-        "max_depth":        raw_hparams.get("max_depth", 6),
-        "min_child_weight": raw_hparams.get("min_child_weight", 1.0),
-        "max_delta_step":   raw_hparams.get("max_delta_step", 0.0),
-        "subsample":        raw_hparams.get("subsample", 1.0),
-        "colsample_bytree": raw_hparams.get("colsample_bytree", 1.0),
-        "colsample_bylevel":raw_hparams.get("colsample_bylevel", 1.0),
-        "colsample_bynode": raw_hparams.get("colsample_bynode", 1.0),
-        "lambda":           raw_hparams.get("lambda_xgb", 1.0),
-        "alpha":            raw_hparams.get("alpha_xgb", 0.0),
-        "tree_method":      raw_hparams.get("tree_method", "auto"),
-        "scale_pos_weight": raw_hparams.get("scale_pos_weight", 1.0),
-        "objective":        raw_hparams.get("objective", "reg:squarederror"),
-    }
-
-    if "sketch_eps" in raw_hparams:
-        params["sketch_eps"] = raw_hparams["sketch_eps"]
-    if "base_score" in raw_hparams:
-        params["base_score"] = raw_hparams["base_score"]
-    if "eval_metric" in raw_hparams:
-        params["eval_metric"] = raw_hparams["eval_metric"]
-    if "seed" in raw_hparams:
-        params["seed"] = raw_hparams["seed"]
-    if raw_hparams.get("is_binary", True) is False:
-        params["num_class"] = raw_hparams.get("num_classes", 2)
-
-    # Data preparation
-    dtrain = xgb.DMatrix(train_df[feature_cols], label=train_df[label_col])
-    dval   = xgb.DMatrix(val_df[feature_cols],   label=val_df[label_col])
-
-    num_round = raw_hparams.get("num_round", 100)
-    early_stop = raw_hparams.get("early_stopping_rounds", None)
-
-    logger.info("Starting XGBoost training for %d rounds; early_stopping=%s", num_round, early_stop)
-    bst = xgb.train(
-        params=params,
-        dtrain=dtrain,
-        num_boost_round=num_round,
-        evals=[(dtrain, "train"), (dval, "validation")],
-        early_stopping_rounds=early_stop,
-        verbose_eval=True
+    # ----- From ModelHyperparameters (flattened) -----
+    full_field_list: List[str] = Field(
+        ..., description="All field names (unused except for completeness)."
     )
-    logger.info("XGBoost training complete. Best iteration: %d", bst.best_iteration)
-    return bst
+    cat_field_list: List[str] = Field(
+        ..., description="List of categorical column names."
+    )
+    tab_field_list: List[str] = Field(
+        ..., description="List of numeric column names."
+    )
+    categorical_features_to_encode: List[str] = Field(
+        default_factory=list,
+        description="List of categorical fields that require explicit encoding.",
+    )
+    id_name: str = Field(..., description="Name of the ID column.")
+    label_name: str = Field(..., description="Name of the label column.")
+
+    is_binary: bool = Field(default=True, description="Binary‐classification flag.")
+    num_classes: int = Field(default=2, description="Number of classes.")
+    multiclass_categories: List[Union[int, str]] = Field(
+        default_factory=lambda: [0, 1],
+        description="List of category labels (e.g. [0,1] for binary).",
+    )
+    class_weights: List[float] = Field(
+        default_factory=lambda: [1.0, 1.0],
+        description="List of class weights, length == num_classes.",
+    )
+    device: int = Field(default=-1, description="Device index (-1 for CPU).")
+
+    model_class: str = Field(default="xgboost", description="Model identifier.")
+
+    header: int = Field(default=0, description="Header row index for CSV files.")
+    input_tab_dim: int = Field(default=0, description="Should equal len(tab_field_list).")
+
+    lr: float = Field(default=3e-5, description="(Unused by XGB) Learning rate placeholder.")
+    batch_size: int = Field(default=2, ge=1, le=256, description="(Unused by XGB) Batch size.")
+    max_epochs: int = Field(default=3, ge=1, le=10, description="(Unused by XGB) Max epochs.")
+    metric_choices: List[str] = Field(
+        default_factory=lambda: ["f1_score", "auroc"], description="Metrics list."
+    )
+    optimizer: str = Field(default="SGD", description="(Unused by XGB) Optimizer name.")
+
+    # ----- XGBoost-specific parameters -----
+    booster: str = Field(default="gbtree", description="Which booster to use.")
+    eta: float = Field(default=0.3, ge=0.0, le=1.0, description="Step size shrinkage (learning_rate).")
+    gamma: float = Field(default=0.0, ge=0.0, description="Min loss reduction to split leaf.")
+    max_depth: int = Field(default=6, ge=0, description="Max tree depth (0 = unlimited).")
+    min_child_weight: float = Field(default=1.0, ge=0.0, description="Min sum Hessian in a child.")
+    max_delta_step: float = Field(default=0.0, description="Max delta step for weight estimation.")
+    subsample: float = Field(default=1.0, gt=0.0, le=1.0, description="Subsample ratio of rows.")
+    colsample_bytree: float = Field(default=1.0, gt=0.0, le=1.0, description="Subsample ratio of columns per tree.")
+    colsample_bylevel: float = Field(default=1.0, gt=0.0, le=1.0, description="Cols per level.")
+    colsample_bynode: float = Field(default=1.0, gt=0.0, le=1.0, description="Cols per split.")
+    lambda_xgb: float = Field(default=1.0, ge=0.0, description="L2 regularization (reg_lambda).")
+    alpha_xgb: float = Field(default=0.0, ge=0.0, description="L1 regularization (reg_alpha).")
+    tree_method: str = Field(default="auto", description="Tree construction algorithm.")
+    sketch_eps: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Sketch epsilon for 'approx'.")
+    scale_pos_weight: float = Field(default=1.0, description="Balance positive/negative weights.")
+
+    objective: str = Field(default="binary:logistic", description="Learning objective.")
+    base_score: Optional[float] = Field(default=None, description="Initial prediction score.")
+    eval_metric: Optional[Union[str, List[str]]] = Field(
+        default=None, description="Evaluation metric(s)."
+    )
+    seed: Optional[int] = Field(default=None, description="Random seed.")
+
+    # SageMaker XGBoost control
+    num_round: int = Field(default=100, ge=1, description="Number of boosting rounds.")
+    early_stopping_rounds: Optional[int] = Field(
+        default=None, ge=1, description="Enable early stopping if provided."
+    )
+
+    # ----- Risk‐table smoothing parameters -----
+    smooth_factor: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="Smoothing factor for risk table."
+    )
+    count_threshold: int = Field(default=0, ge=0, description="Minimum count threshold.")
+
+    # ---------------------------------------------------------------------
+    # Pydantic V2 cross‐field checks (model_validator)
+    # ---------------------------------------------------------------------
+    @model_validator(mode="after")
+    def _validate_all(cls, state: "XGBoostConfig") -> "XGBoostConfig":
+        # 1) input_tab_dim must match len(tab_field_list)
+        if state.input_tab_dim != len(state.tab_field_list):
+            raise ValueError(
+                f"input_tab_dim ({state.input_tab_dim}) != len(tab_field_list) ({len(state.tab_field_list)})"
+            )
+
+        # 2) For binary: num_classes == 2, multiclass_categories length == 2
+        if state.is_binary:
+            if state.num_classes != 2:
+                raise ValueError("For binary classification, num_classes must be 2")
+            if len(state.multiclass_categories) != 2:
+                raise ValueError("For binary classification, multiclass_categories must have length 2")
+        else:
+            # multiclass: len(multiclass_categories) >= 2 and matches num_classes
+            if len(state.multiclass_categories) < 2:
+                raise ValueError("For multiclass, multiclass_categories must have at least 2 items")
+            if state.num_classes != len(state.multiclass_categories):
+                raise ValueError(
+                    f"num_classes ({state.num_classes}) != len(multiclass_categories) ({len(state.multiclass_categories)})"
+                )
+
+        # 3) class_weights length must equal num_classes
+        if len(state.class_weights) != state.num_classes:
+            raise ValueError("Length of class_weights must equal num_classes")
+
+        # 4) If early_stopping_rounds is set, eval_metric must be set
+        if state.early_stopping_rounds is not None and not state.eval_metric:
+            raise ValueError("'early_stopping_rounds' requires 'eval_metric' to be set")
+
+        # 5) If objective starts with "multi:", num_classes >= 2
+        if state.objective.startswith("multi:") and state.num_classes < 2:
+            raise ValueError("For multiclass objective, num_classes must be >= 2")
+
+        return state
+
+    class Config:
+        extra = "forbid"
 
 
-def save_artifacts(
-    model: xgb.Booster,
-    risk_map: Dict[str, Dict[Any, float]],
-    impute_dict: Dict[str, float],
-    output_dir: str = model_path
-) -> None:
-    """
-    Save the trained XGBoost model, the risk mapping, and the imputation dictionary
-    under /opt/ml/model so that SageMaker will package them into model.tar.gz.
-    """
-    os.makedirs(output_dir, exist_ok=True)
+# -------------------------------------------------------------------------
+# Paths inside the SageMaker training container
+# -------------------------------------------------------------------------
+prefix          = "/opt/ml"
+input_path      = os.path.join(prefix, "input", "data")
+model_path      = os.path.join(prefix, "model")
+hparam_path     = os.path.join(prefix, "input", "config", "hyperparameters.json")
+checkpoint_path = os.environ.get("SM_CHECKPOINT_DIR", "/opt/ml/checkpoints")
 
-    # (1) Save XGBoost model
-    model_file = os.path.join(output_dir, "xgboost-model.bst")
-    model.save_model(model_file)
-    logger.info("Saved XGBoost model to %s", model_file)
+train_channel   = "train"
+val_channel     = "val"
+test_channel    = "test"
 
-    # (2) Save risk_map as pickle
-    risk_file = os.path.join(output_dir, "risk_mapping.pkl")
-    with open(risk_file, "wb") as f:
-        pkl.dump(risk_map, f)
-    logger.info("Saved risk mapping to %s", risk_file)
-
-    # (3) Save impute_dict as pickle
-    impute_file = os.path.join(output_dir, "impute_dict.pkl")
-    with open(impute_file, "wb") as f:
-        pkl.dump(impute_dict, f)
-    logger.info("Saved imputation dictionary to %s", impute_file)
+train_data_dir  = os.path.join(input_path, train_channel)
+val_data_dir    = os.path.join(input_path, val_channel)
+test_data_dir   = os.path.join(input_path, test_channel)
 
 
+# -------------------------------------------------------------------------
+# Utility: find the first data file in a folder (CSV/Parquet/JSON)
+# -------------------------------------------------------------------------
+def find_first_data_file(data_dir: str, exts: List[str] = [".csv", ".parquet", ".json"]) -> str:
+    for fname in sorted(os.listdir(data_dir)):
+        low = fname.lower()
+        if any(low.endswith(e) for e in exts):
+            return fname
+    raise FileNotFoundError(f"No supported data file in {data_dir}")
+
+
+# -------------------------------------------------------------------------
+# Utility: read any supported file into a DataFrame
+# -------------------------------------------------------------------------
+def _read_any_data(path: str) -> pd.DataFrame:
+    p = Path(path)
+    suffix = p.suffix.lower()
+
+    # CSV / TSV / GZ
+    if suffix in [".csv", ".tsv", ".gz"]:
+        if suffix == ".gz":
+            inner = p.stem.lower().split(".")[-1]
+            delim = "," if inner == "csv" else "\t"
+            # Sniff delimiter from first two lines
+            import gzip
+            with gzip.open(str(p), "rt") as f_in:
+                sample = f_in.readline() + f_in.readline()
+            import csv as _csv
+            try:
+                sep = _csv.Sniffer().sniff(sample).delimiter
+            except Exception:
+                sep = delim
+            return pd.read_csv(str(p), sep=sep, compression="infer", dtype=object)
+
+        else:
+            delim = "," if suffix == ".csv" else "\t"
+            with p.open("rt") as f_in:
+                sample = f_in.readline() + f_in.readline()
+            import csv as _csv
+            try:
+                sep = _csv.Sniffer().sniff(sample).delimiter
+            except Exception:
+                sep = delim
+            return pd.read_csv(str(p), sep=sep, dtype=object)
+
+    # JSON / JSON.GZ
+    if suffix in [".json", ".json.gz"]:
+        if suffix == ".json.gz":
+            import gzip
+            with gzip.open(str(p), "rt") as f_in:
+                first_line = f_in.readline()
+                try:
+                    _ = json.loads(first_line)
+                    return pd.read_json(str(p), lines=True, compression="infer", dtype=object)
+                except Exception:
+                    f_in.seek(0)
+                    payload = json.load(f_in)
+        else:
+            with p.open("rt") as f_in:
+                payload = json.load(f_in)
+        if isinstance(payload, dict):
+            return pd.json_normalize([payload])
+        return pd.json_normalize(payload)
+
+    # Parquet / Snappy
+    if suffix in [".parquet", ".snappy.parquet"]:
+        return pd.read_parquet(str(p))
+
+    raise ValueError(f"Unsupported file extension: {suffix}")
+
+
+# -------------------------------------------------------------------------
+# Main training routine
+# -------------------------------------------------------------------------
 def main():
-    """
-    Main entrypoint for training. Expects:
-      - Hyperparameters JSON at /opt/ml/input/config/hyperparameters.json
-      - Preprocessed CSVs under /opt/ml/input/data/train/, /val/, /test/
-    """
+    # 1) Load hyperparameters.json
     try:
-        # 1) Load hyperparameters as plain dict
-        hparams = load_hyperparameters(hparam_path)
+        with open(hparam_path, "r") as f:
+            raw_hparams = json.load(f)
+        logger.info("Loaded hyperparameters.json:")
+        for k, v in raw_hparams.items():
+            logger.info(f"  {k}: {v}")
+        config = XGBoostConfig(**raw_hparams)
+    except (FileNotFoundError, ValidationError) as err:
+        logger.error(f"Failed to load/validate hyperparameters: {err}")
+        sys.exit(1)
 
-        # 2) Load data
-        train_csv = "train_processed_data.csv"
-        val_csv   = "val_processed_data.csv"
-        test_csv  = "test_processed_data.csv"
+    # 2) Read train/val/test DataFrames
+    train_file = find_first_data_file(train_data_dir)
+    val_file   = find_first_data_file(val_data_dir)
+    test_file  = find_first_data_file(test_data_dir)
 
-        logger.info("Loading training data from %s/%s", train_path, train_csv)
-        train_df = load_csv_file(train_path, train_csv)
+    train_df = _read_any_data(os.path.join(train_data_dir, train_file))
+    val_df   = _read_any_data(os.path.join(val_data_dir, val_file))
+    test_df  = _read_any_data(os.path.join(test_data_dir, test_file))
 
-        logger.info("Loading validation data from %s/%s", val_path, val_csv)
-        val_df = load_csv_file(val_path, val_csv)
+    logger.info(f"Shapes → train: {train_df.shape}, val: {val_df.shape}, test: {test_df.shape}")
 
-        logger.info("Loading test data from %s/%s", test_path, test_csv)
-        test_df = load_csv_file(test_path, test_csv)
+    # 3) Coerce label to integer 0..k-1
+    lbl = config.label_name
+    for df in (train_df, val_df, test_df):
+        if lbl not in df.columns:
+            raise KeyError(f"Label '{lbl}' not found in columns")
+        if (
+            not pd.api.types.is_integer_dtype(df[lbl])
+            and not pd.api.types.is_float_dtype(df[lbl])
+        ):
+            uniques = sorted(df[lbl].dropna().unique())
+            mapping = {val: idx for idx, val in enumerate(uniques)}
+            df[lbl] = df[lbl].map(lambda x: mapping.get(x, np.nan))
+        df[lbl] = pd.to_numeric(df[lbl], errors="coerce").astype("Int64")
+    logger.info("Label column cast to integer dtype.")
 
-        # 3) Extract label and feature columns
-        label_col   = hparams.get("label_name", "label")
-        cat_fields  = hparams.get("cat_field_list", [])
-        num_fields  = hparams.get("tab_field_list", [])
-        feature_cols = num_fields + cat_fields
-
-        # 4) Build and apply risk mapping
-        logger.info("Building risk mapping for categorical fields: %s", cat_fields)
-        risk_map = build_risk_mapping(train_df, cat_fields, label_col)
-
-        logger.info("Applying risk mapping to train/val/test")
-        train_df = apply_risk_mapping(train_df, cat_fields, risk_map)
-        val_df   = apply_risk_mapping(val_df,   cat_fields, risk_map)
-        test_df  = apply_risk_mapping(test_df,  cat_fields, risk_map)
-
-        # 5) Compute and apply numeric imputation
-        logger.info("Computing numeric imputation dictionary for fields: %s", num_fields)
-        impute_dict = compute_imputation_dict(train_df, num_fields)
-
-        logger.info("Applying numeric imputation to train/val/test")
-        train_df = apply_imputation(train_df, num_fields, impute_dict)
-        val_df   = apply_imputation(val_df,   num_fields, impute_dict)
-        test_df  = apply_imputation(test_df,  num_fields, impute_dict)
-
-        # 6) Train XGBoost model
-        bst = train_xgboost(
-            raw_hparams=hparams,
-            train_df=train_df,
-            val_df=val_df,
-            feature_cols=feature_cols,
-            label_col=label_col
+    # 4) Build RiskTableMappingProcessor for each categorical var
+    risk_processors: Dict[str, RiskTableMappingProcessor] = {}
+    for var in config.cat_field_list:
+        logger.info(f"Fitting risk table for '{var}' …")
+        proc = RiskTableMappingProcessor(
+            column_name     = var,
+            label_name      = config.label_name,
+            smooth_factor   = config.smooth_factor,
+            count_threshold = config.count_threshold,
         )
+        tmp = train_df[[var, config.label_name]].dropna(subset=[var, config.label_name])
+        proc.fit(tmp)
+        risk_processors[var] = proc
 
-        # 7) Save model + artifacts
-        save_artifacts(
-            model=bst,
-            risk_map=risk_map,
-            impute_dict=impute_dict,
-            output_dir=model_path
-        )
+        # Save each var's risk table as both pickle and JSON
+        outdir = Path(model_path) / "risk_tables"
+        outdir.mkdir(parents=True, exist_ok=True)
 
-        logger.info("All artifacts saved. Exiting successfully.")
-        sys.exit(0)
+        pkl_path  = outdir / f"risk_table_{var}.pkl"
+        with open(pkl_path, "wb") as pf:
+            pkl.dump(proc.get_risk_tables(), pf)
 
-    except Exception as e:
-        logger.error("Exception during XGBoost training: %s", str(e))
-        traceback.print_exc()
-        # Write a failure file to signal SageMaker failure
-        failure_path = os.path.join(model_path, "failure")
-        try:
-            with open(failure_path, "w") as f:
-                f.write(f"Exception during training: {e}\n{traceback.format_exc()}")
-            logger.info("Wrote failure log to %s", failure_path)
-        except Exception:
-            logger.error("Failed to write failure log.")
-        sys.exit(255)
+        json_path = outdir / f"risk_table_{var}.json"
+        with open(json_path, "w") as jf:
+            json.dump(proc.get_risk_tables(), jf, indent=2)
+
+        logger.info(f"Saved risk tables for '{var}' → {pkl_path}")
+
+    # 5) Transform each split through the fitted processors
+    for split_name, df in [("train", train_df), ("val", val_df), ("test", test_df)]:
+        logger.info(f"Mapping categorical features in {split_name} set …")
+        for var, proc in risk_processors.items():
+            df[var] = proc.transform(df[var])
+
+    # 6) Compute median-based imputation on numeric fields (train), then apply to all splits
+    imp_dict: Dict[str, float] = {}
+    for var in config.tab_field_list:
+        if var not in train_df.columns:
+            raise KeyError(f"Numeric column '{var}' not present in training data")
+        median_val = float(train_df[var].median(skipna=True))
+        imp_dict[var] = median_val
+
+    for df in (train_df, val_df, test_df):
+        for var, mval in imp_dict.items():
+            df[var] = df[var].fillna(mval)
+
+    # Save the imputation dictionary
+    impute_outdir = Path(model_path) / "imputation"
+    impute_outdir.mkdir(parents=True, exist_ok=True)
+    impute_pkl = impute_outdir / "impute_dict.pkl"
+    with open(impute_pkl, "wb") as f_imp:
+        pkl.dump(imp_dict, f_imp)
+    logger.info(f"Saved imputation dictionary → {impute_pkl}")
+
+    # 7) Build DMatrixes for XGBoost
+    y_train = train_df[ config.label_name ].astype(int).values
+    X_train = train_df[ config.tab_field_list + config.cat_field_list ].astype(float).values
+
+    y_val   = val_df[ config.label_name ].astype(int).values
+    X_val   = val_df[ config.tab_field_list + config.cat_field_list ].astype(float).values
+
+    y_test  = test_df[ config.label_name ].astype(int).values
+    X_test  = test_df[ config.tab_field_list + config.cat_field_list ].astype(float).values
+
+    dtrain = xgb.DMatrix(X_train, label=y_train)
+    dval   = xgb.DMatrix(X_val,   label=y_val)
+    dtest  = xgb.DMatrix(X_test,  label=y_test)
+
+    # 8) Configure XGBoost parameters
+    xgb_params: Dict[str, Any] = {
+        "objective":          config.objective,
+        "eta":                config.eta,
+        "gamma":              config.gamma,
+        "max_depth":          config.max_depth,
+        "lambda":             config.lambda_xgb,
+        "alpha":              config.alpha_xgb,
+        "subsample":          config.subsample,
+        "colsample_bytree":   config.colsample_bytree,
+        "scale_pos_weight":   config.scale_pos_weight,
+        "tree_method":        config.tree_method,
+    }
+    logger.info(f"Starting XGBoost training with params: {xgb_params}, num_round={config.num_round}")
+
+    evals = [(dtrain, "train"), (dval, "validation")]
+    bst = xgb.train(
+        params                = xgb_params,
+        dtrain                = dtrain,
+        num_boost_round       = config.num_round,
+        evals                 = evals,
+        early_stopping_rounds = config.early_stopping_rounds,
+    )
+
+    # 9) Save the final XGBoost model
+    model_file = Path(model_path) / "xgboost_model.bst"
+    bst.save_model(str(model_file))
+    logger.info(f"Saved XGBoost model → {model_file}")
+
+    # 10) (Optional) Dump feature‐importance to JSON
+    fmap_json = Path(model_path) / "feature_importance.json"
+    with open(fmap_json, "w") as f_fmap:
+        json.dump(bst.get_fscore(), f_fmap, indent=2)
+    logger.info(f"Saved feature‐importance → {fmap_json}")
+
+    logger.info("Training script finished successfully.")
 
 
+# -------------------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.error(f"Exception during training:\n{traceback.format_exc()}")
+        sys.exit(1)
+
