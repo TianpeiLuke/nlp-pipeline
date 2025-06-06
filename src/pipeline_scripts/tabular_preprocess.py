@@ -6,10 +6,17 @@ import tempfile
 import shutil
 import csv
 import json
+import sys
 import argparse
 from pathlib import Path
+import multiprocessing
+from multiprocessing import Pool, cpu_count
+
 import pandas as pd
 import numpy as np
+import pickle as pkl
+from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
 
 # --------------------------------------------------------------------------------
 # Helper Functions for File Combination
@@ -69,7 +76,6 @@ def _read_json_file(file_path: Path) -> pd.DataFrame:
     Read a JSON file, handling both JSON Lines and regular JSON formats,
     and return a pandas DataFrame.
     """
-    # Determine if gzipped
     suffix = file_path.suffix.lower()
     if suffix == ".gz":
         open_func = gzip.open
@@ -93,10 +99,10 @@ def _read_file_to_df(file_path: Path) -> pd.DataFrame:
     """
     Read a single file (CSV/TSV/JSON/Parquet), decompressing if needed,
     and return a pandas DataFrame. Supports:
-      - gzipped or plain CSV  (*.csv, *.csv.gz)
-      - gzipped or plain TSV  (*.tsv, *.tsv.gz)
+      - gzipped or plain CSV (*.csv, *.csv.gz)
+      - gzipped or plain TSV (*.tsv, *.tsv.gz)
       - gzipped or plain JSON (*.json, *.json.gz)
-      - Parquet (*.parquet, *.snappy.parquet, .parquet.gz)
+      - Parquet (*.parquet, *.snappy.parquet, or gzipped Parquet *.parquet.gz)
     """
     suffix = file_path.suffix.lower()
     stem_extension = Path(file_path.stem).suffix.lower()
@@ -104,8 +110,7 @@ def _read_file_to_df(file_path: Path) -> pd.DataFrame:
     # Case A: Gzipped file (".gz" suffix)
     if suffix == ".gz":
         inner_ext = stem_extension
-        if inner_ext in (".csv", ".tsv"):
-            delimiter = "," if inner_ext == ".csv" else "\t"
+        if inner_ext == ".csv" or inner_ext == ".tsv":
             with gzip.open(str(file_path), "rt") as f:
                 sample = f.readline() + f.readline()
             sep = _detect_separator_from_sample(sample)
@@ -129,8 +134,7 @@ def _read_file_to_df(file_path: Path) -> pd.DataFrame:
 
     # Case B: Plaintext or Parquet file (no ".gz")
     else:
-        if suffix in (".csv", ".tsv"):
-            delimiter = "," if suffix == ".csv" else "\t"
+        if suffix == ".csv" or suffix == ".tsv":
             with open(str(file_path), "rt") as f:
                 sample = f.readline() + f.readline()
             sep = _detect_separator_from_sample(sample)
@@ -199,7 +203,31 @@ def combine_shards(input_dir: str) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------------
-# Main Preprocessing Logic (no imputation / no risk mapping)
+# Parallel Imputation Helper (unchanged)
+# --------------------------------------------------------------------------------
+
+def impute_single_variable(args):
+    """Helper for parallel numeric imputation."""
+    df_chunk, var, impute_dict = args
+    fill_val = impute_dict.get(var, 0.0)
+    return df_chunk[var].fillna(fill_val)
+
+
+def parallel_imputation(df: pd.DataFrame, num_vars: list, impute_dict: dict, n_workers: int) -> pd.DataFrame:
+    """
+    Impute missing numeric values in parallel across `num_vars`.
+    Each var is replaced by df[var].fillna(impute_value).
+    """
+    nproc = min(cpu_count(), len(num_vars), n_workers)
+    with Pool(nproc) as pool:
+        tasks = [(df[[var]], var, impute_dict) for var in num_vars]
+        results = pool.map(impute_single_variable, tasks)
+    df[num_vars] = pd.concat(results, axis=1)
+    return df
+
+
+# --------------------------------------------------------------------------------
+# Main Preprocessing Logic with Train/Test/Val Split
 # --------------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -208,19 +236,27 @@ if __name__ == "__main__":
         "--data_type",
         type=str,
         required=True,
-        help="One of ['training','validation','testing','calibration']"
+        help="One of ['training','validation','testing','calibration']",
     )
     args, _ = parser.parse_known_args()
     data_type = args.data_type
 
-    # 1) Required environment‐variable inputs
+    # 1) Required environment variable inputs
     LABEL_FIELD = os.environ.get("LABEL_FIELD", "").strip()
+    TRAIN_RATIO = float(os.environ.get("TRAIN_RATIO", "0.7"))
+    TEST_VAL_RATIO = float(os.environ.get("TEST_VAL_RATIO", "0.5"))
+
     if not LABEL_FIELD:
         raise RuntimeError("LABEL_FIELD must be set as an environment variable")
+    if not (0.0 < TRAIN_RATIO < 1.0):
+        raise RuntimeError(f"TRAIN_RATIO must be in (0,1), got {TRAIN_RATIO}")
+    if not (0.0 < TEST_VAL_RATIO < 1.0):
+        raise RuntimeError(f"TEST_VAL_RATIO must be in (0,1), got {TEST_VAL_RATIO}")
 
     # 2) Directories inside the Processing container
     input_data_dir = "/opt/ml/processing/input/data"
-    output_dir     = "/opt/ml/processing/output"
+    config_dir = "/opt/ml/processing/input/config"
+    output_dir = "/opt/ml/processing/output"
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # 3) Combine shards into a single DataFrame
@@ -233,42 +269,94 @@ if __name__ == "__main__":
 
     # 5) Verify and convert the label field
     if LABEL_FIELD not in df.columns:
-        raise RuntimeError(f"Label field '{LABEL_FIELD}' not found. "
-                           f"Columns: {df.columns.tolist()}")
+        raise RuntimeError(f"Label field '{LABEL_FIELD}' not found among columns: {df.columns.tolist()}")
 
-    # If label is not numeric, map each unique value → [0..k-1]
+    # If label is not already numeric, map text labels to integer codes 0..k-1
     if not pd.api.types.is_integer_dtype(df[LABEL_FIELD]) and not pd.api.types.is_float_dtype(df[LABEL_FIELD]):
         unique_labels = df[LABEL_FIELD].dropna().unique().tolist()
         unique_labels.sort()
         label_map = {val: idx for idx, val in enumerate(unique_labels)}
         df[LABEL_FIELD] = df[LABEL_FIELD].map(lambda x: label_map.get(x, np.nan))
 
-    # Now ensure labels are integer 0..k-1 (with NA → <NA>)
+    # Now ensure that labels are integers from 0..k-1
     df[LABEL_FIELD] = pd.to_numeric(df[LABEL_FIELD], errors="coerce").astype("Int64")
 
-    # 6) Drop any rows with a missing label
-    before_count = df.shape[0]
+    # 6) Drop any rows with missing label
+    df_before = df.shape[0]
     df = df.dropna(subset=[LABEL_FIELD], how="any")
-    dropped = before_count - df.shape[0]
-    print(f"[INFO] Dropped {dropped} rows due to missing label")
+    print(f"[INFO] Dropped {df_before - df.shape[0]} rows due to missing label")
 
-    # 7) Save “processed” (only LABEL_FIELD + any columns you wish downstream) 
-    #    and “full” DataFrame (all columns)
-    #    – Here, we choose “processed” to include LABEL_FIELD + everything
-    #      else (downstream can select features later).
-    processed_path = os.path.join(output_dir, f"{data_type}_processed_data.csv")
-    full_path      = os.path.join(output_dir, f"{data_type}_full_data.csv")
+    # --------------------------------------------------------------------------------
+    # 7) If data_type == "training", do a three‐way train/test/val split
+    #    Otherwise, just write a single folder named after data_type.
+    # --------------------------------------------------------------------------------
 
-    # Cast label to native int
-    df[LABEL_FIELD] = df[LABEL_FIELD].astype(int)
+    if data_type == "training":
+        # (a) First split: train vs holdout
+        train_df, holdout_df = train_test_split(
+            df,
+            train_size=TRAIN_RATIO,
+            random_state=42,
+            stratify=df[LABEL_FIELD]
+        )
 
-    # Save "processed": write out exactly the same columns (could subset if desired)
-    df.to_csv(processed_path, index=False)
-    print(f"[INFO] Saved processed data to {processed_path} (shape={df.shape})")
+        # (b) Split holdout into test vs val
+        test_df, val_df = train_test_split(
+            holdout_df,
+            test_size=TEST_VAL_RATIO,
+            random_state=42,
+            stratify=holdout_df[LABEL_FIELD]
+        )
 
-    # For “full,” we simply write the same DF again (could be identical to processed in this version)
-    df.to_csv(full_path, index=False)
-    print(f"[INFO] Saved full data to      {full_path} (shape={df.shape})")
+        splits = [("train", train_df), ("test", test_df), ("val", val_df)]
+
+        for split_name, split_df in splits:
+            subfolder = Path(output_dir) / split_name
+            subfolder.mkdir(parents=True, exist_ok=True)
+
+            # Required columns = [LABEL_FIELD] + (all other columns except LABEL_FIELD)
+            required_cols = [LABEL_FIELD] + [c for c in split_df.columns if c != LABEL_FIELD]
+
+            # (i) Processed subset: only required_cols, cast label→int, numeric/floats→float
+            df_proc = split_df[required_cols].copy()
+            df_proc[LABEL_FIELD] = df_proc[LABEL_FIELD].astype(int)
+            for col in required_cols:
+                if col != LABEL_FIELD:
+                    df_proc[col] = df_proc[col].astype(float, errors="ignore")
+            proc_path = subfolder / f"{split_name}_processed_data.csv"
+            df_proc.to_csv(proc_path, index=False)
+            print(f"[INFO] Saved {split_name}_processed_data.csv to {proc_path} (shape={df_proc.shape})")
+
+            # (ii) Full: all columns including LABEL_FIELD cast to int where possible
+            df_full = split_df.copy()
+            df_full[LABEL_FIELD] = df_full[LABEL_FIELD].astype(int)
+            full_path = subfolder / f"{split_name}_full_data.csv"
+            df_full.to_csv(full_path, index=False)
+            print(f"[INFO] Saved {split_name}_full_data.csv to {full_path} (shape={df_full.shape})")
+
+    else:
+        # For any other data_type (validation/testing/calibration), do *not* split.
+        subfolder = Path(output_dir) / data_type
+        subfolder.mkdir(parents=True, exist_ok=True)
+
+        # Required columns = [LABEL_FIELD] + (all other columns except LABEL_FIELD)
+        required_cols = [LABEL_FIELD] + [c for c in df.columns if c != LABEL_FIELD]
+
+        # (i) Processed
+        df_proc = df[required_cols].copy()
+        df_proc[LABEL_FIELD] = df_proc[LABEL_FIELD].astype(int)
+        for col in required_cols:
+            if col != LABEL_FIELD:
+                df_proc[col] = df_proc[col].astype(float, errors="ignore")
+        proc_path = subfolder / f"{data_type}_processed_data.csv"
+        df_proc.to_csv(proc_path, index=False)
+        print(f"[INFO] Saved {data_type}_processed_data.csv to {proc_path} (shape={df_proc.shape})")
+
+        # (ii) Full
+        df_full = df.copy()
+        df_full[LABEL_FIELD] = df_full[LABEL_FIELD].astype(int)
+        full_path = subfolder / f"{data_type}_full_data.csv"
+        df_full.to_csv(full_path, index=False)
+        print(f"[INFO] Saved {data_type}_full_data.csv to {full_path} (shape={df_full.shape})")
 
     print("[INFO] Preprocessing complete.")
-
