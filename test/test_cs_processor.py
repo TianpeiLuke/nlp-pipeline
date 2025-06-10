@@ -1,7 +1,8 @@
 import unittest
 import time
 
-from src.processing.cs_processor import CSChatSplitterProcessor
+# Assuming CSAdapter is in the same module as CSChatSplitterProcessor
+from src.processing.cs_processor import CSChatSplitterProcessor, CSAdapter
 
 
 class TestCSChatSplitterProcessor(unittest.TestCase):
@@ -148,6 +149,57 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
         # Ensure processing completes within a reasonable time (e.g., 1 second)
         self.assertLess(time.time() - t0, 1.0)
         self.assertEqual(len(res), 3000)
+
+
+class TestCSAdapter(unittest.TestCase):
+    """Unit tests for the CSAdapter processor."""
+
+    def test_basic_formatting(self):
+        """Test standard message list is formatted correctly."""
+        adapter = CSAdapter()
+        messages = [
+            {"role": "customer", "content": "Hello"},
+            {"role": "agent", "content": "Hi, how can I help?"}
+        ]
+        # The expected output should match the processor's actual format.
+        expected = [
+            "[customer]: Hello",
+            "[agent]: Hi, how can I help?"
+        ]
+        self.assertEqual(adapter.process(messages), expected)
+
+    def test_empty_message_list(self):
+        """Test that an empty list of messages produces an empty list."""
+        adapter = CSAdapter()
+        self.assertEqual(adapter.process([]), [])
+
+    def test_single_message_formatting(self):
+        """Test adapter functionality for a single message."""
+        adapter = CSAdapter()
+        messages = [{"role": "bot", "content": "Test"}]
+        expected = ["[bot]: Test"]
+        self.assertEqual(adapter.process(messages), expected)
+
+    def test_message_with_missing_keys_raises_error(self):
+        """Test that a message with a missing key raises a KeyError."""
+        adapter = CSAdapter()
+        messages_missing_content = [{"role": "customer"}]
+        messages_missing_role = [{"content": "Just content"}]
+        
+        # Test that the processor raises a KeyError, which is its current behavior.
+        with self.assertRaises(KeyError):
+            adapter.process(messages_missing_content)
+        with self.assertRaises(KeyError):
+            adapter.process(messages_missing_role)
+
+    def test_message_with_special_characters_and_newlines(self):
+        """Test that special characters and newlines in content are preserved."""
+        adapter = CSAdapter()
+        messages = [
+            {"role": "bot", "content": "A message\nwith newlines & [special] chars."}
+        ]
+        expected = ["[bot]: A message\nwith newlines & [special] chars."]
+        self.assertEqual(adapter.process(messages), expected)
 
 
 if __name__ == "__main__":
