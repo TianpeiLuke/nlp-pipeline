@@ -67,12 +67,54 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
         ]
         self.assertEqual(self.processor.process(txt), expected)
 
+    # ---------- New tests for embedded messages (Improved Coverage) ----------
+
+    def test_chat_with_single_embedded_message(self):
+        """Tests splitting when one message contains another."""
+        txt = "[customer]:Here is my main message. [bot]: And here is an embedded one."
+        expected = [
+            {"role": "customer", "content": "Here is my main message."},
+            {"role": "bot", "content": "And here is an embedded one."}
+        ]
+        self.assertEqual(self.processor.process(txt), expected)
+
+    def test_chat_with_multiple_embedded_messages(self):
+        """Tests splitting with multiple embedded messages from different roles."""
+        txt = "[agent]:Ok, I see. [bot]:First embedded. [customer]:Second embedded."
+        expected = [
+            {"role": "agent", "content": "Ok, I see."},
+            {"role": "bot", "content": "First embedded."},
+            {"role": "customer", "content": "Second embedded."}
+        ]
+        self.assertEqual(self.processor.process(txt), expected)
+
+    def test_chat_with_only_embedded_messages(self):
+        """Tests when a turn consists only of embedded messages and has no primary content."""
+        txt = "[customer]:[bot]:Embedded one.[agent]:Embedded two."
+        expected = [
+            {"role": "bot", "content": "Embedded one."},
+            {"role": "agent", "content": "Embedded two."}
+        ]
+        self.assertEqual(self.processor.process(txt), expected)
+
+    def test_embedded_messages_mixed_with_normal_flow(self):
+        """Tests a more complex flow with both normal and embedded messages."""
+        txt = "[bot]:Hello![customer]:I have an issue. [agent]:Let me look that up for you. [bot]:I found your order.[customer]:Thanks!"
+        expected = [
+            {"role": "bot", "content": "Hello!"},
+            {"role": "customer", "content": "I have an issue."},
+            {"role": "agent", "content": "Let me look that up for you."},
+            {"role": "bot", "content": "I found your order."},
+            {"role": "customer", "content": "Thanks!"}
+        ]
+        self.assertEqual(self.processor.process(txt), expected)
+
     # ---------- edge cases ----------
     def test_invalid_format(self):
         self.assertEqual(self.processor.process("Invalid format"), [])
 
     def test_mixed_case_roles(self):
-        # regex is case-sensitive → uppercase tags ignored
+        # The current regex is case-sensitive, so uppercase tags are ignored.
         self.assertEqual(self.processor.process("[BOT]:x[Customer]:y"), [])
 
     def test_real_world_example(self):
@@ -91,15 +133,20 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
         self.assertEqual(out[3]["role"], "agent")
 
     def test_malformed_tags(self):
+        # The processor should correctly extract the valid message and ignore malformed parts.
         txt = "[bot:bad[customer]:ok[agent]bad"
-        self.assertEqual(len(self.processor.process(txt)), 1)
+        # UPDATED: The current processor implementation is greedy and captures content until the next valid
+        # [role]: marker or the end of the string. The test is updated to reflect this actual behavior.
+        expected = [{"role": "customer", "content": "ok[agent]bad"}]
+        self.assertEqual(self.processor.process(txt), expected)
 
     # ---------- performance ----------
     def test_performance_with_large_input(self):
         big = "[bot]:M[customer]:M[agent]:M" * 1000
         t0 = time.time()
         res = self.processor.process(big)
-        self.assertLess(time.time() - t0, 1.0)        # within 1 s
+        # Ensure processing completes within a reasonable time (e.g., 1 second)
+        self.assertLess(time.time() - t0, 1.0)
         self.assertEqual(len(res), 3000)
 
 
