@@ -85,7 +85,7 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
     def validate_data_type(cls, v: str) -> str:
         allowed = {"training", "validation", "testing", "calibration"}
         if v not in allowed:
-            raise ValueError(f"data_type must be one of {allowed}, got '{v}'")
+            raise ValueError(f"job_type must be one of {allowed}, got '{v}'")
         return v
 
     @field_validator("train_ratio", "test_val_ratio")

@@ -1,16 +1,30 @@
+#!/usr/bin/env python
 import os
 import json
 import argparse
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Union, Optional
+from typing import Tuple, List, Dict, Any, Union
 import pandas as pd
 import numpy as np
 from multiprocessing import Pool, cpu_count
 import logging
+from sklearn.model_selection import train_test_split
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+"""
+Maker sure:
+
+marketplace_info = {
+    "1": {"currency_code": "USD"},
+    "2": {"currency_code": "EUR"},
+    "3": {"currency_code": "JPY"}
+}
+
+"""
 
 
 def get_currency_code(
@@ -133,62 +147,140 @@ def process_currency_conversion(
 
 def main():
     parser = argparse.ArgumentParser()
-    # Processing configuration
+    parser.add_argument(
+        "--job-type",
+        type=str,
+        required=True,
+        choices=["training", "validation", "testing", "calibration"],
+        help="One of ['training','validation','testing','calibration']"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["per_split", "split_after_conversion"],
+        default="per_split",
+        help=(
+            "per_split: apply conversion separately on each existing split folder; "
+            "split_after_conversion: combine all data, convert, then re-split"
+        )
+    )
+    # reuse TRAIN_RATIO and TEST_VAL_RATIO just like tabular preprocess
+    parser.add_argument("--train-ratio", type=float, default=float(os.environ.get("TRAIN_RATIO", 0.7)))
+    parser.add_argument("--test-val-ratio", type=float, default=float(os.environ.get("TEST_VAL_RATIO", 0.5)))
+    # currency args
     parser.add_argument("--n-workers", type=int, default=50)
     parser.add_argument("--marketplace-id-col", required=True)
-    parser.add_argument("--currency-col")
+    parser.add_argument("--currency-col", default=None)
     parser.add_argument("--default-currency", default="USD")
     parser.add_argument("--skip-invalid-currencies", action="store_true")
-    parser.add_argument("--enable-conversion", type=lambda x: x.lower() == "true", default=True)
-    
+    parser.add_argument("--enable-conversion", type=lambda x: x.lower()=="true", default=True)
     args = parser.parse_args()
-
-    # Get environment variables
-    currency_conversion_vars = json.loads(os.environ["CURRENCY_CONVERSION_VARS"])
-    currency_conversion_dict = json.loads(os.environ["CURRENCY_CONVERSION_DICT"])
-    marketplace_info = json.loads(os.environ["MARKETPLACE_INFO"])
-
-    # SageMaker processing paths
-    input_path = "/opt/ml/processing/input/data/data.csv"
-    output_path = "/opt/ml/processing/output/processed_data.csv"
-
-    logger.info("Starting currency conversion processing")
     
-    try:
-        # Read input data
-        logger.info(f"Reading input data from {input_path}")
-        df = pd.read_csv(input_path)
-        logger.info(f"Input data shape: {df.shape}")
+    # load JSON env vars
+    currency_vars      = json.loads(os.environ["CURRENCY_CONVERSION_VARS"])
+    currency_dict      = json.loads(os.environ["CURRENCY_CONVERSION_DICT"])
+    marketplace_info   = json.loads(os.environ["MARKETPLACE_INFO"])
+    
+    job_type = args.job_type
+    mode      = args.mode
+    input_base  = Path("/opt/ml/processing/input/data")
+    output_base = Path("/opt/ml/processing/output")
+    output_base.mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Running currency conversion in mode={mode}, job_type={job_type}")
 
-        # Process currency conversion if enabled
+    def apply_conversion(df: pd.DataFrame) -> pd.DataFrame:
         if args.enable_conversion:
-            logger.info("Currency conversion enabled")
-            df = process_currency_conversion(
+            return process_currency_conversion(
                 df=df,
                 marketplace_id_col=args.marketplace_id_col,
-                currency_conversion_vars=currency_conversion_vars,
-                currency_conversion_dict=currency_conversion_dict,
+                currency_conversion_vars=currency_vars,
+                currency_conversion_dict=currency_dict,
                 marketplace_info=marketplace_info,
                 currency_col=args.currency_col,
                 default_currency=args.default_currency,
                 skip_invalid_currencies=args.skip_invalid_currencies,
-                n_workers=args.n_workers
+                n_workers=args.n_workers,
             )
         else:
-            logger.info("Currency conversion disabled")
+            logger.info("Conversion disabled—returning original DataFrame")
+            return df
 
-        # Save processed data
-        output_dir = os.path.dirname(output_path)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        logger.info(f"Saving processed data to {output_path}")
-        df.to_csv(output_path, index=False)
-        logger.info("Processing completed successfully")
+    if mode == "split_after_conversion" and job_type == "training":
+        # gather all the processed shards from subfolders
+        splits = ["train","test","val"]
+        dfs = []
+        for sp in splits:
+            fpath = input_base / sp / f"{sp}_processed_data.csv"
+            logger.info(f"  Reading split {sp} from {fpath}")
+            dfs.append(pd.read_csv(fpath))
+        df_all = pd.concat(dfs, ignore_index=True)
+        df_conv = apply_conversion(df_all)
 
-    except Exception as e:
-        logger.error(f"Error during processing: {str(e)}")
-        raise
+        # re-split
+        train_df, holdout_df = train_test_split(
+            df_conv,
+            train_size=args.train_ratio,
+            random_state=42,
+            stratify=df_conv[os.environ["LABEL_FIELD"]]
+        )
+        test_df, val_df = train_test_split(
+            holdout_df,
+            test_size=args.test_val_ratio,
+            random_state=42,
+            stratify=holdout_df[os.environ["LABEL_FIELD"]]
+        )
+
+        for split_name, split_df in [("train", train_df), ("test", test_df), ("val", val_df)]:
+            out_dir = output_base / split_name
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            # processed
+            proc = split_df.copy()
+            proc_path = out_dir / f"{split_name}_processed_data.csv"
+            proc.to_csv(proc_path, index=False)
+            logger.info(f"Wrote converted processed: {proc_path} (shape={proc.shape})")
+
+            # full (just alias here—but you could re-read your full_data.csv if needed)
+            full = proc.copy()
+            full_path = out_dir / f"{split_name}_full_data.csv"
+            full.to_csv(full_path, index=False)
+            logger.info(f"Wrote converted full: {full_path} (shape={full.shape})")
+
+    else:
+        # per_split mode OR non‐training split_after_conversion
+        if job_type == "training":
+            splits = ["train","test","val"]
+        else:
+            splits = [job_type]
+
+        for sp in splits:
+            in_dir = input_base / sp
+            proc_in_path = in_dir / f"{sp}_processed_data.csv"
+            full_in_path = in_dir / f"{sp}_full_data.csv"
+
+            df_proc = pd.read_csv(proc_in_path)
+            df_conv = apply_conversion(df_proc)
+
+            out_dir = output_base / sp
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            # write processed
+            proc_out = out_dir / f"{sp}_processed_data.csv"
+            df_conv.to_csv(proc_out, index=False)
+            logger.info(f"Converted processed for '{sp}' → {proc_out} (shape={df_conv.shape})")
+
+            # if you want full_data converted as well
+            if full_in_path.exists():
+                df_full = pd.read_csv(full_in_path)
+                df_full_conv = apply_conversion(df_full)
+                full_out = out_dir / f"{sp}_full_data.csv"
+                df_full_conv.to_csv(full_out, index=False)
+                logger.info(f"Converted full for '{sp}' → {full_out} (shape={df_full_conv.shape})")
+
+    logger.info("Currency conversion step complete.")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
