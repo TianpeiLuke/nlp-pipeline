@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 from src.processing.bsm_datasets import BSMDataset
 from src.processing.processors import Processor
-from src.processing.processors import DummyTokenizer  # Import DummyTokenizer from processors.py
 
 # Define dummy pipeline processors for testing in this file.
 class DummyProcessor(Processor):
@@ -60,7 +59,8 @@ class TestBSMDataset(unittest.TestCase):
     
     def test_numerical_fields_conversion(self):
         # Check that numerical fields in tab_field_list are converted to numbers.
-        row0 = self.dataset[0]
+        # Access the processed data through the instance, not by re-calling the method
+        row0 = self.dataset.DataReader.iloc[0]
         # Instead of checking with isinstance(..., float), use np.issubdtype.
         self.assertTrue(np.issubdtype(type(row0["ttm_conc_count"]), np.floating))
         self.assertTrue(np.issubdtype(type(row0["net_conc_amt"]), np.floating))
@@ -71,8 +71,9 @@ class TestBSMDataset(unittest.TestCase):
         self.assertIn("dialogue", self.dataset.processor_pipelines)
         raw_text = self.df.iloc[0]["dialogue"]
         processed = self.dataset.processor_pipelines["dialogue"](raw_text)
-        expected = {"input_ids": (raw_text + "_dummy").split(),
-                    "attention_mask": [1] * len((raw_text + "_dummy").split())}
+        expected_raw = raw_text + "_dummy"
+        expected = {"input_ids": expected_raw.split(),
+                    "attention_mask": [1] * len(expected_raw.split())}
         self.assertEqual(processed, expected)
     
     def test___getitem__(self):
@@ -82,6 +83,8 @@ class TestBSMDataset(unittest.TestCase):
         expected_tokens = expected_str.split()
         expected = {"input_ids": expected_tokens, "attention_mask": [1] * len(expected_tokens)}
         self.assertEqual(item["dialogue_processed"], expected)
+        # Ensure the original text field is deleted
+        self.assertNotIn("dialogue", item)
 
     def test_field_without_pipeline(self):
         # Check that fields with no pipeline remain unchanged.
