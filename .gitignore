@@ -57,6 +57,7 @@ coverage.xml
 htmlcov/
 .cache/
 pytest_cache/
+.coverage
 
 # Misc
 *.pdb
