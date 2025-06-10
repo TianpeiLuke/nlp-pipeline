@@ -75,10 +75,8 @@ def _read_json_file(file_path: Path) -> pd.DataFrame:
     suffix = file_path.suffix.lower()
     if suffix == ".gz":
         open_func = gzip.open
-        inner_suffix = Path(file_path.stem).suffix.lower()
     else:
         open_func = open
-        inner_suffix = suffix
 
     fmt = peek_json_format(file_path, open_func)
     if fmt == "lines":
@@ -94,11 +92,7 @@ def _read_json_file(file_path: Path) -> pd.DataFrame:
 def _read_file_to_df(file_path: Path) -> pd.DataFrame:
     """
     Read a single file (CSV/TSV/JSON/Parquet), decompressing if needed,
-    and return a pandas DataFrame. Supports:
-      - gzipped or plain CSV (*.csv, *.csv.gz)
-      - gzipped or plain TSV (*.tsv, *.tsv.gz)
-      - gzipped or plain JSON (*.json, *.json.gz)
-      - Parquet (*.parquet, *.snappy.parquet, or gzipped Parquet *.parquet.gz)
+    and return a pandas DataFrame.
     """
     suffix = file_path.suffix.lower()
     stem_extension = Path(file_path.stem).suffix.lower()
@@ -148,211 +142,145 @@ def _read_file_to_df(file_path: Path) -> pd.DataFrame:
 
 def combine_shards(input_dir: str) -> pd.DataFrame:
     """
-    Detect and combine all shards in `input_dir`. Supports:
-      - CSV (.csv, .csv.gz)
-      - JSON (.json, .json.gz)
-      - Parquet (.parquet, .snappy.parquet, .parquet.gz)
-
-    Returns a single pandas DataFrame containing all rows from every shard.
+    Detect and combine all shards in `input_dir`. Supports various formats.
     """
     input_path = Path(input_dir)
     if not input_path.is_dir():
         raise RuntimeError(f"Input directory does not exist: {input_dir}")
 
-    # 1) Find all relevant shard files
     patterns = [
-        "part-*.csv",
-        "part-*.csv.gz",
-        "part-*.json",
-        "part-*.json.gz",
-        "part-*.parquet",
-        "part-*.snappy.parquet",
-        "part-*.parquet.gz",
+        "part-*.csv", "part-*.csv.gz", "part-*.json", "part-*.json.gz",
+        "part-*.parquet", "part-*.snappy.parquet", "part-*.parquet.gz",
     ]
 
-    all_shards = []
-    for pat in patterns:
-        all_shards.extend(input_path.glob(pat))
+    all_shards = [shard for pat in patterns for shard in input_path.glob(pat)]
 
     if not all_shards:
         raise RuntimeError(f"No CSV/JSON/Parquet shards found under {input_dir}")
 
-    # 2) Sort lexicographically so that reading order is deterministic
-    all_shards = sorted(all_shards)
+    all_shards.sort()
 
-    # 3) Read each shard into a DataFrame
-    dfs = []
-    for shard in all_shards:
-        try:
-            df_shard = _read_file_to_df(shard)
-            dfs.append(df_shard)
-        except Exception as e:
-            raise RuntimeError(f"Failed to read shard '{shard}': {e}")
+    dfs = [_read_file_to_df(shard) for shard in all_shards]
 
-    # 4) Concatenate all DataFrames
     try:
-        combined = pd.concat(dfs, axis=0, ignore_index=True)
+        return pd.concat(dfs, axis=0, ignore_index=True)
     except Exception as e:
         raise RuntimeError(f"Failed to concatenate shards: {e}")
 
-    return combined
-
-
-# --------------------------------------------------------------------------------
-# Parallel Imputation Helper (unchanged)
-# --------------------------------------------------------------------------------
-
-def impute_single_variable(args):
-    """Helper for parallel numeric imputation."""
-    df_chunk, var, impute_dict = args
-    fill_val = impute_dict.get(var, 0.0)
-    return df_chunk[var].fillna(fill_val)
-
 
 def parallel_imputation(df: pd.DataFrame, num_vars: list, impute_dict: dict, n_workers: int) -> pd.DataFrame:
-    """
-    Impute missing numeric values in parallel across `num_vars`.
-    Each var is replaced by df[var].fillna(impute_value).
-    """
+    """Impute missing numeric values in parallel."""
+    def impute_single_variable(args):
+        df_chunk, var, impute_val = args
+        return df_chunk[var].fillna(impute_val)
+
     nproc = min(cpu_count(), len(num_vars), n_workers)
     with Pool(nproc) as pool:
-        tasks = [(df[[var]], var, impute_dict) for var in num_vars]
+        tasks = [(df[[var]], var, impute_dict.get(var, 0.0)) for var in num_vars]
         results = pool.map(impute_single_variable, tasks)
     df[num_vars] = pd.concat(results, axis=1)
     return df
 
+# --------------------------------------------------------------------------------
+# Main Preprocessing Logic - Refactored into a testable function
+# --------------------------------------------------------------------------------
+def main(data_type: str, label_field: str, train_ratio: float, test_val_ratio: float, input_dir: str, output_dir: str):
+    """
+    Core logic for preprocessing, splitting, and saving data.
+    This function is now testable by passing parameters directly.
+    """
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # 1) Combine shards into a single DataFrame
+    print(f"[INFO] Combining shards under {input_dir}…")
+    df = combine_shards(input_dir)
+    print(f"[INFO] Combined data shape: {df.shape}")
+
+    # 2) Rename columns: replace "__DOT__" with "."
+    df.columns = [col.replace("__DOT__", ".") for col in df.columns]
+
+    # 3) Verify and convert the label field
+    if label_field not in df.columns:
+        raise RuntimeError(f"Label field '{label_field}' not found among columns: {df.columns.tolist()}")
+
+    # If label is not already numeric, map text labels to integer codes 0..k-1
+    if not pd.api.types.is_numeric_dtype(df[label_field]):
+        unique_labels = sorted(df[label_field].dropna().unique())
+        label_map = {val: idx for idx, val in enumerate(unique_labels)}
+        df[label_field] = df[label_field].map(label_map)
+
+    df[label_field] = pd.to_numeric(df[label_field], errors="coerce").astype("Int64")
+
+    # 4) Drop any rows with missing label
+    df_before = df.shape[0]
+    df = df.dropna(subset=[label_field], how="any")
+    print(f"[INFO] Dropped {df_before - df.shape[0]} rows due to missing label")
+
+    # 5) Split data if in 'training' mode, otherwise save as a single set
+    if data_type == "training":
+        train_df, holdout_df = train_test_split(
+            df, train_size=train_ratio, random_state=42, stratify=df[label_field]
+        )
+        test_df, val_df = train_test_split(
+            holdout_df, test_size=test_val_ratio, random_state=42, stratify=holdout_df[label_field]
+        )
+        splits = {"train": train_df, "test": test_df, "val": val_df}
+    else:
+        splits = {data_type: df}
+
+    # 6) Save the output files for each split
+    for split_name, split_df in splits.items():
+        subfolder = output_path / split_name
+        subfolder.mkdir(exist_ok=True)
+
+        required_cols = [label_field] + [c for c in split_df.columns if c != label_field]
+        df_proc = split_df[required_cols].copy()
+        df_proc[label_field] = df_proc[label_field].astype(int)
+
+        for col in required_cols:
+            if col != label_field:
+                df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce')
+
+        proc_path = subfolder / f"{split_name}_processed_data.csv"
+        df_proc.to_csv(proc_path, index=False)
+        print(f"[INFO] Saved {split_name}_processed_data.csv to {proc_path} (shape={df_proc.shape})")
+
+        full_path = subfolder / f"{split_name}_full_data.csv"
+        split_df.to_csv(full_path, index=False)
+        print(f"[INFO] Saved {split_name}_full_data.csv to {full_path} (shape={split_df.shape})")
+
+    print("[INFO] Preprocessing complete.")
 
 # --------------------------------------------------------------------------------
-# Main Preprocessing Logic with Train/Test/Val Split
+# Script Entry Point
 # --------------------------------------------------------------------------------
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--data_type",
-        type=str,
-        required=True,
+        "--data_type", type=str, required=True,
         help="One of ['training','validation','testing','calibration']",
     )
     args, _ = parser.parse_known_args()
-    data_type = args.data_type
 
-    # 1) Required environment variable inputs
+    # Read configuration from environment variables
     LABEL_FIELD = os.environ.get("LABEL_FIELD", "").strip()
     TRAIN_RATIO = float(os.environ.get("TRAIN_RATIO", "0.7"))
     TEST_VAL_RATIO = float(os.environ.get("TEST_VAL_RATIO", "0.5"))
 
     if not LABEL_FIELD:
         raise RuntimeError("LABEL_FIELD must be set as an environment variable")
-    if not (0.0 < TRAIN_RATIO < 1.0):
-        raise RuntimeError(f"TRAIN_RATIO must be in (0,1), got {TRAIN_RATIO}")
-    if not (0.0 < TEST_VAL_RATIO < 1.0):
-        raise RuntimeError(f"TEST_VAL_RATIO must be in (0,1), got {TEST_VAL_RATIO}")
 
-    # 2) Directories inside the Processing container
+    # Define standard SageMaker paths
     input_data_dir = "/opt/ml/processing/input/data"
-    config_dir = "/opt/ml/processing/input/config"
     output_dir = "/opt/ml/processing/output"
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # 3) Combine shards into a single DataFrame
-    print(f"[INFO] Combining shards under {input_data_dir} …")
-    df = combine_shards(input_data_dir)
-    print(f"[INFO] Combined data shape: {df.shape}")
-
-    # 4) Rename columns: replace "__DOT__" with "."
-    df.columns = [col.replace("__DOT__", ".") for col in df.columns]
-
-    # 5) Verify and convert the label field
-    if LABEL_FIELD not in df.columns:
-        raise RuntimeError(f"Label field '{LABEL_FIELD}' not found among columns: {df.columns.tolist()}")
-
-    # If label is not already numeric, map text labels to integer codes 0..k-1
-    if not pd.api.types.is_integer_dtype(df[LABEL_FIELD]) and not pd.api.types.is_float_dtype(df[LABEL_FIELD]):
-        unique_labels = df[LABEL_FIELD].dropna().unique().tolist()
-        unique_labels.sort()
-        label_map = {val: idx for idx, val in enumerate(unique_labels)}
-        df[LABEL_FIELD] = df[LABEL_FIELD].map(lambda x: label_map.get(x, np.nan))
-
-    # Now ensure that labels are integers from 0..k-1
-    df[LABEL_FIELD] = pd.to_numeric(df[LABEL_FIELD], errors="coerce").astype("Int64")
-
-    # 6) Drop any rows with missing label
-    df_before = df.shape[0]
-    df = df.dropna(subset=[LABEL_FIELD], how="any")
-    print(f"[INFO] Dropped {df_before - df.shape[0]} rows due to missing label")
-
-    # --------------------------------------------------------------------------------
-    # 7) If data_type == "training", do a three‐way train/test/val split
-    #    Otherwise, just write a single folder named after data_type.
-    # --------------------------------------------------------------------------------
-
-    if data_type == "training":
-        # (a) First split: train vs holdout
-        train_df, holdout_df = train_test_split(
-            df,
-            train_size=TRAIN_RATIO,
-            random_state=42,
-            stratify=df[LABEL_FIELD]
-        )
-
-        # (b) Split holdout into test vs val
-        test_df, val_df = train_test_split(
-            holdout_df,
-            test_size=TEST_VAL_RATIO,
-            random_state=42,
-            stratify=holdout_df[LABEL_FIELD]
-        )
-
-        splits = [("train", train_df), ("test", test_df), ("val", val_df)]
-
-        for split_name, split_df in splits:
-            subfolder = Path(output_dir) / split_name
-            subfolder.mkdir(parents=True, exist_ok=True)
-
-            # Required columns = [LABEL_FIELD] + (all other columns except LABEL_FIELD)
-            required_cols = [LABEL_FIELD] + [c for c in split_df.columns if c != LABEL_FIELD]
-
-            # (i) Processed subset: only required_cols, cast label→int, numeric/floats→float
-            df_proc = split_df[required_cols].copy()
-            df_proc[LABEL_FIELD] = df_proc[LABEL_FIELD].astype(int)
-            for col in required_cols:
-                if col != LABEL_FIELD:
-                    df_proc[col] = df_proc[col].astype(float, errors="ignore")
-            proc_path = subfolder / f"{split_name}_processed_data.csv"
-            df_proc.to_csv(proc_path, index=False)
-            print(f"[INFO] Saved {split_name}_processed_data.csv to {proc_path} (shape={df_proc.shape})")
-
-            # (ii) Full: all columns including LABEL_FIELD cast to int where possible
-            df_full = split_df.copy()
-            df_full[LABEL_FIELD] = df_full[LABEL_FIELD].astype(int)
-            full_path = subfolder / f"{split_name}_full_data.csv"
-            df_full.to_csv(full_path, index=False)
-            print(f"[INFO] Saved {split_name}_full_data.csv to {full_path} (shape={df_full.shape})")
-
-    else:
-        # For any other data_type (validation/testing/calibration), do *not* split.
-        subfolder = Path(output_dir) / data_type
-        subfolder.mkdir(parents=True, exist_ok=True)
-
-        # Required columns = [LABEL_FIELD] + (all other columns except LABEL_FIELD)
-        required_cols = [LABEL_FIELD] + [c for c in df.columns if c != LABEL_FIELD]
-
-        # (i) Processed
-        df_proc = df[required_cols].copy()
-        df_proc[LABEL_FIELD] = df_proc[LABEL_FIELD].astype(int)
-        for col in required_cols:
-            if col != LABEL_FIELD:
-                df_proc[col] = df_proc[col].astype(float, errors="ignore")
-        proc_path = subfolder / f"{data_type}_processed_data.csv"
-        df_proc.to_csv(proc_path, index=False)
-        print(f"[INFO] Saved {data_type}_processed_data.csv to {proc_path} (shape={df_proc.shape})")
-
-        # (ii) Full
-        df_full = df.copy()
-        df_full[LABEL_FIELD] = df_full[LABEL_FIELD].astype(int)
-        full_path = subfolder / f"{data_type}_full_data.csv"
-        df_full.to_csv(full_path, index=False)
-        print(f"[INFO] Saved {data_type}_full_data.csv to {full_path} (shape={df_full.shape})")
-
-    print("[INFO] Preprocessing complete.")
+    # Execute the main processing logic
+    main(
+        data_type=args.data_type,
+        label_field=LABEL_FIELD,
+        train_ratio=TRAIN_RATIO,
+        test_val_ratio=TEST_VAL_RATIO,
+        input_dir=input_data_dir,
+        output_dir=output_dir
+    )
