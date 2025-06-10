@@ -2,7 +2,7 @@ import os
 import json
 import argparse
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Union
+from typing import Tuple, List, Dict, Any, Union, Optional
 import pandas as pd
 import numpy as np
 from multiprocessing import Pool, cpu_count
