@@ -1,14 +1,35 @@
 import unittest
+# Import the actual processors to be tested
 from src.processing.processors import (
     TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
-    DialogueSplitterProcessor, DialogueChunkerProcessor, DummyTokenizer,
+    DialogueSplitterProcessor, DialogueChunkerProcessor,
     Processor
 )
 from src.processing.bert_tokenize_processor import TokenizationProcessor
 from src.processing.categorical_label_processor import CategoricalLabelProcessor
 
 
-# Define dummy processors for testing non-categorical pipelines.
+# --- Dummy classes for testing ---
+
+class DummyTokenizer:
+    """
+    A dummy tokenizer that mimics Hugging Face tokenizers for testing.
+    It splits text by space and is callable.
+    """
+    def encode(self, text, add_special_tokens=False):
+        """Simulates encoding text into tokens."""
+        if not text:
+            return []
+        return text.split()
+
+    def __call__(self, text, **kwargs):
+        """
+        Makes the tokenizer callable, returning a dictionary of tokens.
+        Accepts and ignores extra keyword arguments like max_length, padding, etc.
+        """
+        tokens = self.encode(text)
+        return {"input_ids": tokens, "attention_mask": [1] * len(tokens)}
+
 class DummyProcessor(Processor):
     """A dummy processor that appends '_dummy' to the input."""
     def __init__(self):
@@ -25,7 +46,6 @@ class DummyTokenizationProcessor(Processor):
     def process(self, input_text: str):
         tokens = input_text.split()
         return {"input_ids": tokens, "attention_mask": [1] * len(tokens)}
-
 
 
 # --- Unit Tests for Processors ---
@@ -67,6 +87,22 @@ class TestProcessors(unittest.TestCase):
         for chunk in result:
             tokens = dummy_tokenizer.encode(chunk, add_special_tokens=False)
             self.assertLessEqual(len(tokens), 5)
+            
+    def test_dialogue_chunker_handles_empty_inputs(self):
+        """
+        Tests that the chunker returns ['.'] for empty/whitespace-only inputs,
+        which reflects the current implementation.
+        """
+        dummy_tokenizer = DummyTokenizer()
+        chunker = DialogueChunkerProcessor(tokenizer=dummy_tokenizer, max_tokens=5)
+        
+        # Test with a completely empty list of messages
+        result_empty = chunker([])
+        self.assertEqual(result_empty, ['.'])
+        
+        # Test with a list containing only empty or whitespace strings
+        result_whitespace = chunker(["", "   ", "\t"])
+        self.assertEqual(result_whitespace, ['.'])
 
     def test_tokenization_processor_with_dummy_tokenizer(self):
         dummy_tokenizer = DummyTokenizer()
@@ -104,9 +140,10 @@ class TestProcessors(unittest.TestCase):
         )
         dialogue = (
             "[bom] a b c d [eom] "  # 4 tokens
-            "[bom] e f [eom] "       # 2 tokens, cannot be combined with previous chunk; forms its own
-            "[bom] g h i j [eom]"     # 4 tokens; separate chunk
+            "[bom] e f [eom] "       # 2 tokens
+            "[bom] g h i j [eom]"     # 4 tokens
         )
+        # Expected behavior: chunker combines messages until max_tokens is reached.
         expected = [
             {"input_ids": ["a", "b", "c", "d"], "attention_mask": [1,1,1,1]},
             {"input_ids": ["e", "f"], "attention_mask": [1,1]},
@@ -128,7 +165,6 @@ class TestProcessors(unittest.TestCase):
             "[bom] <p>Hi 😊 there!</p> [eom] "
             "[bom] <div>How are you? 🚀</div> [eom]"
         )
-        # Expected output now is a list containing a dictionary with keys "input_ids" and "attention_mask":
         expected = [{"input_ids": ["hi", "there!", "how", "are", "you?"], "attention_mask": [1, 1, 1, 1, 1]}]
         self.assertEqual(full_processor(dialogue), expected)
 
@@ -143,7 +179,8 @@ class TestProcessors(unittest.TestCase):
             >> TokenizationProcessor(dummy_tokenizer, add_special_tokens=False)
         )
         dialogue = ""
-        expected = []  # Expect no output when dialogue is empty.
+        # The chunker returns ['.'], which the tokenizer processes.
+        expected = [{"input_ids": ["."], "attention_mask": [1]}]
         self.assertEqual(full_processor(dialogue), expected)
 
     def test_single_long_message_chunk_boundary(self):
