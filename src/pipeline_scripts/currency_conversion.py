@@ -15,18 +15,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-"""
-Maker sure:
-
-marketplace_info = {
-    "1": {"currency_code": "USD"},
-    "2": {"currency_code": "EUR"},
-    "3": {"currency_code": "JPY"}
-}
-
-"""
-
-
 def get_currency_code(
     marketplace_id: Union[int, float],
     marketplace_info: Dict[str, Dict[str, str]],
@@ -145,45 +133,14 @@ def process_currency_conversion(
     return df
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--job-type",
-        type=str,
-        required=True,
-        choices=["training", "validation", "testing", "calibration"],
-        help="One of ['training','validation','testing','calibration']"
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["per_split", "split_after_conversion"],
-        default="per_split",
-        help=(
-            "per_split: apply conversion separately on each existing split folder; "
-            "split_after_conversion: combine all data, convert, then re-split"
-        )
-    )
-    # reuse TRAIN_RATIO and TEST_VAL_RATIO just like tabular preprocess
-    parser.add_argument("--train-ratio", type=float, default=float(os.environ.get("TRAIN_RATIO", 0.7)))
-    parser.add_argument("--test-val-ratio", type=float, default=float(os.environ.get("TEST_VAL_RATIO", 0.5)))
-    # currency args
-    parser.add_argument("--n-workers", type=int, default=50)
-    parser.add_argument("--marketplace-id-col", required=True)
-    parser.add_argument("--currency-col", default=None)
-    parser.add_argument("--default-currency", default="USD")
-    parser.add_argument("--skip-invalid-currencies", action="store_true")
-    parser.add_argument("--enable-conversion", type=lambda x: x.lower()=="true", default=True)
-    args = parser.parse_args()
-    
-    # load JSON env vars
-    currency_vars      = json.loads(os.environ["CURRENCY_CONVERSION_VARS"])
-    currency_dict      = json.loads(os.environ["CURRENCY_CONVERSION_DICT"])
-    marketplace_info   = json.loads(os.environ["MARKETPLACE_INFO"])
-    
+def main(args: argparse.Namespace, currency_vars: List[str], currency_dict: Dict[str, float], marketplace_info: Dict[str, Any]):
+    """
+    Main function to execute the currency conversion logic.
+    Refactored for improved testability.
+    """
     job_type = args.job_type
-    mode      = args.mode
-    input_base  = Path("/opt/ml/processing/input/data")
+    mode = args.mode
+    input_base = Path("/opt/ml/processing/input/data")
     output_base = Path("/opt/ml/processing/output")
     output_base.mkdir(parents=True, exist_ok=True)
     
@@ -208,7 +165,7 @@ def main():
 
     if mode == "split_after_conversion" and job_type == "training":
         # gather all the processed shards from subfolders
-        splits = ["train","test","val"]
+        splits = ["train", "test", "val"]
         dfs = []
         for sp in splits:
             fpath = input_base / sp / f"{sp}_processed_data.csv"
@@ -250,7 +207,7 @@ def main():
     else:
         # per_split mode OR non‐training split_after_conversion
         if job_type == "training":
-            splits = ["train","test","val"]
+            splits = ["train", "test", "val"]
         else:
             splits = [job_type]
 
@@ -282,5 +239,40 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--job-type",
+        type=str,
+        required=True,
+        choices=["training", "validation", "testing", "calibration"],
+        help="One of ['training','validation','testing','calibration']"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["per_split", "split_after_conversion"],
+        default="per_split",
+        help=(
+            "per_split: apply conversion separately on each existing split folder; "
+            "split_after_conversion: combine all data, convert, then re-split"
+        )
+    )
+    parser.add_argument("--train-ratio", type=float, default=float(os.environ.get("TRAIN_RATIO", 0.7)))
+    parser.add_argument("--test-val-ratio", type=float, default=float(os.environ.get("TEST_VAL_RATIO", 0.5)))
+    parser.add_argument("--n-workers", type=int, default=50)
+    parser.add_argument("--marketplace-id-col", required=True)
+    parser.add_argument("--currency-col", default=None)
+    parser.add_argument("--default-currency", default="USD")
+    parser.add_argument("--skip-invalid-currencies", action="store_true")
+    parser.add_argument("--enable-conversion", type=lambda x: x.lower()=="true", default=True)
+    args = parser.parse_args()
+    
+    # load JSON env vars
+    currency_vars = json.loads(os.environ["CURRENCY_CONVERSION_VARS"])
+    currency_dict = json.loads(os.environ["CURRENCY_CONVERSION_DICT"])
+    marketplace_info = json.loads(os.environ["MARKETPLACE_INFO"])
+    
     logging.basicConfig(level=logging.INFO)
-    main()
+    
+    # Execute the main logic by calling the new main function
+    main(args, currency_vars, currency_dict, marketplace_info)
