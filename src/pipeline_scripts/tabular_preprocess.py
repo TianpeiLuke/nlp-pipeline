@@ -168,12 +168,18 @@ def combine_shards(input_dir: str) -> pd.DataFrame:
         raise RuntimeError(f"Failed to concatenate shards: {e}")
 
 
+# --------------------------------------------------------------------------------
+# Parallel Imputation Helper
+# --------------------------------------------------------------------------------
+
+def impute_single_variable(args):
+    """Helper for parallel numeric imputation, designed to be used with Pool.map."""
+    df_chunk, var, impute_val = args
+    return df_chunk[var].fillna(impute_val)
+
+
 def parallel_imputation(df: pd.DataFrame, num_vars: list, impute_dict: dict, n_workers: int) -> pd.DataFrame:
     """Impute missing numeric values in parallel."""
-    def impute_single_variable(args):
-        df_chunk, var, impute_val = args
-        return df_chunk[var].fillna(impute_val)
-
     nproc = min(cpu_count(), len(num_vars), n_workers)
     with Pool(nproc) as pool:
         tasks = [(df[[var]], var, impute_dict.get(var, 0.0)) for var in num_vars]

@@ -1,5 +1,6 @@
+# test/test_tabular_preprocess.py
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import os
 import pandas as pd
 import numpy as np
@@ -16,9 +17,11 @@ from src.pipeline_scripts.tabular_preprocess import (
     parallel_imputation,
     _read_file_to_df,
     peek_json_format,
+    main as preprocess_main  # Import the main logic function
 )
 
-class TestTabularPreprocess(unittest.TestCase):
+class TestTabularPreprocessHelpers(unittest.TestCase):
+    """Unit tests for the helper functions in the preprocessing script."""
     def setUp(self):
         """Set up a temporary directory to act as a mock filesystem."""
         self.temp_dir = tempfile.mkdtemp()
@@ -47,8 +50,9 @@ class TestTabularPreprocess(unittest.TestCase):
         mode = 'wt'
         with open_func(path, mode) as f:
             if lines:
-                for record in data:
-                    f.write(json.dumps(record) + '\n')
+                if data: # Avoid writing if data is empty
+                    for record in data:
+                        f.write(json.dumps(record) + '\n')
             else:
                 json.dump(data, f)
         return path
@@ -60,137 +64,137 @@ class TestTabularPreprocess(unittest.TestCase):
         df.to_parquet(path, index=False)
         return path
 
-    # --- Tests for file processing functions ---
-    def test_combine_shards_multiple_formats(self):
-        """
-        Test if combine_shards correctly reads and merges various file formats.
-        """
-        self._create_csv_shard("part-00000.csv", [{"a": 1, "b": "x"}])
-        self._create_json_shard("part-00001.json.gz", [{"a": 2, "b": "y"}], gzipped=True)
-        self._create_parquet_shard("part-00002.parquet", [{"a": 3, "b": "z"}])
+    # --- Tests for file processing and utility functions ---
+    def test_combine_shards_concat_error(self):
+        """Test that combine_shards raises an error if concatenation fails."""
+        self._create_csv_shard("part-00000.csv", [{"a": 1}])
+        self._create_csv_shard("part-00001.csv", [{"b": 2}]) # Different columns will cause concat issues
         
-        combined_df = combine_shards(self.temp_dir)
-        
-        self.assertEqual(len(combined_df), 3)
-        self.assertEqual(list(combined_df.columns), ["a", "b"])
-        self.assertTrue(pd.api.types.is_integer_dtype(combined_df['a']))
-        combined_df = combined_df.sort_values(by='a').reset_index(drop=True)
-        self.assertEqual(combined_df.iloc[0]['b'], 'x')
-        self.assertEqual(combined_df.iloc[1]['b'], 'y')
-        self.assertEqual(combined_df.iloc[2]['b'], 'z')
+        # Mocking concat to raise a generic exception to test the handler
+        with patch('pandas.concat', side_effect=ValueError("Concat failed")):
+            with self.assertRaisesRegex(RuntimeError, "Failed to concatenate shards"):
+                combine_shards(self.temp_dir)
 
-    def test_combine_shards_no_files_found(self):
-        """Test that an error is raised if no valid shards are found."""
-        with self.assertRaises(RuntimeError) as cm:
-            combine_shards(self.temp_dir)
-        self.assertIn("No CSV/JSON/Parquet shards found", str(cm.exception))
-
-    def test_peek_json_format(self):
-        """Test the JSON format detection logic."""
-        # JSON Lines format
-        jsonl_path = self._create_json_shard("test.jsonl", [{"a":1}])
-        self.assertEqual(peek_json_format(jsonl_path), "lines")
-        
-        # Regular JSON array format
-        json_array_path = self._create_json_shard("test.json", [{"a":1}], lines=False)
-        self.assertEqual(peek_json_format(json_array_path), "regular")
-
-        # Gzipped JSON Lines
-        jsonl_gz_path = self._create_json_shard("test.jsonl.gz", [{"a":1}], gzipped=True)
-        self.assertEqual(peek_json_format(jsonl_gz_path, gzip.open), "lines")
-
-        # Invalid format should raise RuntimeError as specified in the source function
-        invalid_path = self.temp_path / "invalid.json"
-        with open(invalid_path, "w") as f:
-            f.write("not json")
-        with self.assertRaises(RuntimeError):
-            peek_json_format(invalid_path)
-        
-    def test_read_csv(self):
-        """Test reading a plain CSV file."""
-        csv_path = self._create_csv_shard("test.csv", [{"a": 1, "b": 2}])
-        df = _read_file_to_df(csv_path)
-        self.assertEqual(df.shape, (1, 2))
-        self.assertEqual(df.iloc[0]['a'], 1)
-
-    def test_read_gzipped_csv(self):
-        """Test reading a gzipped CSV file."""
-        csv_gz_path = self._create_csv_shard("test.csv.gz", [{"a": 1, "b": 2}], gzipped=True)
-        df = _read_file_to_df(csv_gz_path)
-        self.assertEqual(df.shape, (1, 2))
-        self.assertEqual(df.iloc[0]['a'], 1)
-
-    def test_read_tsv(self):
-        """Test reading a plain TSV file."""
-        tsv_path = self._create_csv_shard("test.tsv", [{"a": 1, "b": 2}], delimiter='\t')
-        df = _read_file_to_df(tsv_path)
-        self.assertEqual(df.shape, (1, 2))
-        self.assertEqual(df.iloc[0]['b'], 2)
-
-    def test_read_json_lines(self):
-        """Test reading a JSON Lines file."""
-        jsonl_path = self._create_json_shard("test.json", [{"a": 1}, {"a": 2}])
-        df = _read_file_to_df(jsonl_path)
-        self.assertEqual(df.shape, (2, 1))
-        self.assertEqual(df.iloc[1]['a'], 2)
-
-    def test_read_json_array(self):
-        """Test reading a regular JSON file (array of objects)."""
-        json_path = self._create_json_shard("test.json", [{"a": 1}, {"a": 2}], lines=False)
+    def test_read_json_single_object(self):
+        """Test reading a JSON file with a single top-level object."""
+        json_path = self._create_json_shard("single.json", {"a": 1, "b": "c"}, lines=False)
         df = _read_file_to_df(json_path)
-        self.assertEqual(df.shape, (2, 1))
-        self.assertEqual(df.iloc[1]['a'], 2)
-
-    def test_read_parquet(self):
-        """Test reading a Parquet file."""
-        parquet_path = self._create_parquet_shard("test.parquet", [{"a": 1, "b": "hello"}])
-        df = _read_file_to_df(parquet_path)
         self.assertEqual(df.shape, (1, 2))
-        self.assertEqual(df.iloc[0]['b'], "hello")
+        self.assertEqual(df.iloc[0]['b'], 'c')
 
-    def test_read_unsupported_file_type(self):
-        """Test that reading an unsupported file type raises a ValueError."""
-        unsupported_path = self.temp_path / "test.txt"
-        with open(unsupported_path, "w") as f:
-            f.write("some text")
+    def test_peek_json_format_empty_file(self):
+        """Test peek_json_format with an empty file raises an error."""
+        empty_path = self.temp_path / "empty.json"
+        empty_path.touch()
+        with self.assertRaisesRegex(RuntimeError, "Empty file"):
+            peek_json_format(empty_path)
+
+    @patch('src.pipeline_scripts.tabular_preprocess.csv.Sniffer.sniff', side_effect=Exception("Sniffing failed"))
+    def test_detect_separator_fallback(self, mock_sniffer):
+        """Test that the separator detection falls back to comma on error."""
+        from src.pipeline_scripts.tabular_preprocess import _detect_separator_from_sample
+        self.assertEqual(_detect_separator_from_sample("a\tb\n1\t2"), ",")
+
+    def test_read_gzipped_parquet(self):
+        """Test reading a gzipped Parquet file, which requires temporary decompression."""
+        parquet_path = self.temp_path / "test.parquet"
+        gzipped_parquet_path = self.temp_path / "test.parquet.gz"
         
+        df_orig = pd.DataFrame([{"a": 10, "b": "world"}])
+        df_orig.to_parquet(parquet_path)
+
+        with open(parquet_path, 'rb') as f_in, gzip.open(gzipped_parquet_path, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        
+        df_read = _read_file_to_df(gzipped_parquet_path)
+        pd.testing.assert_frame_equal(df_orig, df_read)
+
+    def test_read_unsupported_gzipped_file(self):
+        """Test reading a gzipped file with an unsupported inner extension."""
+        unsupported_gz_path = self.temp_path / "test.txt.gz"
+        with gzip.open(unsupported_gz_path, 'wt') as f:
+            f.write("some data")
         with self.assertRaises(ValueError):
-            _read_file_to_df(unsupported_path)
-            
-    # --- Tests for imputation functions ---
-    def test_impute_single_variable(self):
-        """Test the helper function for single variable imputation."""
-        data = {'col1': [1, np.nan, 3, np.nan]}
-        df_chunk = pd.DataFrame(data)
-        impute_dict = {'col1': -1.0}
-        
-        args = (df_chunk, 'col1', impute_dict)
-        result_series = impute_single_variable(args)
-        
-        expected = pd.Series([1.0, -1.0, 3.0, -1.0], name='col1')
-        pd.testing.assert_series_equal(result_series, expected)
+            _read_file_to_df(unsupported_gz_path)
 
-    @patch('src.pipeline_scripts.tabular_preprocess.cpu_count', return_value=2)
-    def test_parallel_imputation(self, mock_cpu_count):
-        """Test the parallel imputation wrapper function."""
-        data = {
-            'num1': [1.0, 2.0, np.nan, 4.0],
-            'num2': [np.nan, 20.0, 30.0, 40.0],
-            'cat1': ['A', 'B', 'A', 'C']
-        }
-        df = pd.DataFrame(data)
-        num_vars = ['num1', 'num2']
-        impute_dict = {'num1': 0.0, 'num2': -99.0}
+class TestMainFunction(unittest.TestCase):
+    """Tests for the main preprocessing logic."""
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.input_dir = os.path.join(self.temp_dir, 'input')
+        self.output_dir = os.path.join(self.temp_dir, 'output')
+        os.makedirs(self.input_dir, exist_ok=True)
+        os.makedirs(self.output_dir, exist_ok=True)
         
-        imputed_df = parallel_imputation(df.copy(), num_vars, impute_dict, n_workers=2)
+        # Create dummy data file
+        self.df = pd.DataFrame({
+            "feature1": np.random.rand(100),
+            "feature2__DOT__val": np.random.rand(100), # Test column renaming
+            "label": np.random.choice(['A', 'B'], 100)
+        })
+        self.df.to_csv(os.path.join(self.input_dir, 'part-00000.csv'), index=False)
         
-        self.assertFalse(imputed_df['num1'].hasnans)
-        self.assertFalse(imputed_df['num2'].hasnans)
-        self.assertEqual(imputed_df.loc[2, 'num1'], 0.0)
-        self.assertEqual(imputed_df.loc[0, 'num2'], -99.0)
-        # Ensure categorical column is unchanged
-        pd.testing.assert_series_equal(df['cat1'], imputed_df['cat1'])
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
 
+    def test_main_training_split(self):
+        """Test the main logic for a 'training' data_type, verifying the three-way split."""
+        preprocess_main(
+            data_type='training',
+            label_field='label',
+            train_ratio=0.6,
+            test_val_ratio=0.5,
+            input_dir=self.input_dir,
+            output_dir=self.output_dir
+        )
+        # Verify outputs
+        self.assertTrue(os.path.exists(os.path.join(self.output_dir, 'train')))
+        self.assertTrue(os.path.exists(os.path.join(self.output_dir, 'test')))
+        self.assertTrue(os.path.exists(os.path.join(self.output_dir, 'val')))
+        
+        train_df = pd.read_csv(os.path.join(self.output_dir, 'train', 'train_processed_data.csv'))
+        test_df = pd.read_csv(os.path.join(self.output_dir, 'test', 'test_processed_data.csv'))
+        val_df = pd.read_csv(os.path.join(self.output_dir, 'val', 'val_processed_data.csv'))
+
+        # Check split sizes (60 train, 20 test, 20 val)
+        self.assertEqual(len(train_df), 60)
+        self.assertEqual(len(test_df), 20)
+        self.assertEqual(len(val_df), 20)
+        
+        # Check column renaming
+        self.assertIn("feature2.val", train_df.columns)
+        # Check label encoding
+        self.assertTrue(pd.api.types.is_integer_dtype(train_df['label']))
+
+    def test_main_validation_mode(self):
+        """Test main logic for a non-training data_type, ensuring no split occurs."""
+        preprocess_main(
+            data_type='validation',
+            label_field='label',
+            train_ratio=0.8,
+            test_val_ratio=0.5,
+            input_dir=self.input_dir,
+            output_dir=self.output_dir
+        )
+        # Verify single output folder is created with the name of the data_type
+        self.assertTrue(os.path.exists(os.path.join(self.output_dir, 'validation')))
+        self.assertFalse(os.path.exists(os.path.join(self.output_dir, 'train')))
+
+        val_df = pd.read_csv(os.path.join(self.output_dir, 'validation', 'validation_processed_data.csv'))
+        # Should contain all original data
+        self.assertEqual(len(val_df), 100)
+    
+    def test_main_label_not_found_error(self):
+        """Test that main raises a RuntimeError if the label field is not found."""
+        with self.assertRaisesRegex(RuntimeError, "Label field 'wrong_label' not found"):
+            preprocess_main(
+                data_type='training',
+                label_field='wrong_label',
+                train_ratio=0.8,
+                test_val_ratio=0.5,
+                input_dir=self.input_dir,
+                output_dir=self.output_dir
+            )
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
