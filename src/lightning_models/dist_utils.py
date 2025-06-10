@@ -17,11 +17,26 @@ def is_main_process() -> bool:
     return get_rank() == 0
 
 def synchronize():
-    if dist.is_available() and dist.is_initialized() and get_world_size() > 1:
-        if dist.get_backend() == "nccl":
-            dist.barrier(device_ids=[torch.cuda.current_device()])
-        else:
-            dist.barrier()
+    """
+    Helper function to synchronize (barrier) among all processes when
+    using distributed training.
+    """
+    if not dist.is_available():
+        return
+    if not dist.is_initialized():
+        return
+    if dist.get_world_size() == 1:
+        return
+
+    # Check if CUDA is available and PyTorch is compiled with CUDA support
+    if dist.get_backend() == "nccl" and torch.cuda.is_available():
+        # Ensure the current device is set
+        try:
+            torch.cuda.current_device()
+        except AssertionError:
+            # Handle cases where CUDA is not properly configured
+            pass
+    dist.barrier()
 
 def get_local_process_group():
     assert _LOCAL_PROCESS_GROUP is not None, (
