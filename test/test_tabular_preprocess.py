@@ -1,4 +1,3 @@
-# test/test_tabular_preprocess.py
 import unittest
 from unittest.mock import patch
 import os
@@ -8,39 +7,42 @@ import tempfile
 import shutil
 import gzip
 import json
+from pathlib import Path
 
 # Import the functions to be tested
 from src.pipeline_scripts.tabular_preprocess import (
     combine_shards,
     impute_single_variable,
     parallel_imputation,
-    _read_file_to_df
+    _read_file_to_df,
+    peek_json_format,
 )
 
-class TestTabularPreprocessHelpers(unittest.TestCase):
+class TestTabularPreprocess(unittest.TestCase):
     def setUp(self):
         """Set up a temporary directory to act as a mock filesystem."""
         self.temp_dir = tempfile.mkdtemp()
+        self.temp_path = Path(self.temp_dir)
 
     def tearDown(self):
         """Remove the temporary directory after tests are complete."""
         shutil.rmtree(self.temp_dir)
 
     # --- Helper methods to create test files ---
-    def _create_csv_shard(self, filename, data, gzipped=False):
-        """Helper to create a CSV shard file."""
-        path = os.path.join(self.temp_dir, filename)
+    def _create_csv_shard(self, filename, data, gzipped=False, delimiter=','):
+        """Helper to create a CSV/TSV shard file."""
+        path = self.temp_path / filename
         df = pd.DataFrame(data)
         if gzipped:
             with gzip.open(path, 'wt', newline='') as f:
-                df.to_csv(f, index=False)
+                df.to_csv(f, index=False, sep=delimiter)
         else:
-            df.to_csv(path, index=False)
+            df.to_csv(path, index=False, sep=delimiter)
         return path
 
     def _create_json_shard(self, filename, data, lines=True, gzipped=False):
         """Helper to create a JSON shard file."""
-        path = os.path.join(self.temp_dir, filename)
+        path = self.temp_path / filename
         open_func = gzip.open if gzipped else open
         mode = 'wt'
         with open_func(path, mode) as f:
@@ -53,12 +55,12 @@ class TestTabularPreprocessHelpers(unittest.TestCase):
 
     def _create_parquet_shard(self, filename, data):
         """Helper to create a Parquet shard file."""
-        path = os.path.join(self.temp_dir, filename)
+        path = self.temp_path / filename
         df = pd.DataFrame(data)
         df.to_parquet(path, index=False)
         return path
 
-    # --- Tests for combine_shards ---
+    # --- Tests for file processing functions ---
     def test_combine_shards_multiple_formats(self):
         """
         Test if combine_shards correctly reads and merges various file formats.
@@ -82,7 +84,79 @@ class TestTabularPreprocessHelpers(unittest.TestCase):
         with self.assertRaises(RuntimeError) as cm:
             combine_shards(self.temp_dir)
         self.assertIn("No CSV/JSON/Parquet shards found", str(cm.exception))
+
+    def test_peek_json_format(self):
+        """Test the JSON format detection logic."""
+        # JSON Lines format
+        jsonl_path = self._create_json_shard("test.jsonl", [{"a":1}])
+        self.assertEqual(peek_json_format(jsonl_path), "lines")
         
+        # Regular JSON array format
+        json_array_path = self._create_json_shard("test.json", [{"a":1}], lines=False)
+        self.assertEqual(peek_json_format(json_array_path), "regular")
+
+        # Gzipped JSON Lines
+        jsonl_gz_path = self._create_json_shard("test.jsonl.gz", [{"a":1}], gzipped=True)
+        self.assertEqual(peek_json_format(jsonl_gz_path, gzip.open), "lines")
+
+        # Invalid format should raise RuntimeError as specified in the source function
+        invalid_path = self.temp_path / "invalid.json"
+        with open(invalid_path, "w") as f:
+            f.write("not json")
+        with self.assertRaises(RuntimeError):
+            peek_json_format(invalid_path)
+        
+    def test_read_csv(self):
+        """Test reading a plain CSV file."""
+        csv_path = self._create_csv_shard("test.csv", [{"a": 1, "b": 2}])
+        df = _read_file_to_df(csv_path)
+        self.assertEqual(df.shape, (1, 2))
+        self.assertEqual(df.iloc[0]['a'], 1)
+
+    def test_read_gzipped_csv(self):
+        """Test reading a gzipped CSV file."""
+        csv_gz_path = self._create_csv_shard("test.csv.gz", [{"a": 1, "b": 2}], gzipped=True)
+        df = _read_file_to_df(csv_gz_path)
+        self.assertEqual(df.shape, (1, 2))
+        self.assertEqual(df.iloc[0]['a'], 1)
+
+    def test_read_tsv(self):
+        """Test reading a plain TSV file."""
+        tsv_path = self._create_csv_shard("test.tsv", [{"a": 1, "b": 2}], delimiter='\t')
+        df = _read_file_to_df(tsv_path)
+        self.assertEqual(df.shape, (1, 2))
+        self.assertEqual(df.iloc[0]['b'], 2)
+
+    def test_read_json_lines(self):
+        """Test reading a JSON Lines file."""
+        jsonl_path = self._create_json_shard("test.json", [{"a": 1}, {"a": 2}])
+        df = _read_file_to_df(jsonl_path)
+        self.assertEqual(df.shape, (2, 1))
+        self.assertEqual(df.iloc[1]['a'], 2)
+
+    def test_read_json_array(self):
+        """Test reading a regular JSON file (array of objects)."""
+        json_path = self._create_json_shard("test.json", [{"a": 1}, {"a": 2}], lines=False)
+        df = _read_file_to_df(json_path)
+        self.assertEqual(df.shape, (2, 1))
+        self.assertEqual(df.iloc[1]['a'], 2)
+
+    def test_read_parquet(self):
+        """Test reading a Parquet file."""
+        parquet_path = self._create_parquet_shard("test.parquet", [{"a": 1, "b": "hello"}])
+        df = _read_file_to_df(parquet_path)
+        self.assertEqual(df.shape, (1, 2))
+        self.assertEqual(df.iloc[0]['b'], "hello")
+
+    def test_read_unsupported_file_type(self):
+        """Test that reading an unsupported file type raises a ValueError."""
+        unsupported_path = self.temp_path / "test.txt"
+        with open(unsupported_path, "w") as f:
+            f.write("some text")
+        
+        with self.assertRaises(ValueError):
+            _read_file_to_df(unsupported_path)
+            
     # --- Tests for imputation functions ---
     def test_impute_single_variable(self):
         """Test the helper function for single variable imputation."""
@@ -116,6 +190,7 @@ class TestTabularPreprocessHelpers(unittest.TestCase):
         self.assertEqual(imputed_df.loc[0, 'num2'], -99.0)
         # Ensure categorical column is unchanged
         pd.testing.assert_series_equal(df['cat1'], imputed_df['cat1'])
+
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
