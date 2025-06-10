@@ -121,6 +121,12 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
         txt = "[agent]:Main content here. [customer]:"
         expected = [{"role": "agent", "content": "Main content here."}]
         self.assertEqual(self.processor.process(txt), expected)
+        
+    def test_whitespace_only_main_content_before_embedded(self):
+        """Tests a turn where the main content is only whitespace before an embedded message."""
+        txt = "[agent]:   [bot]:This is embedded."
+        expected = [{"role": "bot", "content": "This is embedded."}]
+        self.assertEqual(self.processor.process(txt), expected)
 
     # ---------- edge cases ----------
     def test_invalid_format(self):
@@ -151,6 +157,12 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
         # The current processor implementation is greedy and captures content until the next valid
         # [role]: marker or the end of the string.
         expected = [{"role": "customer", "content": "ok[agent]bad"}]
+        self.assertEqual(self.processor.process(txt), expected)
+
+    def test_text_after_last_tag(self):
+        """Tests that text after the final valid tag is captured."""
+        txt = "[agent]:Final message. and some trailing text"
+        expected = [{"role": "agent", "content": "Final message. and some trailing text"}]
         self.assertEqual(self.processor.process(txt), expected)
 
     # ---------- performance ----------
