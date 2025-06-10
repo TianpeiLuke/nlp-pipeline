@@ -109,6 +109,18 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
             {"role": "customer", "content": "Thanks!"}
         ]
         self.assertEqual(self.processor.process(txt), expected)
+        
+    def test_embedded_message_without_main_content(self):
+        """Tests a turn that has no main content, only an embedded message."""
+        txt = "[customer]:[bot]:I am an embedded message."
+        expected = [{"role": "bot", "content": "I am an embedded message."}]
+        self.assertEqual(self.processor.process(txt), expected)
+
+    def test_embedded_message_with_empty_content(self):
+        """Tests that an embedded message with no content is ignored."""
+        txt = "[agent]:Main content here. [customer]:"
+        expected = [{"role": "agent", "content": "Main content here."}]
+        self.assertEqual(self.processor.process(txt), expected)
 
     # ---------- edge cases ----------
     def test_invalid_format(self):
@@ -136,8 +148,8 @@ class TestCSChatSplitterProcessor(unittest.TestCase):
     def test_malformed_tags(self):
         # The processor should correctly extract the valid message and ignore malformed parts.
         txt = "[bot:bad[customer]:ok[agent]bad"
-        # UPDATED: The current processor implementation is greedy and captures content until the next valid
-        # [role]: marker or the end of the string. The test is updated to reflect this actual behavior.
+        # The current processor implementation is greedy and captures content until the next valid
+        # [role]: marker or the end of the string.
         expected = [{"role": "customer", "content": "ok[agent]bad"}]
         self.assertEqual(self.processor.process(txt), expected)
 
