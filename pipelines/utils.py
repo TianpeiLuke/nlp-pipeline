@@ -13,53 +13,48 @@ from .config_processing_step_base import ProcessingStepConfigBase
 def serialize_config(config: BaseModel) -> Dict[str, Any]:
     """
     Serialize a single Pydantic config to a JSON‐serializable dict,
-    embedding a metadata block that includes a unique 'step_name'.
-
-    If the config has a 'job_type' attribute, we append that to the
-    standard step name so that multiple CradleDataLoadConfig instances
-    won't conflict.
+    embedding metadata including a unique 'step_name'.
+    Supports multiple instantiations distinguished by job_type, data_type, or mode.
     """
-    # 1) Dump the model to a plain dict (handles nested submodels)
+    # Dump model to plain dict
     config_dict = config.model_dump() if hasattr(config, "model_dump") else config.dict()
 
-    # 2) Compute the base step name
+    # Base step name from registry
     base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
+    step_name = base_step
+    # Append distinguishing attributes
+    for attr in ("job_type", "data_type", "mode"):
+        if hasattr(config, attr):
+            val = getattr(config, attr)
+            if val is not None:
+                step_name = f"{step_name}_{val}"
 
-    # 3) If this config has 'job_type', append it to make the step name unique
-    if hasattr(config, "job_type"):
-        job_type_val = getattr(config, "job_type").capitalize()
-        # CamelCase‐style: e.g. "CradleDataLoadingStep_training" → "CradleDataLoadingStep_training"
-        step_name = f"{base_step}_{job_type_val}"
-    else:
-        step_name = base_step
-
-    # 4) Inject metadata
+    # Inject metadata
     config_dict["_metadata"] = {
         "step_name": step_name,
         "config_type": config.__class__.__name__,
     }
 
-    # 5) Recursively serialize any datetime, Path, Enum, nested dict, or list
-    def serialize_value(value: Any) -> Any:
-        if isinstance(value, datetime):
-            return value.isoformat()
-        elif isinstance(value, Enum):
-            return value.value
-        elif isinstance(value, Path):
-            return str(value)
-        elif isinstance(value, dict):
-            return {k: serialize_value(v) for k, v in value.items()}
-        elif isinstance(value, list):
-            return [serialize_value(item) for item in value]
-        return value
+    # Recursive serializer for complex types
+    def _serialize(val: Any) -> Any:
+        if isinstance(val, datetime):
+            return val.isoformat()
+        if isinstance(val, Enum):
+            return val.value
+        if isinstance(val, Path):
+            return str(val)
+        if isinstance(val, dict):
+            return {k: _serialize(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [_serialize(v) for v in val]
+        return val
 
-    return {key: serialize_value(val) for key, val in config_dict.items()}
+    return {k: _serialize(v) for k, v in config_dict.items()}
 
 
 def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Dict[str, Any]:
     """
-    Merge multiple configs of potentially the same class (e.g. CradleDataLoadConfig for different job_types),
-    then save them to a single JSON. Returns the "merged" structure (so you can inspect it if desired).
+    Merge and save multiple configs to JSON. Handles multiple instantiations with unique step_name.
 
     We build three sections:
       - "shared": fields that appear (with identical values) in two or more configs
@@ -69,179 +64,129 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
 
     Finally, under "metadata" → "config_types" we map each unique step_name → config class name.
     """
-    merged_config: Dict[str, Dict[str, Any]] = {
-        "shared": {},
-        "processing": defaultdict(dict),
-        "specific": defaultdict(dict),
-    }
+    merged = {"shared": {}, "processing": defaultdict(dict), "specific": defaultdict(dict)}
+    field_values = defaultdict(set)
+    field_sources = defaultdict(lambda: defaultdict(list))
 
-    # Track all encountered JSON‐stringified values for each field
-    field_values: Dict[str, Set[str]] = defaultdict(set)
-    # Track which step_names contributed to which field
-    field_sources: Dict[str, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
-
-    # 1) First pass: collect field‐values and where they came from
-    for config in config_list:
-        config_dict = serialize_config(config)
-        step_name = config_dict["_metadata"]["step_name"]
-
-        # All valid top‐level fields for this Pydantic class
-        valid_fields = set(config.__class__.model_fields.keys())
-
-        for key, val in config_dict.items():
-            if key == "_metadata" or key not in valid_fields:
+    # Collect all values and sources
+    for cfg in config_list:
+        d = serialize_config(cfg)
+        step = d["_metadata"]["step_name"]
+        valid = set(cfg.__class__.model_fields.keys())
+        for k, v in d.items():
+            if k == "_metadata" or k not in valid:
                 continue
-
-            # JSON‐serialize the candidate value (stable sort_keys)
-            json_text = json.dumps(val, sort_keys=True)
-            field_values[key].add(json_text)
-            field_sources["all"][key].append(step_name)
-
-            # If this config is a ProcessingStepConfigBase, mark accordingly
-            if isinstance(config, ProcessingStepConfigBase):
-                if key in ProcessingStepConfigBase.model_fields:
-                    field_sources["processing"][key].append(step_name)
-                else:
-                    field_sources["specific"][key].append(step_name)
+            txt = json.dumps(v, sort_keys=True)
+            field_values[k].add(txt)
+            field_sources['all'][k].append(step)
+            if isinstance(cfg, ProcessingStepConfigBase) and k in ProcessingStepConfigBase.model_fields:
+                field_sources['processing'][k].append(step)
             else:
-                field_sources["specific"][key].append(step_name)
+                field_sources['specific'][k].append(step)
 
-    # 2) Second pass: divide into shared vs. processing vs. specific
-    for key, jsons in field_values.items():
-        # If exactly one unique JSON value but used by multiple step_names → shared
-        if len(jsons) == 1 and len(field_sources["all"][key]) > 1:
-            merged_config["shared"][key] = json.loads(next(iter(jsons)))
-        # Otherwise, if this key ever appeared under ProcessingStepConfigBase, put under "processing"
-        elif key in field_sources["processing"]:
-            for config in config_list:
-                if isinstance(config, ProcessingStepConfigBase):
-                    config_dict = serialize_config(config)
-                    step_name = config_dict["_metadata"]["step_name"]
-                    if key in config_dict and key in config.__class__.model_fields:
-                        merged_config["processing"][step_name][key] = config_dict[key]
-        # Finally, any leftover goes under "specific"
+    # Distribute into shared/processing/specific
+    for k, vals in field_values.items():
+        sources = field_sources['all'][k]
+        if len(vals) == 1 and len(sources) > 1:
+            merged['shared'][k] = json.loads(next(iter(vals)))
+        elif k in field_sources['processing']:
+            for cfg in config_list:
+                if isinstance(cfg, ProcessingStepConfigBase):
+                    d = serialize_config(cfg)
+                    step = d['_metadata']['step_name']
+                    if k in d:
+                        merged['processing'][step][k] = d[k]
         else:
-            for config in config_list:
-                config_dict = serialize_config(config)
-                step_name = config_dict["_metadata"]["step_name"]
-                if key in config_dict and key in config.__class__.model_fields:
-                    merged_config["specific"][step_name][key] = config_dict[key]
+            for cfg in config_list:
+                d = serialize_config(cfg)
+                step = d['_metadata']['step_name']
+                if k in d:
+                    merged['specific'][step][k] = d[k]
 
-    # 3) metadata.section: record exact timestamp & field_sources & config_types
     metadata = {
-        "created_at": datetime.now().isoformat(),
-        "field_sources": field_sources,
-        # Instead of class_name → step_name, we do step_name → class_name (allows duplicates of same class)
-        "config_types": {
-            serialize_config(cfg)["_metadata"]["step_name"]: cfg.__class__.__name__
-            for cfg in config_list
-        },
+        'created_at': datetime.now().isoformat(),
+        'field_sources': field_sources,
+        'config_types': {
+            serialize_config(c)['_metadata']['step_name']: c.__class__.__name__
+            for c in config_list
+        }
     }
-
-    output_data = {"metadata": metadata, "configuration": merged_config}
-
-    with open(output_file, "w") as f:
-        json.dump(output_data, f, indent=2, sort_keys=True)
-
-    return merged_config
+    out = {'metadata': metadata, 'configuration': merged}
+    with open(output_file, 'w') as f:
+        json.dump(out, f, indent=2, sort_keys=True)
+    return merged
 
 
 def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) -> Dict[str, BaseModel]:
     """
-    Load Pydantic configs back from a JSON file produced by merge_and_save_configs.
+    Load multiple Pydantic configs from JSON, reconstructing each instantiation uniquely.
     Expects:
       - metadata.config_types: maps each unique step_name → Pydantic class name
       - configuration.shared, configuration.processing, configuration.specific
     We rebuild each config under its step_name.
     """
-    with open(input_file, "r") as f:
+    with open(input_file) as f:
         data = json.load(f)
+    meta = data['metadata']
+    cfgs = data['configuration']
+    types = meta['config_types']  # step_name -> class_name
+    rebuilt = {}
 
-    metadata = data["metadata"]
-    config_data = data["configuration"]
-    config_types: Dict[str, str] = metadata["config_types"]
-
-    rebuilt: Dict[str, BaseModel] = {}
-
-    for step_name, class_name in config_types.items():
-        if class_name not in config_classes:
-            raise ValueError(f"Unknown config type: {class_name}")
-
-        cls = config_classes[class_name]
-        valid_fields = set(cls.model_fields.keys())
-
-        # 1) start with shared fields if they belong to this class
-        fields: Dict[str, Any] = {}
-        for key, val in config_data["shared"].items():
-            if key in valid_fields:
-                fields[key] = val
-
-        # 2) if cls is a ProcessingStepConfigBase, merge its portion
+    for step, cls_name in types.items():
+        if cls_name not in config_classes:
+            raise ValueError(f"Unknown config class: {cls_name}")
+        cls = config_classes[cls_name]
+        valid = set(cls.model_fields.keys())
+        fields = {}
+        # shared
+        for k, v in cfgs['shared'].items():
+            if k in valid:
+                fields[k] = v
+        # processing
         if issubclass(cls, ProcessingStepConfigBase):
-            proc_map = config_data["processing"].get(step_name, {})
-            for key, val in proc_map.items():
-                if key in valid_fields:
-                    fields[key] = val
-
-        # 3) finally, merge any class-specific portion
-        spec_map = config_data["specific"].get(step_name, {})
-        for key, val in spec_map.items():
-            if key in valid_fields:
-                fields[key] = val
-
-        # Instantiate
-        try:
-            rebuilt[step_name] = cls(**fields)
-        except Exception as e:
-            print(f"Error recreating config for step_name='{step_name}': {e}")
-            print("Attempted fields:", fields)
-            raise
+            for k, v in cfgs['processing'].get(step, {}).items():
+                if k in valid:
+                    fields[k] = v
+        # specific
+        for k, v in cfgs['specific'].get(step, {}).items():
+            if k in valid:
+                fields[k] = v
+        rebuilt[step] = cls(**fields)
 
     return rebuilt
 
 
 def verify_configs(
-    original_configs: List[BaseModel],
-    loaded_configs: Dict[str, BaseModel]
+    original_list: List[BaseModel],
+    loaded: Dict[str, BaseModel]
 ) -> bool:
     """
-    Compare each original Pydantic config to its reloaded version.
-    Returns True if all match; False otherwise. Prints differences for debugging.
+    Compare originals to reloaded configs, allowing multiple instantiations.
     """
-    all_match = True
-
-    for original in original_configs:
-        # Recompute the unique step_name (same logic as serialize_config)
-        base_step = BasePipelineConfig.get_step_name(original.__class__.__name__)
-        if hasattr(original, "job_type"):
-            step_name = f"{base_step}_{getattr(original, 'job_type')}"
-        else:
-            step_name = base_step
-
-        print(f"\nVerifying step_name='{step_name}':")
-
-        if step_name not in loaded_configs:
-            print(f"  ⚠ Missing reloaded config for '{step_name}'")
-            all_match = False
+    ok = True
+    for orig in original_list:
+        base = BasePipelineConfig.get_step_name(orig.__class__.__name__)
+        step = base
+        for attr in ("job_type","data_type","mode"):
+            if hasattr(orig, attr):
+                val = getattr(orig, attr)
+                if val is not None:
+                    step = f"{step}_{val}"
+        print(f"Verifying '{step}'")
+        if step not in loaded:
+            print(f"  Missing loaded config for '{step}'")
+            ok = False
             continue
-
-        reloaded = loaded_configs[step_name]
-
-        orig_serial = serialize_config(original)
-        new_serial = serialize_config(reloaded)
-        orig_serial.pop("_metadata", None)
-        new_serial.pop("_metadata", None)
-
-        if orig_serial == new_serial:
-            print(f"  ✓ '{step_name}' matches exactly.")
+        r = loaded[step]
+        o_ser = serialize_config(orig).copy()
+        n_ser = serialize_config(r).copy()
+        o_ser.pop('_metadata',None)
+        n_ser.pop('_metadata',None)
+        if o_ser == n_ser:
+            print(f"  '{step}' matches.")
         else:
-            print(f"  ⚠ '{step_name}' differs:")
-            diffs = {
-                k: (orig_serial.get(k), new_serial.get(k))
-                for k in set(orig_serial) | set(new_serial)
-                if orig_serial.get(k) != new_serial.get(k)
-            }
+            print(f"  '{step}' differs:")
+            diffs = {k: (o_ser.get(k), n_ser.get(k)) for k in set(o_ser)|set(n_ser) if o_ser.get(k)!=n_ser.get(k)}
             print("    Differences:", diffs)
-            all_match = False
-
-    return all_match
+            ok = False
+    return ok

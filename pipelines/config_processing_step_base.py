@@ -12,7 +12,6 @@ from .config_base import BasePipelineConfig
 
 class ProcessingStepConfigBase(BasePipelineConfig):
     """Base configuration for SageMaker Processing Steps."""
-    
     # Processing instance settings
     processing_instance_count: int = Field(
         default=1, 

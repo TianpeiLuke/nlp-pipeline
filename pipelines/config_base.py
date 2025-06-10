@@ -12,6 +12,7 @@ STEP_REGISTRY = {
         'PackageStepConfig': 'Package',
         'ModelRegistrationConfig': 'Registration',
         'PayloadConfig': 'Payload',
+        'TabularPreprocessingConfig': 'TabularPreprocessing',
         'CurrencyConversionConfig': 'CurrencyConversion',
         'CradleDataLoadConfig': 'CradleDataLoading',
     }

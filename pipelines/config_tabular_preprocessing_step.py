@@ -32,8 +32,8 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
     )
 
     # 3) Which data_type are we processing?
-    data_type: str = Field(
-        ...,
+    job_type: str = Field(
+        default='training',
         description="One of ['training','validation','testing','calibration']"
     )
 
@@ -80,7 +80,7 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
             raise ValueError("processing_entry_point must be a relative path within source directory")
         return v
 
-    @field_validator("data_type")
+    @field_validator("job_type")
     @classmethod
     def validate_data_type(cls, v: str) -> str:
         allowed = {"training", "validation", "testing", "calibration"}
@@ -118,4 +118,3 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
             raise ValueError("output_names must contain keys 'processed_data' and 'full_data'")
 
         return self
-

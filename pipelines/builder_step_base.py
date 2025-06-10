@@ -4,6 +4,8 @@ from pathlib import Path
 import logging
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.steps import Step
+from sagemaker.workflow.steps import CacheConfig
+
 
 from .config_base import BasePipelineConfig
 
@@ -18,6 +20,7 @@ STEP_NAMES = {
     'Package': 'PackagingStep',
     'Payload': 'PayloadTestStep',
     'Registration': 'RegistrationStep',
+    'TabularPreprocessing': 'TabularPreprocessingStep',
     'CurrencyConversion': 'CurrencyConversionStep',
     'CradleDataLoading': 'CradleDataLoadingStep',
     }
@@ -101,7 +104,8 @@ class StepBuilderBase(ABC):
 
     def _get_cache_config(self, enable_caching: bool = True) -> Dict[str, Any]:
         """
-        Get cache configuration for step.
+        Get cache configuration for step.         
+        ProcessingStep.to_request() can call .config safely.
         
         Args:
             enable_caching: Whether to enable caching
@@ -109,10 +113,10 @@ class StepBuilderBase(ABC):
         Returns:
             Cache configuration dictionary
         """
-        return {
-            "enable_caching": enable_caching,
-            "expire_after": "P30D"  # Cache expires after 30 days
-        }
+        return CacheConfig(
+            enable_caching=enable_caching,
+            expire_after="P30D"
+        )
 
     @abstractmethod
     def validate_configuration(self) -> None:
