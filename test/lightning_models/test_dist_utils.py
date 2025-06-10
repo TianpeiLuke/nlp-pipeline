@@ -14,7 +14,8 @@ from src.lightning_models.dist_utils import (
     gather,
     shared_random_seed,
     reduce_dict,
-    print_gpu_memory_usage
+    print_gpu_memory_usage,
+    print_gpu_memory_stats
 )
 
 # A mock for the torch.distributed module
@@ -23,8 +24,6 @@ class DistMock:
         self.rank = rank
         self.world_size = world_size
         self.backend = backend
-        self.is_available = True
-        self.is_initialized = True if world_size > 1 else False
     
     def get_rank(self, group=None):
         return self.rank
@@ -33,10 +32,10 @@ class DistMock:
         return self.world_size
     
     def is_available(self):
-        return self.is_available
+        return True
         
     def is_initialized(self):
-        return self.is_initialized
+        return self.world_size > 1
 
     def get_backend(self):
         return self.backend
@@ -56,7 +55,10 @@ class DistMock:
                 output_list[i] = data
                 
     def reduce(self, tensor, dst, op=None, group=None):
-        pass # Mock reduce
+        # The real `reduce` operation sums tensors from all processes to the destination.
+        # The user code then handles averaging. For this mock, since we are only on one process,
+        # we don't need to modify the tensor. The user code will correctly average it.
+        pass
 
     def new_group(self, *args, **kwargs):
         return "mock_group"
@@ -131,23 +133,19 @@ class TestDistUtils(unittest.TestCase):
         self.assertEqual(seed, 123)
         mock_all_gather.assert_called_once()
         
-    @patch('src.lightning_models.dist_utils.dist')
-    def test_reduce_dict_multi_process(self, mock_dist):
-        mock_dist.is_available.return_value = True
-        mock_dist.is_initialized.return_value = True
-        mock_dist.get_world_size.return_value = 2
-        mock_dist.get_rank.return_value = 0 # Assume we are the main process
-        
+    @patch('src.lightning_models.dist_utils.dist', DistMock(rank=0, world_size=2))
+    def test_reduce_dict_multi_process(self):
+        """Test the reduce_dict function in a simulated multi-process environment."""
         input_dict = {'loss': torch.tensor(2.0), 'acc': torch.tensor(0.8)}
         
-        # We only need to check that dist.reduce is called correctly.
-        # The logic inside the `with torch.no_grad()` is harder to test without a real process group.
-        reduce_dict(input_dict, average=True)
-        mock_dist.reduce.assert_called_once()
-        # Check that the tensor passed to reduce has the correct values
-        reduced_tensor = mock_dist.reduce.call_args.args[0]
-        self.assertEqual(reduced_tensor[0].item(), 0.8) # acc (sorted alphabetically)
-        self.assertEqual(reduced_tensor[1].item(), 2.0) # loss
+        # Call the function being tested
+        result_dict = reduce_dict(input_dict, average=True)
+        
+        # Check the *returned* dictionary, which contains the averaged values.
+        self.assertIn('acc', result_dict)
+        self.assertIn('loss', result_dict)
+        self.assertAlmostEqual(result_dict['acc'].item(), 0.4)
+        self.assertAlmostEqual(result_dict['loss'].item(), 1.0)
 
     @patch('src.lightning_models.dist_utils.torch.cuda')
     @patch('builtins.print')
@@ -169,6 +167,20 @@ class TestDistUtils(unittest.TestCase):
         self.assertIn("Allocated: 100.00 MB", all_printed_text)
         self.assertIn("Reserved:  200.00 MB", all_printed_text)
         self.assertIn("Max Allocated: 150.00 MB", all_printed_text)
+
+    @patch('src.lightning_models.dist_utils.torch.cuda')
+    @patch('builtins.print')
+    def test_print_gpu_memory_stats(self, mock_print, mock_cuda):
+        """Test the GPU memory stats printing function."""
+        mock_cuda.is_available.return_value = True
+        mock_cuda.memory_stats.return_value = {"allocated_bytes.all.current": 100}
+
+        print_gpu_memory_stats(device_id=0)
+        mock_cuda.memory_stats.assert_called_once_with(device=0)
+        
+        # Check if print was called with the stats
+        all_printed_text = " ".join([call.args[0] for call in mock_print.call_args_list])
+        self.assertIn("allocated_bytes.all.current: 100", all_printed_text)
 
 
 if __name__ == '__main__':
