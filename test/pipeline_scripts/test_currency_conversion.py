@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import os
+import sys
 import pandas as pd
 import numpy as np
 import tempfile
@@ -98,8 +99,10 @@ class TestCurrencyConversionHelpers(unittest.TestCase):
             marketplace_info=self.marketplace_info
         )
         self.assertEqual(len(df_processed), 4) # Still drops NaN mp_id
-        # Price should be unchanged as it wasn't in the conversion list
-        pd.testing.assert_series_equal(self.df['price'].head(4), df_processed['price'])
+        
+        # FIX: The expected dataframe should also have the row with NaN mp_id dropped.
+        expected_df = self.df.dropna(subset=['mp_id']).reset_index(drop=True)
+        pd.testing.assert_series_equal(expected_df['price'], df_processed['price'])
 
 class TestMainExecution(unittest.TestCase):
     """Tests for the main execution flow of the script."""
