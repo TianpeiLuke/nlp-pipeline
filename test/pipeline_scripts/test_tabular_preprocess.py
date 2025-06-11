@@ -9,9 +9,6 @@ import shutil
 import gzip
 import json
 from pathlib import Path
-import argparse
-import sys
-import runpy
 
 # Import the functions to be tested from the updated script
 from src.pipeline_scripts.tabular_preprocess import (
