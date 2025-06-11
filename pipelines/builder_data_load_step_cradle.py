@@ -1,113 +1,81 @@
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+import os, importlib
 import logging
+from dotenv import load_dotenv
 from datetime import datetime
 
-import os
-import importlib
-from dotenv import load_dotenv
-# Load environment variables from .env file
-# This will search for a .env file in the current directory or parent directories.
-# If your .env file is in `pipelines/.env` and this script is run from `pipelines/`
-# or `root/`, it should find it.
-# For robustness, you can specify the path: load_dotenv(dotenv_path=Path('.') / '.env')
-# or ensure your execution environment (like a SageMaker container) has these vars set.
+# Pull in .env or environment variables
 load_dotenv()
-
-
 logger = logging.getLogger(__name__)
 
-
-# --- Dynamically importing sensitive classes/modules ---
-
-# Group 1: com.amazon.secureaisandboxproxyservice.models
-SECUREAI_PROXY_MODELS_BASE_PATH = os.environ.get("SECUREAI_PROXY_MODELS_BASE")
-Field = None
-DataSource = None
-MdsDataSourceProperties = None
-EdxDataSourceProperties = None
-DataSourcesSpecification = None
-JobSplitOptions = None
-TransformSpecification = None
-OutputSpecification = None
-CradleJobSpecification = None
-CreateCradleDataLoadJobRequest = None
-
-if SECUREAI_PROXY_MODELS_BASE_PATH:
-    try:
-        # Attempt to import the main 'models' module first
-        # The original imports suggest classes are in submodules like 'field', 'datasource'
-        # e.g., from com.amazon.secureaisandboxproxyservice.models.field import Field
-
-        field_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.field")
-        Field = field_module.Field
-
-        datasource_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.datasource")
-        DataSource = datasource_module.DataSource
-
-        mdsprops_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.mdsdatasourceproperties")
-        MdsDataSourceProperties = mdsprops_module.MdsDataSourceProperties
-
-        edxprops_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.edxdatasourceproperties")
-        EdxDataSourceProperties = edxprops_module.EdxDataSourceProperties
-        
-        dsspec_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.datasourcesspecification")
-        DataSourcesSpecification = dsspec_module.DataSourcesSpecification
-
-        jsopts_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.jobsplitoptions")
-        JobSplitOptions = jsopts_module.JobSplitOptions
-
-        transspec_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.transformspecification")
-        TransformSpecification = transspec_module.TransformSpecification
-
-        outspec_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.outputspecification")
-        OutputSpecification = outspec_module.OutputSpecification
-
-        cradlejobspec_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.cradlejobspecification")
-        CradleJobSpecification = cradlejobspec_module.CradleJobSpecification
-
-        createcradle_module = importlib.import_module(f"{SECUREAI_PROXY_MODELS_BASE_PATH}.createcradledataloadjobrequest")
-        CreateCradleDataLoadJobRequest = createcradle_module.CreateCradleDataLoadJobRequest
-        
-        logger.info("Successfully imported classes from SECUREAI_PROXY_MODELS_BASE.")
-    except ImportError as e:
-        logger.error(f"Could not import one or more modules from base '{SECUREAI_PROXY_MODELS_BASE_PATH}': {e}")
-    except AttributeError as e:
-        logger.error(f"Attribute error while importing from SECUREAI_PROXY_MODELS_BASE: {e}")
-else:
-    logger.warning("SECUREAI_PROXY_MODELS_BASE environment variable not set. Secure AI Proxy Service models will not be available.")
-
-
-# Group 2: secure_ai_sandbox_workflow_python_sdk.cradle_data_loading.cradle_data_loading_step
-SECUREAI_CRADLE_LOADING_STEP_MODULE_PATH = os.environ.get("SECUREAI_CRADLE_LOADING_STEP_MODULE")
-CradleDataLoadingStep = None
-if SECUREAI_CRADLE_LOADING_STEP_MODULE_PATH:
-    try:
-        cradle_step_module = importlib.import_module(SECUREAI_CRADLE_LOADING_STEP_MODULE_PATH)
-        CradleDataLoadingStep = cradle_step_module.CradleDataLoadingStep
-        logger.info(f"Successfully imported CradleDataLoadingStep from {SECUREAI_CRADLE_LOADING_STEP_MODULE_PATH}.")
-    except ImportError:
-        logger.error(f"Could not import module '{SECUREAI_CRADLE_LOADING_STEP_MODULE_PATH}' for CradleDataLoadingStep.")
-    except AttributeError:
-        logger.error(f"'CradleDataLoadingStep' not found in module '{SECUREAI_CRADLE_LOADING_STEP_MODULE_PATH}'.")
-else:
-    logger.warning("SECUREAI_CRADLE_LOADING_STEP_MODULE environment variable not set. CradleDataLoadingStep will not be available.")
-
-
-# Group 3: secure_ai_sandbox_python_lib.utils (importing coral_utils)
+# --- Dynamically import the Coral utilities ---
 SECUREAI_LIB_UTILS_MODULE_PATH = os.environ.get("SECUREAI_LIB_UTILS_MODULE")
 coral_utils = None
 if SECUREAI_LIB_UTILS_MODULE_PATH:
     try:
         utils_module = importlib.import_module(SECUREAI_LIB_UTILS_MODULE_PATH)
-        coral_utils = utils_module.coral_utils # Assuming coral_utils is an attribute (object/submodule)
-        logger.info(f"Successfully imported coral_utils from {SECUREAI_LIB_UTILS_MODULE_PATH}.")
-    except ImportError:
-        logger.error(f"Could not import utils module: {SECUREAI_LIB_UTILS_MODULE_PATH}")
-    except AttributeError:
-        logger.error(f"'coral_utils' not found in module '{SECUREAI_LIB_UTILS_MODULE_PATH}'.")
+        coral_utils = utils_module.coral_utils
+        logger.info(f"Imported coral_utils from {SECUREAI_LIB_UTILS_MODULE_PATH}")
+    except (ImportError, AttributeError) as e:
+        logger.error(f"Could not import coral_utils: {e}")
 else:
-    logger.warning("SECUREAI_LIB_UTILS_MODULE environment variable not set. coral_utils will not be available.")
+    logger.warning("SECUREAI_LIB_UTILS_MODULE not set; coral_utils unavailable.")
+
+# --- Dynamically import the Cradle service models ---
+SECUREAI_PROXY_MODELS_BASE = os.environ.get("SECUREAI_PROXY_MODELS_BASE")
+Field = DataSource = MdsDataSourceProperties = EdxDataSourceProperties = None
+DataSourcesSpecification = JobSplitOptions = TransformSpecification = None
+OutputSpecification = CradleJobSpecification = CreateCradleDataLoadJobRequest = None
+
+if SECUREAI_PROXY_MODELS_BASE:
+    try:
+        mod = SECUREAI_PROXY_MODELS_BASE
+        Field = importlib.import_module(f"{mod}.field").Field
+        DataSource = importlib.import_module(f"{mod}.datasource").DataSource
+        MdsDataSourceProperties = importlib.import_module(f"{mod}.mdsdatasourceproperties").MdsDataSourceProperties
+        EdxDataSourceProperties = importlib.import_module(f"{mod}.edxdatasourceproperties").EdxDataSourceProperties
+        DataSourcesSpecification = importlib.import_module(f"{mod}.datasourcesspecification").DataSourcesSpecification
+        JobSplitOptions = importlib.import_module(f"{mod}.jobsplitoptions").JobSplitOptions
+        TransformSpecification = importlib.import_module(f"{mod}.transformspecification").TransformSpecification
+        OutputSpecification = importlib.import_module(f"{mod}.outputspecification").OutputSpecification
+        CradleJobSpecification = importlib.import_module(f"{mod}.cradlejobspecification").CradleJobSpecification
+        CreateCradleDataLoadJobRequest = importlib.import_module(f"{mod}.createcradledataloadjobrequest").CreateCradleDataLoadJobRequest
+        logger.info(f"Imported Cradle proxy models from {mod}")
+    except (ImportError, AttributeError) as e:
+        logger.error(f"Failed dynamic import of Cradle models from {mod}: {e}")
+else:
+    logger.warning("SECUREAI_PROXY_MODELS_BASE not set; CradleDataLoadRequest classes unavailable.")
+
+# --- Dynamically import the actual CradleDataLoadingStep class ---
+SECUREAI_CRADLE_LOADING_STEP_MODULE = os.environ.get("SECUREAI_CRADLE_LOADING_STEP_MODULE")
+CradleDataLoadingStep = None
+if SECUREAI_CRADLE_LOADING_STEP_MODULE:
+    try:
+        step_mod = importlib.import_module(SECUREAI_CRADLE_LOADING_STEP_MODULE)
+        CradleDataLoadingStep = step_mod.CradleDataLoadingStep
+        logger.info(f"Imported CradleDataLoadingStep from {SECUREAI_CRADLE_LOADING_STEP_MODULE}")
+    except (ImportError, AttributeError) as e:
+        logger.error(f"Failed import of CradleDataLoadingStep from {SECUREAI_CRADLE_LOADING_STEP_MODULE}: {e}")
+else:
+    logger.warning("SECUREAI_CRADLE_LOADING_STEP_MODULE not set; CradleDataLoadingStep unavailable.")
+
+SECUREAI_PIPELINE_CONSTANTS_MODULE = os.environ.get("SECUREAI_PIPELINE_CONSTANTS_MODULE")
+OUTPUT_TYPE_DATA = OUTPUT_TYPE_METADATA = OUTPUT_TYPE_SIGNATURE = None
+if SECUREAI_PIPELINE_CONSTANTS_MODULE:
+    try:
+        const_mod = importlib.import_module(SECUREAI_PIPELINE_CONSTANTS_MODULE)
+        OUTPUT_TYPE_DATA      = getattr(const_mod, "OUTPUT_TYPE_DATA",      None)
+        OUTPUT_TYPE_METADATA  = getattr(const_mod, "OUTPUT_TYPE_METADATA",  None)
+        OUTPUT_TYPE_SIGNATURE = getattr(const_mod, "OUTPUT_TYPE_SIGNATURE", None)
+        logger.info(f"Imported pipeline constants from {SECUREAI_PIPELINE_CONSTANTS_MODULE}")
+    except ImportError as e:
+        logger.error(f"Could not import pipeline constants: {e}")
+else:
+    logger.warning(
+        "SECUREAI_PIPELINE_CONSTANTS_MODULE not set; "
+        "pipeline constants (DATA, METADATA, SIGNATURE) unavailable."
+    )
 
 
 from .config_data_load_step_cradle import (
@@ -353,3 +321,50 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         """
         request = self._build_request()
         return coral_utils.convert_coral_to_dict(request)
+
+    def get_step_outputs(self, step: CradleDataLoadingStep) -> Dict[str, str]:
+        """
+        Get the output locations from a created CradleDataLoadingStep.
+
+        Args:
+            step (CradleDataLoadingStep): The CradleDataLoadingStep created by this builder
+
+        Returns:
+            Dict[str, str]: Dictionary mapping output types to their S3 locations:
+                          - OUTPUT_TYPE_DATA: Main data output location
+                          - OUTPUT_TYPE_METADATA: Metadata output location
+                          - OUTPUT_TYPE_SIGNATURE: Signature output location
+
+        Raises:
+            ValueError: If the step is not a CradleDataLoadingStep instance or 
+                      wasn't created by this builder
+
+        Example:
+            ```python
+            builder = CradleDataLoadingStepBuilder(config)
+            step = builder.create_step()
+            outputs = builder.get_step_outputs(step)
+            data_location = outputs[OUTPUT_TYPE_DATA]
+            metadata_location = outputs[OUTPUT_TYPE_METADATA]
+            signature_location = outputs[OUTPUT_TYPE_SIGNATURE]
+            ```
+        """
+        if not isinstance(step, CradleDataLoadingStep):
+            raise ValueError("Argument must be a CradleDataLoadingStep instance")
+
+        if step.name != f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}":
+            raise ValueError("Step was not created by this builder")
+
+        # Get all output locations from the step
+        output_locations = step.get_output_locations()
+        
+        if not output_locations:
+            raise ValueError("No output locations found in the step")
+
+        # Validate that all required output types are present
+        required_outputs = {OUTPUT_TYPE_DATA, OUTPUT_TYPE_METADATA, OUTPUT_TYPE_SIGNATURE}
+        missing_outputs = required_outputs - set(output_locations.keys())
+        if missing_outputs:
+            raise ValueError(f"Missing required output types: {missing_outputs}")
+
+        return output_locations
