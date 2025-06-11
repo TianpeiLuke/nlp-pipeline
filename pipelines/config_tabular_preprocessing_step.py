@@ -53,9 +53,15 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
 
     # 5) Exactly one input channel, two output channels
     input_names: Dict[str, str] = Field(
-        default_factory=lambda: {"data_input": "RawData"},
-        description="Mapping of input channel name to its description. (Must contain 'data_input'.)"
+        default_factory=lambda: {
+            "data_input": "RawData",
+            "metadata_input": "Metadata",  # Optional
+            "signature_input": "Signature"  # Optional
+        },
+        description="Mapping of input channel names to their descriptions. "
+                   "Must contain 'data_input'. 'metadata_input' and 'signature_input' are optional."
     )
+    
     output_names: Dict[str, str] = Field(
         default_factory=lambda: {
             "processed_data": "ProcessedTabularData",
@@ -105,6 +111,7 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
          - hyperparameters.label_name must be nonempty and not whitespace.
          - input_names must contain 'data_input'
          - output_names must contain 'processed_data' and 'full_data'
+         - optional input channels are allowed
         """
         hp = self.hyperparameters
 
@@ -116,5 +123,12 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
 
         if "processed_data" not in self.output_names or "full_data" not in self.output_names:
             raise ValueError("output_names must contain keys 'processed_data' and 'full_data'")
+
+        # Validate optional input channels if present
+        valid_input_channels = {"data_input", "metadata_input", "signature_input"}
+        invalid_channels = set(self.input_names.keys()) - valid_input_channels
+        if invalid_channels:
+            raise ValueError(f"Invalid input channel names: {invalid_channels}. "
+                           f"Must be one of: {valid_input_channels}")
 
         return self
