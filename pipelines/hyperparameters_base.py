@@ -8,6 +8,7 @@ class ModelHyperparameters(BaseModel):
     # --- Private Attributes for Internal State ---
     # These will not be part of the model's schema but can be used in methods.
     _alias_map: Dict[str, str] = PrivateAttr(default_factory=dict)
+    _inverse_alias_map: Dict[str, str] = PrivateAttr(default_factory=dict)
     _aliased_full_field_list: List[str] = PrivateAttr(default_factory=list)
     _aliased_cat_field_list: List[str] = PrivateAttr(default_factory=list)
     _aliased_tab_field_list: List[str] = PrivateAttr(default_factory=list)
@@ -73,10 +74,11 @@ class ModelHyperparameters(BaseModel):
 
     def _create_aliases(self) -> None:
         """
-        Populates the internal alias map and aliased field lists.
+        Populates the internal alias map, inverse alias map, and aliased field lists.
         """
         # Reset internal state in case of re-validation
         self._alias_map = {}
+        self._inverse_alias_map = {}
         self._aliased_full_field_list = []
 
         for field in self.full_field_list:
@@ -85,12 +87,12 @@ class ModelHyperparameters(BaseModel):
                 raise ValueError(f"Alias collision detected. Both '{self._alias_map[alias]}' and '{field}' create the alias '{alias}'.")
             
             self._alias_map[alias] = field
+            self._inverse_alias_map[field] = alias
             self._aliased_full_field_list.append(alias)
             
-        # Create aliased versions of the other lists using the generated map
-        original_to_alias = {v: k for k, v in self._alias_map.items()}
-        self._aliased_cat_field_list = [original_to_alias[f] for f in self.cat_field_list]
-        self._aliased_tab_field_list = [original_to_alias[f] for f in self.tab_field_list]
+        # Create aliased versions of the other lists using the generated inverse map
+        self._aliased_cat_field_list = [self._inverse_alias_map.get(f, f) for f in self.cat_field_list]
+        self._aliased_tab_field_list = [self._inverse_alias_map.get(f, f) for f in self.tab_field_list]
 
     @model_validator(mode='after')
     def validate_dimensions(self) -> 'ModelHyperparameters':
@@ -114,6 +116,12 @@ class ModelHyperparameters(BaseModel):
         Returns the mapping from short alias names to their original long field names.
         """
         return self._alias_map
+
+    def get_inverse_alias_map(self) -> Dict[str, str]:
+        """
+        Returns the mapping from original long field names to their short alias names.
+        """
+        return self._inverse_alias_map
 
     def serialize_config(self) -> Dict[str, str]:
         """
@@ -140,3 +148,17 @@ class ModelHyperparameters(BaseModel):
             k: json.dumps(v) if isinstance(v, (list, dict, bool)) else str(v)
             for k, v in config.items()
         }
+    
+    def complete_serialize_config(self) -> Dict[str, str]:
+        """
+        Serialize the complete configuration, including the alias and inverse alias maps.
+        Useful for saving the full configuration for offline use or debugging.
+        """
+        # Use the standard serialization method first
+        config = self.serialize_config()
+
+        # Add the alias maps
+        config['alias_map'] = json.dumps(self.get_alias_map())
+        config['inverse_alias_map'] = json.dumps(self.get_inverse_alias_map())
+
+        return config
