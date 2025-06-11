@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 
-# --- Helper Functions (unchanged) ---
+# --- Helper Functions ---
 
 def _is_gzipped(path: str) -> bool:
     return path.lower().endswith(".gz")
@@ -98,23 +98,17 @@ def combine_shards(input_dir: str) -> pd.DataFrame:
     all_shards = sorted([p for pat in patterns for p in input_path.glob(pat)])
     if not all_shards:
         raise RuntimeError(f"No CSV/JSON/Parquet shards found under {input_dir}")
-    dfs = [_read_file_to_df(shard) for shard in all_shards]
-    return pd.concat(dfs, axis=0, ignore_index=True)
-
+    try:
+        dfs = [_read_file_to_df(shard) for shard in all_shards]
+        return pd.concat(dfs, axis=0, ignore_index=True)
+    except Exception as e:
+        raise RuntimeError(f"Failed to read or concatenate shards: {e}")
 
 # --- Main Processing Logic ---
 
 def main(job_type: str, label_field: str, train_ratio: float, test_val_ratio: float, input_base_dir: str, output_dir: str):
     """
     Main logic for preprocessing data, now refactored for testability.
-    
-    Args:
-        job_type (str): Type of job ('training', 'validation', etc.).
-        label_field (str): The name of the target/label column.
-        train_ratio (float): The proportion of data for the training set.
-        test_val_ratio (float): The proportion of the holdout set to be used for testing.
-        input_base_dir (str): The base directory for all inputs ('/opt/ml/processing/input').
-        output_dir (str): The directory where outputs will be saved.
     """
     # 1. Setup paths
     input_data_dir = os.path.join(input_base_dir, "data")
@@ -154,12 +148,10 @@ def main(job_type: str, label_field: str, train_ratio: float, test_val_ratio: fl
         subfolder = output_path / split_name
         subfolder.mkdir(exist_ok=True)
         
-        # Save full data
         full_path = subfolder / f"{split_name}_full_data.csv"
         split_df.to_csv(full_path, index=False)
         print(f"[INFO] Saved {full_path} (shape={split_df.shape})")
 
-        # Save processed data (in this script, it's the same as full data)
         proc_path = subfolder / f"{split_name}_processed_data.csv"
         split_df.to_csv(proc_path, index=False)
         print(f"[INFO] Saved {proc_path} (shape={split_df.shape})")
