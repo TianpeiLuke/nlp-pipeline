@@ -139,7 +139,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         estimator = self._create_pytorch_estimator(checkpoint_uri)
         
         # Get step name
-        step_name = self._get_step_name('Training')
+        step_name = self._get_step_name('PytorchTraining')
         
         return TrainingStep(
             name=step_name,

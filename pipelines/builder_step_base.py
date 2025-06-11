@@ -15,8 +15,10 @@ logger = logging.getLogger(__name__)
 STEP_NAMES = {
     'Base': 'BaseStep',
     'Processing': 'ProcessingStep',
-    'Training': 'TrainingStep',
-    'Model': 'CreateModelStep',
+    'PytorchTraining': 'PytorchTrainingStep',
+    'XGBoostTraining': 'XGBoostTrainingStep',
+    'PytorchModel': 'CreatePytorchModelStep',
+    'XGBoostModel': 'CreateXGBoostModelStep',
     'Package': 'PackagingStep',
     'Payload': 'PayloadTestStep',
     'Registration': 'RegistrationStep',

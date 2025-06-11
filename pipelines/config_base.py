@@ -6,8 +6,10 @@ from datetime import datetime
 
 STEP_REGISTRY = {
         'BasePipelineConfig': 'Base',
-        'PytorchTrainingConfig': 'Training',
-        'PytorchModelCreationConfig': 'Model',
+        'PytorchTrainingConfig': 'PytorchTraining',
+        'PytorchModelCreationConfig': 'PytorchModel',
+        'XGBoostTrainingConfig': 'XGBoostTraining',
+        'XGBoostModelCreationConfig': 'XGBoostModel',
         'ProcessingStepConfigBase': 'Processing',
         'PackageStepConfig': 'Package',
         'ModelRegistrationConfig': 'Registration',

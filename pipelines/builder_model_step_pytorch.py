@@ -137,7 +137,7 @@ class PytorchModelStepBuilder(StepBuilderBase):
             accelerator_type=None
         )
         
-        step_name = self._get_step_name('Model')
+        step_name = self._get_step_name('PytorchModel')
         
         model_step = ModelStep(
             name=step_name,
