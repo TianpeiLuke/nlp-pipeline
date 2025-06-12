@@ -12,6 +12,7 @@ from transformers import (
     AutoModel,
     AutoConfig,
     AutoTokenizer,  # Added AutoTokenizer
+    AutoModelForSequenceClassification,
     get_linear_schedule_with_warmup,
     get_constant_schedule_with_warmup,
 )
