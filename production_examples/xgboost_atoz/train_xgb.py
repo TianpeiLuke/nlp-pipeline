@@ -112,7 +112,6 @@ def _read_any_data(path: str) -> pd.DataFrame:
 def load_datasets(input_path: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Loads the training, validation, and test datasets."""
     train_data_dir = os.path.join(input_path, "train")
-    # FIX: Use "val" to match the SageMaker channel name from the builder and preprocess output
     val_data_dir = os.path.join(input_path, "val")
     test_data_dir = os.path.join(input_path, "test")
     
@@ -148,7 +147,6 @@ def fit_and_apply_risk_tables(config: XGBoostConfig, train_df: pd.DataFrame, val
         proc.fit(train_df)
         risk_processors[var] = proc
         
-        # Apply transformation to all data splits
         train_df_transformed[var] = proc.transform(train_df_transformed[var])
         val_df_transformed[var] = proc.transform(val_df_transformed[var])
         test_df_transformed[var] = proc.transform(test_df_transformed[var])
@@ -195,7 +193,6 @@ def train_model(config: XGBoostConfig, dtrain: xgb.DMatrix, dval: xgb.DMatrix) -
     
     logger.info(f"Starting XGBoost training with params: {xgb_params}")
     
-    # FIX: Use 'val' as the eval set name to match the channel name.
     return xgb.train(
         params=xgb_params,
         dtrain=dtrain,
@@ -252,9 +249,17 @@ def main(hparam_path: str, input_path: str, model_path: str):
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
     prefix = "/opt/ml"
+    
+    # The data from the previous step is on the main 'data' channel
     input_path = os.path.join(prefix, "input", "data")
+    
+    # The model artifacts are saved to the standard model directory
     model_path = os.path.join(prefix, "model")
-    hparam_path = os.path.join(prefix, "input", "config", "hyperparameters.json")
+    
+    # FIX: The path to hyperparameters is now determined by the 'config' input channel,
+    # which is the recommended way to pass large configuration files.
+    config_channel_path = os.path.join(prefix, "input", "data", "config")
+    hparam_path = os.path.join(config_channel_path, "hyperparameters.json")
 
     try:
         main(hparam_path, input_path, model_path)
