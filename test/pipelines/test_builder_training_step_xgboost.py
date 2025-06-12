@@ -29,7 +29,6 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         # Mock the hyperparameters object that the builder expects
         hp = SimpleNamespace()
         hp.model_dump = lambda: {'param': 'value', 'objective': 'binary:logistic'} 
-        hp.serialize_config = lambda: {'param': 'value', 'objective': 'binary:logistic'} # Add for compatibility
         self.config.hyperparameters = hp
         
         # Add all other required attributes for the builder's validation and methods
@@ -42,8 +41,8 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         self.config.py_version = 'py3'
         self.config.input_path = 's3://bucket/input'
         self.config.output_path = 's3://bucket/output'
-        self.config.hyperparameters_s3_uri = 's3://bucket/config' # URI should be a prefix
-        self.config.has_checkpoint = lambda: False # Add for checkpoint method
+        # The S3 URI for hyperparameters should be a prefix (a folder).
+        self.config.hyperparameters_s3_uri = 's3://bucket/config/' 
 
         # Instantiate the builder by bypassing its __init__ and manually setting attributes.
         self.builder = object.__new__(XGBoostTrainingStepBuilder)
@@ -51,7 +50,6 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         self.builder.session = MagicMock()
         self.builder.role = 'arn:aws:iam::000000000000:role/DummyRole'
         self.builder.notebook_root = Path('.')
-        # Use a mock for the _get_step_name method from the base class
         self.builder._get_step_name = MagicMock(return_value='XGBoostTrainingStep')
         self.builder.aws_region = 'us-east-1'
 
@@ -68,37 +66,37 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing required attributes"):
             self.builder.validate_configuration()
 
-    @patch('src.pipelines.builder_training_step_xgboost.tempfile.mkdtemp')
-    @patch('src.pipelines.builder_training_step_xgboost.Path.write_text')
+    @patch('src.pipelines.builder_training_step_xgboost.tempfile.NamedTemporaryFile')
+    @patch('src.pipelines.builder_training_step_xgboost.json.dump')
     @patch('src.pipelines.builder_training_step_xgboost.S3Uploader.upload')
-    @patch('src.pipelines.builder_training_step_xgboost.json.dumps')
-    def test_prepare_hyperparameters_file(self, mock_json_dumps, mock_s3_upload, mock_write_text, mock_mkdtemp):
+    @patch('src.pipelines.builder_training_step_xgboost.os.remove')
+    def test_prepare_hyperparameters_file(self, mock_os_remove, mock_s3_upload, mock_json_dump, mock_named_temp_file):
         """
         Test that _prepare_hyperparameters_file correctly serializes, saves, and uploads the config.
         """
         # Arrange
-        mock_mkdtemp.return_value = '/tmp/dummy_dir'
-        mock_json_dumps.return_value = '{"param": "value"}'
+        mock_file = MagicMock()
+        mock_file.name = '/tmp/dummy_file.json'
+        mock_context_manager = MagicMock()
+        mock_context_manager.__enter__.return_value = mock_file
+        mock_named_temp_file.return_value = mock_context_manager
         
-        # The S3Uploader returns the full S3 path of the uploaded file.
-        expected_s3_path = 's3://bucket/config/hyperparameters.json'
+        # The builder uploads to the prefix, and the S3Uploader constructs the full path.
+        expected_s3_path = f"{self.config.hyperparameters_s3_uri}hyperparameters.json"
         mock_s3_upload.return_value = expected_s3_path
 
         # Act
         s3_uri = self.builder._prepare_hyperparameters_file()
 
         # Assert
-        mock_mkdtemp.assert_called_once()
-        mock_json_dumps.assert_called_once_with(self.config.hyperparameters.model_dump(), indent=2)
-        mock_write_text.assert_called_once_with('{"param": "value"}')
-        
-        # The builder constructs the final path by joining the prefix and the filename.
-        full_s3_path = 's3://bucket/config/hyperparameters.json'
+        mock_named_temp_file.assert_called_once_with("w", suffix=".json", delete=False)
+        mock_json_dump.assert_called_once_with(self.config.hyperparameters.model_dump(), mock_file, indent=2)
         mock_s3_upload.assert_called_once_with(
-            str(Path('/tmp/dummy_dir/hyperparameters.json')),
-            full_s3_path, 
+            '/tmp/dummy_file.json',
+            self.config.hyperparameters_s3_uri, # Asserts that the prefix is passed to S3Uploader
             sagemaker_session=self.builder.session
         )
+        mock_os_remove.assert_called_once_with('/tmp/dummy_file.json')
         self.assertEqual(s3_uri, expected_s3_path)
 
     @patch('src.pipelines.builder_training_step_xgboost.XGBoost')
