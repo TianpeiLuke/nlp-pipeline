@@ -55,7 +55,6 @@ import numpy as np
 import pickle as pkl
 import xgboost as xgb
 
-from pydantic import BaseModel, Field, model_validator
 
 # -------------------------------------------------------------------------
 # Assuming the processor is in a directory that can be imported
@@ -75,44 +74,20 @@ handler.setFormatter(formatter)
 # -------------------------------------------------------------------------
 # Pydantic V2 model for all hyperparameters
 # -------------------------------------------------------------------------
-class XGBoostConfig(BaseModel):
-    """Pydantic V2 model for all hyperparameters expected from hyperparameters.json."""
-    # ----- Data and general fields -----
-    full_field_list: List[str] = Field(..., description="All field names.")
-    cat_field_list: List[str] = Field(..., description="List of categorical column names.")
-    tab_field_list: List[str] = Field(..., description="List of numeric column names.")
-    id_name: str = Field(..., description="Name of the ID column.")
-    label_name: str = Field(..., description="Name of the label column.")
-    is_binary: bool = Field(default=True, description="Binary classification flag.")
-    num_classes: int = Field(default=2, description="Number of classes.")
-    
-    # ----- XGBoost-specific parameters -----
-    booster: str = Field(default="gbtree", description="Booster to use.")
-    eta: float = Field(default=0.3, ge=0.0, le=1.0, description="Learning rate.")
-    gamma: float = Field(default=0.0, ge=0.0, description="Minimum loss reduction to split.")
-    max_depth: int = Field(default=6, ge=0, description="Maximum tree depth.")
-    min_child_weight: float = Field(default=1.0, ge=0.0, description="Minimum sum of instance weight.")
-    subsample: float = Field(default=1.0, gt=0.0, le=1.0, description="Subsample ratio of rows.")
-    colsample_bytree: float = Field(default=1.0, gt=0.0, le=1.0, description="Subsample ratio of columns per tree.")
-    lambda_xgb: float = Field(default=1.0, ge=0.0, description="L2 regularization term.")
-    alpha_xgb: float = Field(default=0.0, ge=0.0, description="L1 regularization term.")
-    objective: str = Field(default="binary:logistic", description="Learning objective.")
-    eval_metric: Optional[Union[str, List[str]]] = Field(default=None, description="Evaluation metric(s).")
-    num_round: int = Field(default=100, ge=1, description="Number of boosting rounds.")
-    early_stopping_rounds: Optional[int] = Field(default=None, ge=1, description="Enable early stopping.")
-    
-    # ----- Risk-table smoothing parameters -----
-    smooth_factor: float = Field(default=0.0, ge=0.0, le=1.0, description="Smoothing factor for risk table.")
-    count_threshold: int = Field(default=0, ge=0, description="Minimum count threshold for risk table.")
+from pydantic import BaseModel, Field, model_validator
+from .hyperparameters_xgboost import XGBoostModelHyperparameters
 
-    @model_validator(mode="after")
-    def _validate_all(cls, state: "XGBoostConfig") -> "XGBoostConfig":
-        if state.early_stopping_rounds is not None and not state.eval_metric:
-            raise ValueError("`early_stopping_rounds` requires `eval_metric` to be set.")
-        return state
-
-    class Config:
-        extra = "forbid"
+class XGBoostConfig(XGBoostModelHyperparameters):
+    """
+    Load everything from your pipeline’s XGBoostModelHyperparameters,
+    plus the two risk-table params this script needs.
+    """
+    smooth_factor: float = Field(
+        default=0.0, description="Smoothing factor for risk table"
+    )
+    count_threshold: int = Field(
+        default=0, description="Minimum count threshold for risk table"
+    )
 
 # -------------------------------------------------------------------------
 # Helper Functions
@@ -122,8 +97,12 @@ def load_and_validate_config(hparam_path: str) -> XGBoostConfig:
     """Loads and validates the hyperparameters JSON file."""
     try:
         with open(hparam_path, "r") as f:
-            raw_hparams = json.load(f)
-        config = XGBoostConfig(**raw_hparams)
+            raw = json.load(f)
+        # filter out any typos or extra keys
+        allowed = set(XGBoostConfig.model_fields)
+        clean = {k: v for k, v in raw.items() if k in allowed}
+
+        config = XGBoostConfig(**clean)
         logger.info("Successfully loaded and validated hyperparameters.")
         return config
     except Exception as err:

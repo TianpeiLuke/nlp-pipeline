@@ -53,28 +53,29 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
 
     def _prepare_hyperparameters_file(self) -> str:
         """
-        Serializes the hyperparameters to JSON, uploads it as
-        `<hyperparameters_s3_uri_prefix>/hyperparameters.json`, and
-        returns that full S3 URI.
+        Serializes the hyperparameters JSON and uploads it as
+        `<hyperparameters_s3_uri>hyperparameters.json`, returning the full S3 URI.
         """
-        # 1) write locally
-        hp_dict = self.config.hyperparameters.model_dump()
-        local_dir = Path(tempfile.mkdtemp())
-        local_file = local_dir / "hyperparameters.json"
-        local_file.write_text(json.dumps(hp_dict, indent=2))
+        hyperparams_dict = self.config.hyperparameters.model_dump()
+        # dump locally
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
+            json.dump(hyperparams_dict, tmp, indent=2)
+            local_path = tmp.name
 
-        # 2) construct target S3 key under prefix
         prefix = self.config.hyperparameters_s3_uri
+        # ensure it ends with '/'
         if not prefix.endswith("/"):
             prefix += "/"
-        target_key = prefix + "hyperparameters.json"
+        target_s3_uri = prefix + "hyperparameters.json"
 
-        # 3) upload
-        logger.info(f"Uploading hyperparameters to {target_key} …")
-        S3Uploader.upload(str(local_file), target_key, sagemaker_session=self.session)
+        logger.info(f"Uploading hyperparameters from {local_path} to {target_s3_uri}…")
+        uploaded_uri = S3Uploader.upload(local_path, prefix, sagemaker_session=self.session)
+        # S3Uploader.upload with a folder prefix returns something like
+        # "s3://.../hyperparameters.json"
+        os.remove(local_path)
 
-        # 4) clean up and return
-        return target_key
+        logger.info(f"Hyperparameters successfully uploaded to {uploaded_uri}")
+        return uploaded_uri
 
     def _create_xgboost_estimator(self) -> XGBoost:
         """Create SageMaker XGBoost Estimator with an empty hyperparameters dictionary."""
