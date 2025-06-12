@@ -30,6 +30,8 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         self.config.py_version = 'py38'
         self.config.input_path = 's3://bucket/input'
         self.config.output_path = 's3://bucket/output'
+        # Mirror for logger usage
+        self.config.instance_type = self.config.training_instance_type
         # Checkpoint logic
         self.config.has_checkpoint = lambda: False
         self.config.get_checkpoint_uri = lambda: 'unused'
@@ -85,11 +87,11 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         step = self.builder.create_step(dependencies=deps)
 
         # Verify TrainingInput called for train, val, test paths
-        inputs = step.inputs
-        self.assertEqual(len(inputs), 3)
-        self.assertTrue(all(isinstance(inp, str) and inp.startswith('TI:') for inp in inputs))
+        values = step.inputs.values()
+        self.assertEqual(len(values), 3)
+        self.assertTrue(all(isinstance(v, str) and v.startswith('TI:') for v in values))
 
-        # PyTorch estimator instantiation
+        # PyTorch estimator instantiation uses fallback checkpoint
         mock_pytorch_cls.assert_called_once()
         # TrainingStep attributes
         self.assertIsInstance(step, TrainingStep)
@@ -109,8 +111,13 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         mock_pytorch_cls.return_value = estimator
 
         step = self.builder.create_step()
-        # Check that checkpoint_uri used
-        mock_pytorch_cls.assert_called()
+
+        # Ensure TrainingInput still called
+        mock_training_input_cls.assert_called()
+        # Ensure estimator got the checkpoint argument
+        _, kwargs = mock_pytorch_cls.call_args
+        self.assertEqual(kwargs.get('checkpoint_s3_uri'), 's3://bucket/ckpt')
+
         self.assertIsInstance(step, TrainingStep)
 
 if __name__ == '__main__':
