@@ -82,13 +82,13 @@ class PytorchPipelineBuilder:
 
     def _validate_and_extract_configs(self):
         """Extract and validate individual configs."""
-        required_steps = ['Base', 'Model', 'Package', 'Registration', 'Payload']
+        required_steps = ['Base', 'PytorchModel', 'Package', 'Registration', 'Payload']
         missing_steps = [step for step in required_steps if step not in self.configs]
         if missing_steps:
             raise ValueError(f"Missing required configurations for steps: {missing_steps}")
 
         self.base_config = self.configs['Base']
-        self.model_config = self.configs['Model']
+        self.model_config = self.configs['PytorchModel']
         self.package_config = self.configs['Package']
         self.registration_config = self.configs['Registration']
         self.payload_config = self.configs['Payload']
@@ -104,7 +104,6 @@ class PytorchPipelineBuilder:
         logger.info(f"Creating model step with model from: {model_s3_path}")
         
         # Force the model region to be NA
-        logger.info("Forcing model region to NA")
         self.model_config.region = 'NA'
         self.model_config.aws_region = 'us-east-1'
         logger.info(f"Model aws region: {self.model_config.aws_region}")
@@ -168,6 +167,15 @@ class PytorchPipelineBuilder:
             
             # Log using expr
             logger.info(f"Using output expression: {outputs[0].expr}")
+
+            '''
+            return registration_builder.create_step(
+                packaging_step_output=s3_uri,
+                payload_s3_key=self.payload_config.sample_payload_s3_key,
+                dependencies=[packaging_step],
+                regions=[self.base_config.region]
+            )
+            '''
             
             result = registration_builder.create_step(
                 packaging_step_output=s3_uri,
