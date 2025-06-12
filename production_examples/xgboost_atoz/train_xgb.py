@@ -1,6 +1,49 @@
 #!/usr/bin/env python3
 import os
 import sys
+
+from subprocess import check_call
+import boto3
+
+os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
+sts = boto3.client("sts", region_name="us-east-1")
+caller_identity = sts.get_caller_identity()
+assumed_role_object = sts.assume_role(
+    RoleArn="arn:aws:iam::675292366480:role/SecurePyPIReadRole_" + caller_identity["Account"],
+    RoleSessionName="SecurePypiReadRole",
+)
+credentials = assumed_role_object["Credentials"]
+code_artifact_client = boto3.client(
+    "codeartifact",
+    aws_access_key_id=credentials["AccessKeyId"],
+    aws_secret_access_key=credentials["SecretAccessKey"],
+    aws_session_token=credentials["SessionToken"],
+    region_name="us-west-2",
+)
+token = code_artifact_client.get_authorization_token(domain="amazon", domainOwner="149122183214")[
+    "authorizationToken"
+]
+
+check_call(
+    [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--index-url",
+        f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+        "scikit-learn>=0.23.2,<1.0.0",
+        "pandas>=1.2.0,<2.0.0",
+        "beautifulsoup4>=4.9.3",
+        "pyarrow>=4.0.0,<6.0.0",
+        "pydantic>=2.0.0,<3.0.0",
+        "typing-extensions>=4.2.0",
+        "flask>=2.0.0,<3.0.0"
+    ]
+)
+print("***********************Package Installed*********************")
+
+
 import json
 import logging
 import traceback
@@ -258,7 +301,7 @@ if __name__ == "__main__":
     
     # FIX: The path to hyperparameters is now determined by the 'config' input channel,
     # which is the recommended way to pass large configuration files.
-    config_channel_path = os.path.join(prefix, "input", "data", "config")
+    config_channel_path = os.path.join(input_path, "config")
     hparam_path = os.path.join(config_channel_path, "hyperparameters.json")
 
     try:

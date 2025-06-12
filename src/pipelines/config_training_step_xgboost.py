@@ -11,102 +11,81 @@ from .config_base import BasePipelineConfig
 class XGBoostTrainingConfig(BasePipelineConfig):
     """
     Configuration specific to the SageMaker XGBoost Training Step.
-    This assumes script mode for XGBoost to align with the builder's design.
-    If using built-in XGBoost without a script, entry_point/source_dir would be optional.
+    This version is adapted to pass hyperparameters as a single config file
+    via an S3 input channel, avoiding character limits.
     """
-    # ----------------------------------------------------
-    # 1) S3‐related paths (input/output/checkpoint)
-    # ----------------------------------------------------
+    # S3 paths for data inputs and model outputs
     input_path: str = Field(
-        default=None,
-        description="S3 prefix where training data (train/val) is located.",
-        pattern=r"^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$",
+        description="S3 path for input training data (containing train/val/test channels).",
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
     output_path: str = Field(
-        default=None,
-        description="S3 prefix where model artifacts (model.tar.gz) will be saved.",
-        pattern=r"^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$",
+        description="S3 path for output model artifacts.",
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
     checkpoint_path: Optional[str] = Field(
         default=None,
-        description="Optional S3 prefix for saving intermediate checkpoints.",
-        pattern=r"^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$",
+        description="Optional S3 path for model checkpoints.",
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
 
-    # ----------------------------------------------------
-    # 2) Instance configuration for the XGBoost job
-    # ----------------------------------------------------
-    training_instance_type: str = Field(
-        default="ml.m5.xlarge",
-        description="Instance type for the XGBoost training job.",
-    )
-    training_instance_count: int = Field(
-        default=1, ge=1, description="Number of instances for the XGBoost training job."
-    )
-    training_volume_size: int = Field(
-        default=30, ge=1, description="EBS volume size (GB) for training instances."
-    )
+    # Instance configuration
+    training_instance_type: str = Field(default='ml.m5.xlarge', description="Instance type for XGBoost training job.")
+    training_instance_count: int = Field(default=1, ge=1, description="Number of instances for XGBoost training job.")
+    training_volume_size: int = Field(default=30, ge=1, description="Volume size (GB) for training instances.")
 
-    # ----------------------------------------------------
-    # 3) Script mode settings
-    # ----------------------------------------------------
-    training_entry_point: str = Field(
-        default="train_xgb.py",
-        description="Relative path (within source_dir) to the training script.",
-    )
-    # source_dir is inherited from BasePipelineConfig, should contain training_entry_point
+    # Script mode configuration
+    training_entry_point: str = Field(default='train_xgb.py', description="Entry point script for XGBoost training.")
 
-    # ----------------------------------------------------
-    # 4) XGBoost‐container versions
-    # ----------------------------------------------------
-    framework_version: str = Field(
-        default="1.7-1", description="SageMaker XGBoost container version (e.g. '1.7-1')."
-    )
-    py_version: str = Field(
-        default="py3", description="Python version for the XGBoost container."
-    )
+    # Framework versions for SageMaker XGBoost container
+    framework_version: str = Field(default="1.7-1", description="SageMaker XGBoost framework version.")
+    py_version: str = Field(default="py3", description="Python version for the SageMaker XGBoost container.")
 
 
-    # XGBoost specific hyperparameters
-    hyperparameters: XGBoostModelHyperparameters = Field(
-        ...,
-        description="All XGBoost‐specific and data‐schema hyperparameters.",
+    # XGBoost specific hyperparameters object
+    hyperparameters: XGBoostModelHyperparameters
+
+
+    # --- ADDED: S3 path for the hyperparameter config file ---
+    hyperparameters_s3_uri: Optional[str] = Field(
+        default=None,
+        description="S3 URI *prefix* under which `hyperparameters.json` will be uploaded.  e.g. `s3://my-bucket/pipeline/config/2025-06-12/`",
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/.+?)/$'
     )
 
-    class Config(BasePipelineConfig.Config): # Inherit base config settings
-        extra = "forbid"
+    class Config(BasePipelineConfig.Config):
+        pass
 
-    # ----------------------------------------------------
-    # 6) Before‐validation hook: ensure BasePipelineConfig defaults exist,
-    #    then construct sensible default S3 prefixes if user omitted them.
-    # ----------------------------------------------------
-    @model_validator(mode="before")
+    @model_validator(mode='before')
     @classmethod
-    def _construct_training_paths(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        # 6.1) First apply BasePipelineConfig’s before‐hook to fill bucket/author/etc.
+    def _construct_paths(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """Constructs S3 paths if they are not explicitly provided."""
         values = super()._construct_base_attributes(values)
 
-        bucket        = values.get("bucket")
-        current_date  = values.get("current_date")
-        pipeline_name = values.get("pipeline_name", "DefaultPipeline")
+        bucket       = values.get('bucket')
+        current_date = values.get('current_date')
+        pipeline_name = values.get('pipeline_name', 'DefaultPipeline')
 
-        # 6.2) If the user did not explicitly set `input_path`, build a default:
-        if not values.get("input_path"):
-            values["input_path"] = (
-                f"s3://{bucket}/{pipeline_name}/training_input/{current_date}"
+        if not values.get('input_path'):
+            values['input_path'] = (
+                f"s3://{bucket}/{pipeline_name}/preprocessed_data/{current_date}"
+            )
+        if not values.get('output_path'):
+            values['output_path'] = (
+                f"s3://{bucket}/{pipeline_name}/training_output/"
+                f"{current_date}/model"
+            )
+        if 'checkpoint_path' not in values:
+            values['checkpoint_path'] = (
+                f"s3://{bucket}/{pipeline_name}/training_checkpoints/"
+                f"{current_date}"
             )
 
-        # 6.3) Similarly for `output_path`:
-        if not values.get("output_path"):
-            values["output_path"] = (
-                f"s3://{bucket}/{pipeline_name}/training_output/{current_date}/model"
-            )
-
-        # 6.4) If checkpoint_path is entirely missing, give it a default.
-        #      (If the user explicitly set checkpoint_path=None, keep it None.)
-        if "checkpoint_path" not in values or values.get("checkpoint_path") is None:
-            values["checkpoint_path"] = (
-                f"s3://{bucket}/{pipeline_name}/training_checkpoints/{current_date}"
+        # Default S3 *prefix* under which the builder will write `hyperparameters.json`
+        if not values.get('hyperparameters_s3_uri'):
+            values['hyperparameters_s3_uri'] = (
+                f"s3://{bucket}/{pipeline_name}/training_config/"
+                f"{current_date}/"
             )
 
         return values
@@ -141,74 +120,31 @@ class XGBoostTrainingConfig(BasePipelineConfig):
                         f"{path_name} ('{path_value}') must have at least {min_depth} levels of hierarchy (bucket + prefix)."
                     )
         return self
-    
-    # ----------------------------------------------------
-    # 7) After‐validation: ensure none of the S3 paths collide
-    # ----------------------------------------------------
-    @model_validator(mode="after")
-    def _validate_s3_paths_unique(self) -> "XGBoostTrainingConfig":
-        defined = {
-            "input_path": self.input_path,
-            "output_path": self.output_path,
-        }
-        if self.checkpoint_path:
-            defined["checkpoint_path"] = self.checkpoint_path
 
-        # If any two of these prefixes are identical, that would be bad.
-        vals = list(defined.values())
-        if len(vals) != len(set(vals)):
-            # Find duplicates for a clearer error
-            from collections import Counter
-
-            cnts = Counter(vals)
-            duplicates = {k: v for k, v in cnts.items() if v > 1}
-            raise ValueError(
-                f"input_path, output_path, and checkpoint_path must all be distinct. "
-                f"Duplicates found: {duplicates}"
-            )
-
-        # Also check each has at least “bucket + one prefix” (depth ≥ 2)
-        for name, uri in defined.items():
-            # e.g. "s3://mybucket/my/prefix" → ["mybucket","my","prefix"] length=3
-            parts = uri.replace("s3://", "").split("/")
-            if len(parts) < 2:
-                raise ValueError(
-                    f"'{name}' (‘{uri}’) must have at least bucket + one prefix level."
-                )
-
-        return self
-    
-    # ----------------------------------------------------
-    # 8) Validate hyperparameter‐related consistency
-    # ----------------------------------------------------
-    @model_validator(mode="after")
-    def _validate_hyperpartition_consistency(self) -> "XGBoostTrainingConfig":
-        # Ensure the hyperparameters block was provided
+    @model_validator(mode='after')
+    def validate_hyperparameter_fields(self) -> 'XGBoostTrainingConfig':
+        """
+        Validate field lists from hyperparameters if they are used by the XGBoost script.
+        This is inherited from the PyTorch example; its relevance depends on your XGBoost script.
+        """
         if not self.hyperparameters:
-            raise ValueError("You must supply a non‐empty `hyperparameters` (XGBoostConfig).")
+            # This should not happen if the field is non-optional, but good check.
+            raise ValueError("XGBoost hyperparameters must be provided.")
 
-        hp = self.hyperparameters
-
-        # 8.1) Every field in tab_field_list and cat_field_list must appear in full_field_list
-        full_set = set(hp.full_field_list)
-        if not set(hp.tab_field_list).issubset(full_set):
-            raise ValueError(
-                "Every tabular field in `hp.tab_field_list` must exist in `hp.full_field_list`."
-            )
-        if not set(hp.cat_field_list).issubset(full_set):
-            raise ValueError(
-                "Every categorical field in `hp.cat_field_list` must exist in `hp.full_field_list`."
-            )
-
-        # 8.2) label_name and id_name must also be in full_field_list
-        if hp.label_name not in full_set:
-            raise ValueError(
-                f"`hp.label_name` (‘{hp.label_name}’) must be one of `hp.full_field_list`."
-            )
-        if hp.id_name not in full_set:
-            raise ValueError(
-                f"`hp.id_name` (‘{hp.id_name}’) must be one of `hp.full_field_list`."
-            )
+        # The following checks are from your PyTorch example.
+        # They assume your XGBoost script or data prep relies on these fields
+        # from the ModelHyperparameters base. If not, these can be removed or adjusted.
+        all_fields = set(self.hyperparameters.full_field_list)
+        if not set(self.hyperparameters.tab_field_list).issubset(all_fields):
+            raise ValueError("All fields in tab_field_list must be in full_field_list (from hyperparameters).")
+        if not set(self.hyperparameters.cat_field_list).issubset(all_fields):
+            raise ValueError("All fields in cat_field_list must be in full_field_list (from hyperparameters).")
+        
+        if self.hyperparameters.label_name not in all_fields:
+            raise ValueError(f"label_name '{self.hyperparameters.label_name}' must be in full_field_list (from hyperparameters).")
+        # id_name might not always be required for training itself, but for data prep.
+        if self.hyperparameters.id_name not in all_fields:
+            raise ValueError(f"id_name '{self.hyperparameters.id_name}' must be in full_field_list (from hyperparameters).")
 
         return self
     
@@ -238,13 +174,10 @@ class XGBoostTrainingConfig(BasePipelineConfig):
             )
         return v
 
-    # ----------------------------------------------------
-    # 10) Convenience methods
-    # ----------------------------------------------------
     def get_checkpoint_uri(self) -> Optional[str]:
-        """Return the checkpoint S3 URI (or None if disabled)."""
+        """Returns the S3 URI for checkpoints."""
         return self.checkpoint_path
 
     def has_checkpoint(self) -> bool:
-        """Return True if a checkpoint path is configured, False otherwise."""
+        """Checks if a checkpoint path is configured."""
         return self.checkpoint_path is not None

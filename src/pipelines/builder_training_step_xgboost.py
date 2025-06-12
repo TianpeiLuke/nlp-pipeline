@@ -3,14 +3,15 @@ from sagemaker.debugger import ProfilerConfig
 from sagemaker.inputs import TrainingInput
 from sagemaker.workflow.steps import TrainingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.workflow.functions import Join # Make sure to import
+from sagemaker.workflow.functions import Join  # Make sure to import
 from sagemaker.s3 import S3Uploader
 from pathlib import Path
 import os
 import json
+import tempfile
+import shutil
 from typing import Optional, List, Dict
 import logging
-import tempfile
 
 from .hyperparameters_xgboost import XGBoostModelHyperparameters
 from .config_training_step_xgboost import XGBoostTrainingConfig
@@ -19,7 +20,6 @@ from .builder_step_base import StepBuilderBase
 logger = logging.getLogger(__name__)
 
 
-# --- XGBoost Training Step Builder ---
 class XGBoostTrainingStepBuilder(StepBuilderBase):
     """XGBoost model training step builder that uses a config file for hyperparameters."""
 
@@ -35,7 +35,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
 
         if not isinstance(self.config.hyperparameters, XGBoostModelHyperparameters):
             raise ValueError("Config for XGBoostTrainingStepBuilder must include XGBoostModelHyperparameters.")
-            
+        
         self.validate_configuration()
 
 
@@ -53,27 +53,39 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
 
     def _prepare_hyperparameters_file(self) -> str:
         """
-        Serializes the hyperparameters to a local JSON file and uploads it to S3.
-        
-        Returns:
-            The S3 URI of the uploaded hyperparameters file.
+        Serializes the hyperparameters to JSON, uploads it as
+        `<hyperparameters_s3_uri_prefix>/hyperparameters.json`, and
+        returns that full S3 URI.
         """
-        hyperparams_dict = self.config.hyperparameters.model_dump()
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix=".json", delete=False) as tmp:
-            json.dump(hyperparams_dict, tmp, indent=2)
-            local_path = tmp.name
-        
-        s3_uri = self.config.hyperparameters_s3_uri
-        logger.info(f"Uploading hyperparameters from {local_path} to {s3_uri}...")
-        uploaded_uri = S3Uploader.upload(local_path, s3_uri, sagemaker_session=self.session)
-        os.remove(local_path) # Clean up the temporary local file
-        
-        logger.info(f"Hyperparameters successfully uploaded to {uploaded_uri}")
-        return uploaded_uri
-    
+        # 1) write locally
+        hp_dict = self.config.hyperparameters.model_dump()
+        local_dir = Path(tempfile.mkdtemp())
+        local_file = local_dir / "hyperparameters.json"
+        local_file.write_text(json.dumps(hp_dict, indent=2))
+
+        # 2) construct target S3 key under prefix
+        prefix = self.config.hyperparameters_s3_uri
+        if not prefix.endswith("/"):
+            prefix += "/"
+        target_key = prefix + "hyperparameters.json"
+
+        # 3) upload
+        logger.info(f"Uploading hyperparameters to {target_key} …")
+        S3Uploader.upload(str(local_file), target_key, sagemaker_session=self.session)
+
+        # 4) clean up and return
+        return target_key
+
     def _create_xgboost_estimator(self) -> XGBoost:
         """Create SageMaker XGBoost Estimator with an empty hyperparameters dictionary."""
+        
+        # use secure-pypi
+        env = {
+             "CA_REPOSITORY_ARN": "arn:aws:codeartifact:us-west-2:149122183214:repository/amazon/secure-pypi"
+        }
+
+        logger.info(f"Use Secure-PyPI with CA_REPOSITORY_ARN = {env['CA_REPOSITORY_ARN']}")
+        
         return XGBoost(
             entry_point=self.config.training_entry_point,
             source_dir=self.config.source_dir,
@@ -86,6 +98,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             hyperparameters={},
             sagemaker_session=self.session,
             output_path=self.config.output_path,
+            environment=env
         )
 
     def create_step(self, dependencies: Optional[List[Step]] = None) -> TrainingStep:
@@ -100,7 +113,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         val_data_prefix = Join(on='/', values=[self.config.input_path, "val/"])
         test_data_prefix = Join(on='/', values=[self.config.input_path, "test/"])
 
-        # FIX: Use .expr to log the expression of dynamic pipeline variables
+        # Log expressions
         logger.info(f"Train data path expression: {train_data_prefix.expr}")
         logger.info(f"Validation data path expression: {val_data_prefix.expr}")
         logger.info(f"Test data path expression: {test_data_prefix.expr}")
@@ -110,7 +123,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             "train": TrainingInput(s3_data=train_data_prefix),
             "val": TrainingInput(s3_data=val_data_prefix),
             "test": TrainingInput(s3_data=test_data_prefix),
-            # Add a channel to provide the hyperparameter file to the training job
+            # Channel for the hyperparameter file
             "config": TrainingInput(s3_data=hparam_s3_uri)
         }
 
