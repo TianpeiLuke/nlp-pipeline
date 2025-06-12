@@ -1,5 +1,6 @@
-import os
+#!/usr/bin/env python3
 import json
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Union
@@ -8,15 +9,31 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import lightning.pytorch as pl
-import pandas as pd
 import onnx
 
-from .pl_model_plots import compute_metrics
+# =================== Logging Setup =================================
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.propagate = False
+
+# --- Internal Utilities --------------------------------------------
 from .dist_utils import all_gather
+from .pl_model_plots import compute_metrics
 
 
 class TextLSTM(pl.LightningModule):
-    def __init__(self, config: Dict[str, Union[int, float, str, bool, List[str]]], vocab_size: int, word_embeddings: torch.FloatTensor):
+    def __init__(
+        self,
+        config: Dict[str, Union[int, float, str, bool, List[str]]],
+        vocab_size: int,
+        word_embeddings: torch.FloatTensor,
+    ):
         super().__init__()
         self.config = config
         self.model_class = "text_lstm"
@@ -25,10 +42,10 @@ class TextLSTM(pl.LightningModule):
         self.id_name = config.get("id_name", None)
         self.label_name = config["label_name"]
         self.text_input_ids_key = config.get("text_input_ids_key", "input_ids")
-        self.text_name = config["text_name"] + "_processed_" + self.text_input_ids_key
+        self.text_name = f"{config['text_name']}_processed_{self.text_input_ids_key}"
 
         self.is_binary = config.get("is_binary", True)
-        self.task = 'binary' if self.is_binary else 'multiclass'
+        self.task = "binary" if self.is_binary else "multiclass"
         self.num_classes = 2 if self.is_binary else config.get("num_classes", 2)
         self.metric_choices = config.get("metric_choices", ["accuracy", "f1_score"])
 
@@ -47,9 +64,12 @@ class TextLSTM(pl.LightningModule):
         if vocab_size != word_embeddings.shape[0]:
             raise ValueError("Mismatch in vocab size and embedding shape")
         self.embeddings = nn.Embedding(vocab_size, self.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=config.get("is_embeddings_trainable", True))
+        self.embeddings.weight = nn.Parameter(
+            word_embeddings,
+            requires_grad=config.get("is_embeddings_trainable", True),
+        )
 
-        # === LSTM + Linear
+        # === LSTM + Linear ===
         self.lstm = nn.LSTM(
             input_size=self.embed_size,
             hidden_size=self.hidden_dimension,
@@ -60,9 +80,12 @@ class TextLSTM(pl.LightningModule):
         )
         self.fc = nn.Linear(2 * self.hidden_dimension, self.num_classes)
 
-        # === Loss
+        # === Loss ===
         class_weights = config.get("class_weights", [1.0] * self.num_classes)
-        self.register_buffer("class_weights_tensor", torch.tensor(class_weights))
+        self.register_buffer(
+            "class_weights_tensor",
+            torch.tensor(class_weights, dtype=torch.float),
+        )
         self.loss_op = nn.CrossEntropyLoss(weight=self.class_weights_tensor)
 
         self.save_hyperparameters()
@@ -71,8 +94,8 @@ class TextLSTM(pl.LightningModule):
         input_ids = batch[self.text_name]
         x = self.embeddings(input_ids)
         lstm_out, _ = self.lstm(x)
-        out_fwd = lstm_out[:, -1, :self.hidden_dimension]
-        out_rev = lstm_out[:, 0, self.hidden_dimension:]
+        out_fwd = lstm_out[:, -1, : self.hidden_dimension]
+        out_rev = lstm_out[:, 0, self.hidden_dimension :]
         out_combined = torch.cat((out_fwd, out_rev), dim=1)
         return self.fc(out_combined)
 
@@ -83,21 +106,13 @@ class TextLSTM(pl.LightningModule):
         if labels is not None:
             if not isinstance(labels, torch.Tensor):
                 labels = torch.tensor(labels, device=self.device)
-
-            if self.is_binary:
-                labels = labels.long()
-            else:
-                if labels.dim() > 1:
-                    labels = labels.argmax(dim=1).long()
-                else:
-                    labels = labels.long()
+            labels = labels.long()
 
         logits = self(batch)
         loss = self.loss_op(logits, labels) if labels is not None else None
 
         preds = torch.softmax(logits, dim=1)
         preds = preds[:, 1] if self.is_binary else preds
-
         return loss, preds, labels
 
     def configure_optimizers(self):
@@ -125,10 +140,18 @@ class TextLSTM(pl.LightningModule):
         self.label_lst.extend(labels.detach().cpu().tolist())
 
     def on_validation_epoch_end(self):
+        # sync across GPUs
         device = self.device
         preds = torch.tensor(sum(all_gather(self.pred_lst), []))
         labels = torch.tensor(sum(all_gather(self.label_lst), []))
-        metrics = compute_metrics(preds.to(device), labels.to(device), self.metric_choices, self.task, self.num_classes, "val")
+        metrics = compute_metrics(
+            preds.to(device),
+            labels.to(device),
+            self.metric_choices,
+            self.task,
+            self.num_classes,
+            "val",
+        )
         self.log_dict(metrics, prog_bar=True)
 
     def on_test_epoch_start(self):
@@ -152,12 +175,7 @@ class TextLSTM(pl.LightningModule):
             self.id_lst.extend(batch[self.id_name])
 
     def on_test_epoch_end(self):
-        results = {}
-        if self.is_binary:
-            results["prob"] = self.pred_lst
-        else:
-            results["prob"] = [json.dumps(p) for p in self.pred_lst]
-
+        results = {"prob": self.pred_lst}
         if self.test_has_label:
             results["label"] = self.label_lst
         if self.id_name:
@@ -166,12 +184,12 @@ class TextLSTM(pl.LightningModule):
         df = pd.DataFrame(results)
         test_file = self.test_output_folder / f"test_result_rank{self.global_rank}.tsv"
         df.to_csv(test_file, sep="\t", index=False)
-        print(f"[Rank {self.global_rank}] Saved test results to {test_file}")
+        logger.info(f"[Rank {self.global_rank}] Saved test results to {test_file}")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         mode = "test" if self.label_name in batch else "pred"
         _, preds, labels = self.run_epoch(batch, mode)
-        return preds if mode == "pred" else (preds, labels)
+        return (preds, labels) if mode == "test" else preds
 
     def export_to_onnx(self, save_path: Union[str, Path], sample_batch: Dict[str, Union[torch.Tensor, List]]):
         class TextLSTMONNXWrapper(nn.Module):
@@ -186,7 +204,6 @@ class TextLSTM(pl.LightningModule):
                 return nn.functional.softmax(logits, dim=1)
 
         self.eval()
-
         model_to_export = self.module if hasattr(self, 'module') else self
         model_to_export = model_to_export.to("cpu")
         wrapper = TextLSTMONNXWrapper(model_to_export).to("cpu").eval()
@@ -198,7 +215,6 @@ class TextLSTM(pl.LightningModule):
 
         input_names = [self.text_name]
         output_names = ["probs"]
-
         dynamic_axes = {
             self.text_name: {0: "batch", 1: "seq_len"},
             "probs": {0: "batch"},
@@ -216,6 +232,6 @@ class TextLSTM(pl.LightningModule):
             )
             onnx_model = onnx.load(str(save_path))
             onnx.checker.check_model(onnx_model)
-            print(f"ONNX model exported and verified at {save_path}")
+            logger.info(f"ONNX model exported and verified at {save_path}")
         except Exception as e:
-            print(f"ONNX export failed: {e}")
+            logger.warning(f"ONNX export failed: {e}")
