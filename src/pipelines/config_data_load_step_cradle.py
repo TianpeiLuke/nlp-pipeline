@@ -343,7 +343,7 @@ class CradleDataLoadConfig(BasePipelineConfig):
     Top‐level Pydantic config for creating a CreateCradleDataLoadJobRequest.
 
     Instead of requiring each subfield directly, the user now provides:
-      - job_type: str, one of ["training","validation","test"]
+      - job_type: str, one of ["training","validation","test","calibration"]
       - data_sources_spec: DataSourcesSpecificationConfig
       - transform_spec: TransformSpecificationConfig
       - output_spec: OutputSpecificationConfig
@@ -352,7 +352,7 @@ class CradleDataLoadConfig(BasePipelineConfig):
     """
     job_type: str = Field(
         ...,
-        description="One of ['training','validation','test'] to indicate which dataset this job is pulling"
+        description="One of ['training','validation','testing','calibration'] to indicate which dataset this job is pulling"
     )
     data_sources_spec: DataSourcesSpecificationConfig = Field(
         ...,
@@ -378,7 +378,7 @@ class CradleDataLoadConfig(BasePipelineConfig):
     @field_validator("job_type")
     @classmethod
     def validate_job_type(cls, v: str) -> str:
-        allowed = {"training", "validation", "test"}
+        allowed = {"training", "validation", "testing", "calibration"}
         if v not in allowed:
             raise ValueError(f"job_type must be one of {allowed}, got '{v}'")
         return v

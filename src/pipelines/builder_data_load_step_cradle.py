@@ -124,7 +124,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         and in the correct format.
 
         In particular:
-          - job_type ∈ {'training','validation','testing'}
+          - job_type ∈ {'training','validation','testing','calibration'}
           - At least one data source in data_sources_spec
           - Each MDS/EDX config is present if indicated
           - start_date and end_date must exactly match 'YYYY-mm-DDTHH:MM:SS'
@@ -133,8 +133,11 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         logger.info("Validating CradleDataLoadConfig…")
 
         # (1) job_type is already validated by Pydantic, but double-check presence:
+        valid_job_types = {'training', 'validation', 'testing', 'calibration'}
         if not self.config.job_type:
-            raise ValueError("job_type must be provided (e.g. 'training','validation','testing').")
+            raise ValueError("job_type must be provided (e.g. 'training','validation','testing','calibration').")
+        if self.config.job_type.lower() not in valid_job_types:
+            raise ValueError(f"job_type must be one of: {valid_job_types}")
 
         # (2) data_sources_spec must have at least one entry
         ds_list = self.config.data_sources_spec.data_sources
