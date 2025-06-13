@@ -102,7 +102,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             An instance of sagemaker.sklearn.SKLearnProcessor.
         """
         return SKLearnProcessor(
-            framework_version=self.config.framework_version,
+            framework_version=self.config.processing_framework_version,
             command=["python3"],
             role=self.role,
             instance_count=self.config.processing_instance_count,

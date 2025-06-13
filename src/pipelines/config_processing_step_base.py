@@ -30,7 +30,7 @@ class ProcessingStepConfigBase(BasePipelineConfig):
         description="Large instance type for processing step."
     )
     processing_instance_type_small: str = Field(
-        default='ml.m5.large', 
+        default='ml.m5.2xlarge', 
         description="Small instance type for processing step."
     )
     use_large_processing_instance: bool = Field(
@@ -50,6 +50,12 @@ class ProcessingStepConfigBase(BasePipelineConfig):
     processing_script_arguments: Optional[List[str]] = Field(
         default=None,
         description="Optional arguments for the processing script."
+    )
+    
+    # Framework version
+    processing_framework_version: str = Field(
+        default='0.23-1',
+        description="Version of the scikit-learn framework to use in SageMaker Processing. Format: '<sklearn-version>-<build-number>'"
     )
 
     # Optional Input/Output settings - to be defined by derived classes
@@ -92,6 +98,27 @@ class ProcessingStepConfigBase(BasePipelineConfig):
                 raise ValueError(
                     f"processing_entry_point ('{v}') must be a relative path within source directory."
                 )
+        return v
+    
+    @field_validator('processing_framework_version')
+    @classmethod
+    def validate_framework_version(cls, v: str) -> str:
+        """
+        Validate processing framework version matches SageMaker SKLearn versions.
+        Reference: https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/sagemaker.sklearn.html
+        """
+        valid_versions = [
+            '0.20.0-1',
+            '0.23-1',  # Supports scikit-learn 0.23.2
+            '1.0-1',   # Supports scikit-learn 1.0.2
+            '1.2-1'    # Supports scikit-learn 1.2.2
+        ]
+        if v not in valid_versions:
+            raise ValueError(
+                f"Invalid processing framework version: {v}. "
+                f"Must be one of {valid_versions}. "
+                "These versions correspond to SageMaker's SKLearn processing container versions."
+            )
         return v
 
     @model_validator(mode='after')

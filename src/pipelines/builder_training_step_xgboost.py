@@ -55,27 +55,55 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         Serializes the hyperparameters JSON and uploads it as
         `<hyperparameters_s3_uri>hyperparameters.json`, returning the full S3 URI.
+        First deletes any existing file with the same name to avoid confusion.
         """
+        # 1) Dump hyperparams locally
         hyperparams_dict = self.config.hyperparameters.model_dump()
-        # dump locally
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
             json.dump(hyperparams_dict, tmp, indent=2)
             local_path = tmp.name
 
-        prefix = self.config.hyperparameters_s3_uri
-        # ensure it ends with '/'
-        if not prefix.endswith("/"):
-            prefix += "/"
-        target_s3_uri = prefix + "hyperparameters.json"
+        # 2) Build the exact target URI
+        prefix = self.config.hyperparameters_s3_uri or ""
+        prefix = prefix.rstrip("/")
+        target_s3_uri = f"{prefix}/hyperparameters.json"
 
-        logger.info(f"Uploading hyperparameters from {local_path} to {target_s3_uri}…")
-        uploaded_uri = S3Uploader.upload(local_path, prefix, sagemaker_session=self.session)
-        # S3Uploader.upload with a folder prefix returns something like
-        # "s3://.../hyperparameters.json"
-        os.remove(local_path)
+        # 3) Parse the S3 URI to get bucket and key
+        try:
+            if not target_s3_uri.startswith('s3://'):
+                raise ValueError(f"Invalid S3 URI format: {target_s3_uri}")
+            
+            s3_parts = target_s3_uri.replace('s3://', '').split('/')
+            bucket = s3_parts[0]
+            key = '/'.join(s3_parts[1:])
+            
+            # 4) Delete existing file if it exists
+            s3_client = self.session.boto_session.client('s3')
+            try:
+                s3_client.head_object(Bucket=bucket, Key=key)
+                logger.info(f"Found existing hyperparameters file at {target_s3_uri}, deleting it...")
+                s3_client.delete_object(Bucket=bucket, Key=key)
+                logger.info("Existing hyperparameters file deleted successfully")
+            except s3_client.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    logger.info(f"No existing hyperparameters file found at {target_s3_uri}")
+                else:
+                    logger.warning(f"Error checking/deleting existing file: {str(e)}")
 
-        logger.info(f"Hyperparameters successfully uploaded to {uploaded_uri}")
-        return uploaded_uri
+            # 5) Upload the new file
+            logger.info(f"Uploading hyperparameters from {local_path} to {target_s3_uri}")
+            S3Uploader.upload(local_path, target_s3_uri, sagemaker_session=self.session)
+            os.remove(local_path)
+
+            logger.info(f"Hyperparameters successfully uploaded to {target_s3_uri}")
+            return target_s3_uri
+            
+        except Exception as e:
+            logger.error(f"Error in hyperparameters file preparation: {str(e)}")
+            if os.path.exists(local_path):
+                os.remove(local_path)
+            raise
+
 
     def _create_xgboost_estimator(self) -> XGBoost:
         """Create SageMaker XGBoost Estimator with an empty hyperparameters dictionary."""

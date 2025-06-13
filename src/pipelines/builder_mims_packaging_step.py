@@ -87,7 +87,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         base_job_name_prefix = self._sanitize_name_for_sagemaker(self.config.pipeline_name, 30)
 
         return SKLearnProcessor(
-            framework_version="1.2-1",
+            framework_version=self.config.processing_framework_version,
             role=self.role,
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
