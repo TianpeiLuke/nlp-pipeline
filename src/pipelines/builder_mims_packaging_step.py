@@ -124,7 +124,12 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                 input_name=input_names["inference_scripts_input"]
             )
         ]
-        logger.info(f"Processing inputs: {[str(i.source) for i in inputs]}")
+        #logger.info(f"Processing inputs: {[str(i.source) for i in inputs]}")
+        safe_sources = [
+            i.source.expr if hasattr(i.source, 'expr') else str(i.source) 
+            for i in inputs
+        ]
+        logger.info(f"Processing inputs: {safe_sources}")
         return inputs
 
     def _get_processing_outputs(self, step_name_for_s3_path: str) -> List[ProcessingOutput]:
