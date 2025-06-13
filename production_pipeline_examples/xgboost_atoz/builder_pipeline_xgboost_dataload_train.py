@@ -1,5 +1,6 @@
 import sys
 import logging
+import copy
 from pathlib import Path
 from typing import Optional, List, Union, Any, Dict
 
@@ -31,8 +32,17 @@ from mods_workflow_core.utils.constants import (
     VPC_SUBNET,
 )
 
-logger = logging.getLogger(__name__)
+# Map JSON keys → Pydantic classes
+CONFIG_CLASSES = {
+    'BasePipelineConfig':         BasePipelineConfig,
+    'CradleDataLoadConfig':       CradleDataLoadConfig,
+    'TabularPreprocessingConfig': TabularPreprocessingConfig,
+    'XGBoostTrainingConfig':      XGBoostTrainingConfig,
+}
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 import os
 import importlib
 # Dynamically import pipeline constants if the environment variable is set
@@ -53,16 +63,6 @@ else:
         "pipeline constants (DATA, METADATA, SIGNATURE) unavailable."
     )
 
-
-
-
-# Map JSON keys → Pydantic classes
-CONFIG_CLASSES = {
-    'BasePipelineConfig':         BasePipelineConfig,
-    'CradleDataLoadConfig':       CradleDataLoadConfig,
-    'TabularPreprocessingConfig': TabularPreprocessingConfig,
-    'XGBoostTrainingConfig':      XGBoostTrainingConfig,
-}
 
 # ────────────────────────────────────────────────────────────────────────────────
 class MDSXGBoostPipelineBuilder:
