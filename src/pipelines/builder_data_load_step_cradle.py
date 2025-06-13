@@ -139,6 +139,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         if self.config.job_type.lower() not in valid_job_types:
             raise ValueError(f"job_type must be one of: {valid_job_types}")
 
+
         # (2) data_sources_spec must have at least one entry
         ds_list = self.config.data_sources_spec.data_sources
         if not ds_list or len(ds_list) == 0:
@@ -316,6 +317,14 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         logger.info("Created CradleDataLoadingStep with name: %s", step.name)
         return step
 
+    def create_cradle_data_loading_step(
+        self,
+        dependencies: Optional[List] = None
+    ) -> CradleDataLoadingStep:
+        """Backwards compatible method for creating the data loading step."""
+        logger.warning("create_cradle_data_loading_step is deprecated, use create_step instead.")
+        return self.create_step(dependencies)
+    
     def get_request_dict(self) -> Dict[str, Any]:
         """
         Return the CradleDataLoad request as a plain Python dict
