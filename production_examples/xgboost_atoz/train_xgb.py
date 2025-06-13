@@ -64,16 +64,40 @@ from processing.numerical_imputation_processor import NumericalVariableImputatio
 
 
 # -------------------------------------------------------------------------
-# Logging setup
+# Logging setup - Updated for CloudWatch compatibility
 # -------------------------------------------------------------------------
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)  # Use sys.stdout for CloudWatch
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)  # Make sure to add the handler!
-logger.propagate = False    # Prevent duplicate logs
+def setup_logging():
+    """Configure logging for CloudWatch compatibility"""
+    # Remove any existing handlers
+    root = logging.getLogger()
+    if root.handlers:
+        for handler in root.handlers:
+            root.removeHandler(handler)
+            
+    # Configure the root logger
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        force=True,
+        handlers=[
+            # StreamHandler with stdout for CloudWatch
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Configure our module's logger
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    logger.propagate = True  # Allow propagation to root logger
+    
+    # Force flush stdout
+    sys.stdout.flush()
+    
+    return logger
+
+# Initialize logger
+logger = setup_logging()
 
 # -------------------------------------------------------------------------
 # Pydantic V2 model for all hyperparameters
@@ -260,41 +284,56 @@ def save_artifacts(model: xgb.Booster, risk_tables: dict, impute_dict: dict, mod
     
     model_file = os.path.join(model_path, "xgboost_model.bst")
     model.save_model(model_file)
-    print(f"Saved XGBoost model to {model_file}")
+    logger.info(f"Saved XGBoost model to {model_file}")
 
     risk_map_file = os.path.join(model_path, "risk_table_map.pkl")
     with open(risk_map_file, "wb") as f:
         pkl.dump(risk_tables, f)
-    print(f"Saved consolidated risk table map to {risk_map_file}")
+    logger.info(f"Saved consolidated risk table map to {risk_map_file}")
     
     impute_file = os.path.join(model_path, "impute_dict.pkl")
     with open(impute_file, "wb") as f:
         pkl.dump(impute_dict, f)
-    print(f"Saved imputation dictionary to {impute_file}")
+    logger.info(f"Saved imputation dictionary to {impute_file}")
 
     fmap_json = os.path.join(model_path, "feature_importance.json")
     with open(fmap_json, "w") as f:
         json.dump(model.get_fscore(), f, indent=2)
-    print(f"Saved feature importance to {fmap_json}")
+    logger.info(f"Saved feature importance to {fmap_json}")
     
 # -------------------------------------------------------------------------
 # Main Orchestrator
 # -------------------------------------------------------------------------
 def main(hparam_path: str, input_path: str, model_path: str):
     """Main function to execute the XGBoost training logic."""
+    logger.info("Starting XGBoost training process...")
+    logger.info(f"Loading configuration from {hparam_path}")
     config = load_and_validate_config(hparam_path)
+    logger.info("Configuration loaded successfully")
+    
+    logger.info("Loading datasets...")
     train_df, val_df, test_df = load_datasets(input_path)
+    logger.info("Datasets loaded successfully")
     
     # Apply numerical imputation
+    logger.info("Starting numerical imputation...")
     train_df, val_df, test_df, impute_dict = apply_numerical_imputation(config, train_df, val_df, test_df)
+    logger.info("Numerical imputation completed")
     
     # Apply risk table mapping
+    logger.info("Starting risk table mapping...")
     train_df, val_df, test_df, risk_tables = fit_and_apply_risk_tables(config, train_df, val_df, test_df)
+    logger.info("Risk table mapping completed")
     
+    logger.info("Preparing DMatrices for XGBoost...")
     dtrain, dval = prepare_dmatrices(config, train_df, val_df)
+    logger.info("DMatrices prepared successfully")
     
+    logger.info("Starting model training...")
     model = train_model(config, dtrain, dval)
+    logger.info("Model training completed")
     
+    logger.info("Saving model artifacts...")
     save_artifacts(model, risk_tables, impute_dict, model_path)
     
     logger.info("Training script finished successfully.")
@@ -303,6 +342,7 @@ def main(hparam_path: str, input_path: str, model_path: str):
 # Script Entry Point
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
+    logger.info("Script starting...")
     prefix = "/opt/ml"
     
     # The data from the previous step is on the main 'data' channel
@@ -317,6 +357,7 @@ if __name__ == "__main__":
     hparam_path = os.path.join(config_channel_path, "hyperparameters.json")
 
     try:
+        logger.info(f"Starting main process with paths: input={input_path}, model={model_path}")
         main(hparam_path, input_path, model_path)
     except Exception:
         logger.error(f"Exception during training:\n{traceback.format_exc()}")
