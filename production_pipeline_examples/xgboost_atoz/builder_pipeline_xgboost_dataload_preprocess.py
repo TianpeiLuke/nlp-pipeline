@@ -1,5 +1,3 @@
-# File: pipelines/builder_load_preprocess_pipeline.py
-
 import sys
 import logging
 from pathlib import Path
