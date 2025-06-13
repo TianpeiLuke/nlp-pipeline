@@ -1,8 +1,6 @@
 import unittest
 import pandas as pd
 import numpy as np
-import tempfile
-from pathlib import Path
 
 from src.processing.numerical_imputation_processor import NumericalVariableImputationProcessor
 
