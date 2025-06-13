@@ -7,7 +7,14 @@ from typing import Optional, List, Union, Any, Dict
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.workflow.steps import ProcessingStep, Step, TrainingStep
+from sagemaker.workflow.model_step import ModelStep
+from sagemaker.workflow.steps import (
+    ProcessingStep,
+    TrainingStep,
+    TuningStep,
+    TransformStep,
+    Step
+)
 from sagemaker.workflow.functions import Join 
 from sagemaker.image_uris import retrieve
 from sagemaker.inputs import TrainingInput
@@ -17,6 +24,7 @@ from src.pipelines.utils import load_configs
 # Config classes
 from src.pipelines.config_base import BasePipelineConfig
 from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipelines.config_processing_step_base import ProcessingStepConfigBase
 from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
 from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig 
 from src.pipelines.config_model_step_xgboost import XGBoostModelCreationConfig
@@ -72,6 +80,7 @@ else:
 CONFIG_CLASSES = {
     'BasePipelineConfig':         BasePipelineConfig,
     'CradleDataLoadConfig':       CradleDataLoadConfig,
+    'ProcessingStepConfigBase':   ProcessingStepConfigBase,
     'TabularPreprocessingConfig': TabularPreprocessingConfig,
     'XGBoostTrainingConfig':      XGBoostTrainingConfig,
     'XGBoostModelCreationConfig': XGBoostModelCreationConfig,
@@ -79,6 +88,7 @@ CONFIG_CLASSES = {
     'ModelRegistrationConfig':    ModelRegistrationConfig,
     'PayloadConfig':              PayloadConfig
 }
+
 
 
 

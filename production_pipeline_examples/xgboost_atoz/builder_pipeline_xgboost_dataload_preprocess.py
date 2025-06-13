@@ -13,6 +13,7 @@ from src.pipelines.utils import load_configs
 # Config classes
 from src.pipelines.config_base import BasePipelineConfig
 from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipelines.config_processing_step_base import ProcessingStepConfigBase
 from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
 
 # Step builders
@@ -31,6 +32,7 @@ from mods_workflow_core.utils.constants import (
 CONFIG_CLASSES = {
     'BasePipelineConfig':          BasePipelineConfig,
     'CradleDataLoadConfig':        CradleDataLoadConfig,
+    'ProcessingStepConfigBase':   ProcessingStepConfigBase,
     'TabularPreprocessingConfig':  TabularPreprocessingConfig,
 }
 
