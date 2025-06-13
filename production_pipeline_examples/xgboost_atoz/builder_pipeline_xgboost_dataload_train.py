@@ -209,7 +209,7 @@ class MDSXGBoostPipelineBuilder:
         # The builder's create_step method now handles everything.
         xgb_train_step = xgb_builder.create_step(dependencies=[prep_step])
 
-        logging.info(f"Created training flow: {load_step.name} -> {prep_step.name} -> {xgb_train_step.name}")
+        logger.info(f"Created training flow: {load_step.name} -> {prep_step.name} -> {xgb_train_step.name}")
         return [load_step, prep_step, xgb_train_step]
 
     def _create_calibration_flow(self) -> List[Step]:
