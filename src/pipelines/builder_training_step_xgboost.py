@@ -10,6 +10,7 @@ import os
 import json
 import tempfile
 import shutil
+from botocore.exceptions import ClientError
 from typing import Optional, List, Dict
 import logging
 
@@ -53,56 +54,45 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
 
     def _prepare_hyperparameters_file(self) -> str:
         """
-        Serializes the hyperparameters JSON and uploads it as
-        `<hyperparameters_s3_uri>hyperparameters.json`, returning the full S3 URI.
-        First deletes any existing file with the same name to avoid confusion.
+        Serializes the hyperparameters to JSON, uploads it as
+        `<hyperparameters_s3_uri>/hyperparameters.json`, and
+        returns that full S3 URI.
         """
-        # 1) Dump hyperparams locally
         hyperparams_dict = self.config.hyperparameters.model_dump()
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
-            json.dump(hyperparams_dict, tmp, indent=2)
-            local_path = tmp.name
-
-        # 2) Build the exact target URI
-        prefix = self.config.hyperparameters_s3_uri or ""
-        prefix = prefix.rstrip("/")
-        target_s3_uri = f"{prefix}/hyperparameters.json"
-
-        # 3) Parse the S3 URI to get bucket and key
+        local_dir = Path(tempfile.mkdtemp())
+        local_file = local_dir / "hyperparameters.json"
+        
         try:
-            if not target_s3_uri.startswith('s3://'):
-                raise ValueError(f"Invalid S3 URI format: {target_s3_uri}")
-            
-            s3_parts = target_s3_uri.replace('s3://', '').split('/')
+            local_file.write_text(json.dumps(hyperparams_dict, indent=2))
+
+            prefix = self.config.hyperparameters_s3_uri or ""
+            prefix = prefix.rstrip("/")
+            target_s3_uri = f"{prefix}/hyperparameters.json"
+
+            s3_parts = target_s3_uri.replace('s3://', '').split('/', 1)
             bucket = s3_parts[0]
-            key = '/'.join(s3_parts[1:])
+            key = s3_parts[1]
             
-            # 4) Delete existing file if it exists
             s3_client = self.session.boto_session.client('s3')
             try:
                 s3_client.head_object(Bucket=bucket, Key=key)
                 logger.info(f"Found existing hyperparameters file at {target_s3_uri}, deleting it...")
                 s3_client.delete_object(Bucket=bucket, Key=key)
                 logger.info("Existing hyperparameters file deleted successfully")
-            except s3_client.exceptions.ClientError as e:
+            except ClientError as e: # <-- FIX: Catch the real ClientError
                 if e.response['Error']['Code'] == '404':
                     logger.info(f"No existing hyperparameters file found at {target_s3_uri}")
                 else:
                     logger.warning(f"Error checking/deleting existing file: {str(e)}")
 
-            # 5) Upload the new file
-            logger.info(f"Uploading hyperparameters from {local_path} to {target_s3_uri}")
-            S3Uploader.upload(local_path, target_s3_uri, sagemaker_session=self.session)
-            os.remove(local_path)
-
+            logger.info(f"Uploading hyperparameters from {local_file} to {target_s3_uri}")
+            S3Uploader.upload(str(local_file), target_s3_uri, sagemaker_session=self.session)
+            
             logger.info(f"Hyperparameters successfully uploaded to {target_s3_uri}")
             return target_s3_uri
             
-        except Exception as e:
-            logger.error(f"Error in hyperparameters file preparation: {str(e)}")
-            if os.path.exists(local_path):
-                os.remove(local_path)
-            raise
+        finally:
+            shutil.rmtree(local_dir)
 
 
     def _create_xgboost_estimator(self) -> XGBoost:
