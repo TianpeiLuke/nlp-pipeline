@@ -286,6 +286,11 @@ class MDSXGBoostPipelineBuilder:
             'input_path',
             dependency_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"].S3Output.S3Uri
         )
+        
+        # Set the output path explicitly
+        output_path = f"{self.base_config.pipeline_s3_loc}/xgboost_model_artifacts"
+        object.__setattr__(xgb_builder.config, 'output_path', output_path)
+        
         return xgb_builder.create_step(dependencies=[dependency_step])
     
     def _create_model_creation_step(self, dependency_step: Step) -> ModelStep:
