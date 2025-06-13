@@ -17,21 +17,21 @@ from mods_workflow_core.utils.constants import (
 )
 
 
-from .utils import load_configs
+from src.pipelines.utils import load_configs
 
 # Import all Configs
-from .config_base import BasePipelineConfig
-from .config_training_step_pytorch import PytorchTrainingConfig
-from .config_model_step_pytorch import PytorchModelCreationConfig
-from .config_processing_step_base import ProcessingStepConfigBase
-from .config_mims_packaging_step import PackageStepConfig
-from .config_mims_registration_step import ModelRegistrationConfig
-from .config_mims_payload_step import PayloadConfig
+from src.pipelines.config_base import BasePipelineConfig
+from src.pipelines.config_training_step_pytorch import PytorchTrainingConfig
+from src.pipelines.config_model_step_pytorch import PytorchModelCreationConfig
+from src.pipelines.config_processing_step_base import ProcessingStepConfigBase
+from src.pipelines.config_mims_packaging_step import PackageStepConfig
+from src.pipelines.config_mims_registration_step import ModelRegistrationConfig
+from src.pipelines.config_mims_payload_step import PayloadConfig
 
 # Import Builders
-from .builder_model_step_pytorch import PytorchModelStepBuilder
-from .builder_mims_packaging_step import MIMSPackagingStepBuilder
-from .builder_mims_registration_step import ModelRegistrationStepBuilder
+from src.pipelines.builder_model_step_pytorch import PytorchModelStepBuilder
+from src.pipelines.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipelines.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 CONFIG_CLASSES = {
         'BasePipelineConfig': BasePipelineConfig,
