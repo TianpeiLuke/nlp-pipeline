@@ -8,17 +8,16 @@ from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.steps import ProcessingStep, Step
 
-from mods.mods_template import MODSTemplate
-from pipelines.utils import load_configs
+from src.pipelines.utils import load_configs
 
 # Config classes
-from pipelines.config_base import BasePipelineConfig
-from pipelines.config_cradle_data_load import CradleDataLoadConfig
-from pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipelines.config_base import BasePipelineConfig
+from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
 
 # Step builders
-from pipelines.builder_cradle_data_load_step import CradleDataLoadingStepBuilder
-from pipelines.builder_tabular_preprocessing import TabularPreprocessingStepBuilder
+from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 
 # Common parameters (VPC, KMS, etc.)
 from mods_workflow_core.utils.constants import (
@@ -26,11 +25,6 @@ from mods_workflow_core.utils.constants import (
     KMS_ENCRYPTION_KEY_PARAM,
     SECURITY_GROUP_ID,
     VPC_SUBNET,
-)
-from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
-    OUTPUT_TYPE_DATA,
-    OUTPUT_TYPE_METADATA,
-    OUTPUT_TYPE_SIGNATURE,
 )
 
 # Map JSON keys → Pydantic classes
@@ -40,25 +34,31 @@ CONFIG_CLASSES = {
     'TabularPreprocessingConfig':  TabularPreprocessingConfig,
 }
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Load configs once so decorator metadata is available
-# ────────────────────────────────────────────────────────────────────────────────
-region   = 'NA'
-model_class = 'xgboost'
-here     = Path(__file__).resolve().parent
-cfg_file = here / 'pipeline_config' / f'config_{region}_{model_class}.json'
-if not cfg_file.exists():
-    logging.error(f"Config file not found: {cfg_file}")
-    sys.exit(1)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+import os
+import importlib
+# Dynamically import pipeline constants if the environment variable is set
+SECUREAI_PIPELINE_CONSTANTS_MODULE = os.environ.get("SECUREAI_PIPELINE_CONSTANTS_MODULE")
+OUTPUT_TYPE_DATA = OUTPUT_TYPE_METADATA = OUTPUT_TYPE_SIGNATURE = None
+if SECUREAI_PIPELINE_CONSTANTS_MODULE:
+    try:
+        const_mod = importlib.import_module(SECUREAI_PIPELINE_CONSTANTS_MODULE)
+        OUTPUT_TYPE_DATA      = getattr(const_mod, "OUTPUT_TYPE_DATA",      None)
+        OUTPUT_TYPE_METADATA  = getattr(const_mod, "OUTPUT_TYPE_METADATA",  None)
+        OUTPUT_TYPE_SIGNATURE = getattr(const_mod, "OUTPUT_TYPE_SIGNATURE", None)
+        logger.info(f"Imported pipeline constants from {SECUREAI_PIPELINE_CONSTANTS_MODULE}")
+    except ImportError as e:
+        logger.error(f"Could not import pipeline constants: {e}")
+else:
+    logger.warning(
+        "SECUREAI_PIPELINE_CONSTANTS_MODULE not set; "
+        "pipeline constants (DATA, METADATA, SIGNATURE) unavailable."
+    )
 
-_all_configs = load_configs(str(cfg_file), CONFIG_CLASSES)
-_base_config = _all_configs['Base']
-AUTHOR           = _base_config.author
-PIPELINE_DESC    = _base_config.pipeline_description
-PIPELINE_VERSION = _base_config.pipeline_version
 
 # ────────────────────────────────────────────────────────────────────────────────
-@MODSTemplate(author=AUTHOR, description=PIPELINE_DESC, version=PIPELINE_VERSION)
 class DataLoadPreprocessPipelineBuilder:
     """
     1) CradleDataLoading (training)
