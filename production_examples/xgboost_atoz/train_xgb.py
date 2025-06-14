@@ -1,49 +1,6 @@
 #!/usr/bin/env python3
 import os
 import sys
-
-from subprocess import check_call
-import boto3
-
-os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
-sts = boto3.client("sts", region_name="us-east-1")
-caller_identity = sts.get_caller_identity()
-assumed_role_object = sts.assume_role(
-    RoleArn="arn:aws:iam::675292366480:role/SecurePyPIReadRole_" + caller_identity["Account"],
-    RoleSessionName="SecurePypiReadRole",
-)
-credentials = assumed_role_object["Credentials"]
-code_artifact_client = boto3.client(
-    "codeartifact",
-    aws_access_key_id=credentials["AccessKeyId"],
-    aws_secret_access_key=credentials["SecretAccessKey"],
-    aws_session_token=credentials["SessionToken"],
-    region_name="us-west-2",
-)
-token = code_artifact_client.get_authorization_token(domain="amazon", domainOwner="149122183214")[
-    "authorizationToken"
-]
-
-check_call(
-    [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--index-url",
-        f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
-        "scikit-learn>=0.23.2,<1.0.0",
-        "pandas>=1.2.0,<2.0.0",
-        "beautifulsoup4>=4.9.3",
-        "pyarrow>=4.0.0,<6.0.0",
-        "pydantic>=2.0.0,<3.0.0",
-        "typing-extensions>=4.2.0",
-        "flask>=2.0.0,<3.0.0"
-    ]
-)
-print("***********************Package Installed*********************")
-
-
 import json
 import logging
 import traceback
@@ -202,8 +159,17 @@ def fit_and_apply_risk_tables(config: dict, train_df: pd.DataFrame, val_df: pd.D
     consolidated_risk_tables = {var: proc.get_risk_tables() for var, proc in risk_processors.items()}
     return train_df_transformed, val_df_transformed, test_df_transformed, consolidated_risk_tables
 
-def prepare_dmatrices(config: dict, train_df: pd.DataFrame, val_df: pd.DataFrame) -> tuple:
-    """Prepares XGBoost DMatrix objects from dataframes."""
+def prepare_dmatrices(config: dict, train_df: pd.DataFrame, val_df: pd.DataFrame) -> Tuple[xgb.DMatrix, xgb.DMatrix, List[str]]:
+    """
+    Prepares XGBoost DMatrix objects from dataframes.
+    
+    Returns:
+        Tuple containing:
+        - Training DMatrix
+        - Validation DMatrix
+        - List of feature columns in the exact order used for the model
+    """
+    # Maintain exact ordering of features as they'll be used in the model
     feature_columns = config['tab_field_list'] + config['cat_field_list']
     
     # Check for any remaining NaN/inf values
@@ -217,7 +183,12 @@ def prepare_dmatrices(config: dict, train_df: pd.DataFrame, val_df: pd.DataFrame
         
     dtrain = xgb.DMatrix(X_train.values, label=train_df[config['label_name']].astype(int).values)
     dval = xgb.DMatrix(X_val.values, label=val_df[config['label_name']].astype(int).values)
-    return dtrain, dval
+    
+    # Set feature names in DMatrix to ensure they're preserved
+    dtrain.feature_names = feature_columns
+    dval.feature_names = feature_columns
+    
+    return dtrain, dval, feature_columns
 
 def train_model(config: dict, dtrain: xgb.DMatrix, dval: xgb.DMatrix) -> xgb.Booster:
     """
@@ -278,28 +249,59 @@ def train_model(config: dict, dtrain: xgb.DMatrix, dval: xgb.DMatrix) -> xgb.Boo
         verbose_eval=True
     )
 
-def save_artifacts(model: xgb.Booster, risk_tables: dict, impute_dict: dict, model_path: str):
-    """Saves the trained model and preprocessing artifacts."""
+def save_artifacts(model: xgb.Booster, risk_tables: dict, impute_dict: dict, model_path: str, feature_columns: List[str], config: dict):
+    """
+    Saves the trained model and preprocessing artifacts.
+    
+    Args:
+        model: Trained XGBoost model
+        risk_tables: Dictionary of risk tables
+        impute_dict: Dictionary of imputation values
+        model_path: Path to save model artifacts
+        feature_columns: List of feature column names
+        config: Configuration dictionary containing hyperparameters
+    """
     os.makedirs(model_path, exist_ok=True)
     
+    # Save XGBoost model
     model_file = os.path.join(model_path, "xgboost_model.bst")
     model.save_model(model_file)
     logger.info(f"Saved XGBoost model to {model_file}")
 
+    # Save risk tables
     risk_map_file = os.path.join(model_path, "risk_table_map.pkl")
     with open(risk_map_file, "wb") as f:
         pkl.dump(risk_tables, f)
     logger.info(f"Saved consolidated risk table map to {risk_map_file}")
     
+    # Save imputation dictionary
     impute_file = os.path.join(model_path, "impute_dict.pkl")
     with open(impute_file, "wb") as f:
         pkl.dump(impute_dict, f)
     logger.info(f"Saved imputation dictionary to {impute_file}")
 
+    # Save feature importance
     fmap_json = os.path.join(model_path, "feature_importance.json")
     with open(fmap_json, "w") as f:
         json.dump(model.get_fscore(), f, indent=2)
     logger.info(f"Saved feature importance to {fmap_json}")
+    
+    # Save feature columns with ordering information
+    feature_columns_file = os.path.join(model_path, "feature_columns.txt")
+    with open(feature_columns_file, "w") as f:
+        # Add a header comment to document the importance of ordering
+        f.write("# Feature columns in exact order required for XGBoost model inference\n")
+        f.write("# DO NOT MODIFY THE ORDER OF THESE COLUMNS\n")
+        f.write("# Each line contains: <column_index>,<column_name>\n")
+        for idx, column in enumerate(feature_columns):
+            f.write(f"{idx},{column}\n")
+    logger.info(f"Saved ordered feature columns to {feature_columns_file}")
+
+    # Save hyperparameters configuration
+    hyperparameters_file = os.path.join(model_path, "hyperparameters.json")
+    with open(hyperparameters_file, "w") as f:
+        json.dump(config, f, indent=2, sort_keys=True)
+    logger.info(f"Saved hyperparameters configuration to {hyperparameters_file}")
     
 # -------------------------------------------------------------------------
 # Main Orchestrator
@@ -326,15 +328,23 @@ def main(hparam_path: str, input_path: str, model_path: str):
     logger.info("Risk table mapping completed")
     
     logger.info("Preparing DMatrices for XGBoost...")
-    dtrain, dval = prepare_dmatrices(config, train_df, val_df)
+    dtrain, dval, feature_columns = prepare_dmatrices(config, train_df, val_df)
     logger.info("DMatrices prepared successfully")
+    logger.info(f"Using {len(feature_columns)} features in order: {feature_columns}")
     
     logger.info("Starting model training...")
     model = train_model(config, dtrain, dval)
     logger.info("Model training completed")
     
     logger.info("Saving model artifacts...")
-    save_artifacts(model, risk_tables, impute_dict, model_path)
+    save_artifacts(
+        model=model,
+        risk_tables=risk_tables,
+        impute_dict=impute_dict,
+        model_path=model_path,
+        feature_columns=feature_columns,
+        config=config
+    )
     
     logger.info("Training script finished successfully.")
 
