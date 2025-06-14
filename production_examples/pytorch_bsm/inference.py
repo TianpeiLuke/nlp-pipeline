@@ -15,6 +15,8 @@ from transformers import AutoTokenizer
 
 from processing.processors import (
     Processor,
+)
+from processing.bsm_processor import (
     HTMLNormalizerProcessor,
     EmojiRemoverProcessor,
     TextNormalizationProcessor,
