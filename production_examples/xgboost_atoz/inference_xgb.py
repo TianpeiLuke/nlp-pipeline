@@ -609,13 +609,13 @@ def format_json_record(probs: List[float], is_multiclass: bool) -> Dict[str, Any
         # Binary classification: only include class-1 probability as legacy-score
         if len(probs) != 2:
             raise ValueError(f"Binary classification expects 2 probabilities, got {len(probs)}")
-        record["legacy-score"] = probs[1]  # class-1 probability
+        record["legacy-score"] = str(probs[1])  # class-1 probability
     else:
         # Multiclass: include all probabilities
-        record["legacy-score"] = probs[0]  # class-0 probability
+        record["legacy-score"] = str(probs[0])  # class-0 probability
         # Add remaining probabilities (starting from prob_02)
         record.update({
-            f"prob_{str(i+1).zfill(2)}": p 
+            f"prob_{str(i+1).zfill(2)}": str(p) 
             for i, p in enumerate(probs[1:])  # Start from second probability
         })
     
@@ -668,8 +668,8 @@ def format_json_response(
     ]
     
     # Simple response format without metadata
-    response = json.dumps({"predictions": output_records})
-    return response, CONTENT_TYPE_JSON
+    response = {"predictions": output_records}  #json.dumps({"predictions": output_records})
+    return response
 
 
 def format_csv_response(
@@ -723,7 +723,7 @@ def format_csv_response(
             csv_lines.append(",".join(map(str, line)))
 
     response_body = "\n".join(csv_lines) + "\n"
-    return response_body, CONTENT_TYPE_CSV
+    return response_body
 
 
 def output_fn(
@@ -770,7 +770,7 @@ def output_fn(
             'error': f'Failed to format output: {e}',
             'version': __version__
         })
-        return error_response, CONTENT_TYPE_JSON
+        return error_response
 
 
 
