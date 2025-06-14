@@ -58,9 +58,11 @@ class ModelRegistrationConfig(BasePipelineConfig):
         description="Dictionary of output variables and their types (NUMERIC or TEXT)"
     )
     
-    source_model_inference_input_variable_list: Dict[str, VariableType] = Field(
+    source_model_inference_input_variable_list: Union[Dict[str, Union[VariableType, str]], List[List[str]]] = Field(
         default_factory=dict,
-        description="Dictionary of input variables and their types (NUMERIC or TEXT)"
+        description="Input variables and their types. Can be either:\n"
+                   "1. Dictionary: {'var1': 'NUMERIC', 'var2': 'TEXT'}\n"
+                   "2. List of pairs: [['var1', 'NUMERIC'], ['var2', 'TEXT']]"
     )
 
     class Config(BasePipelineConfig.Config):
@@ -79,8 +81,63 @@ class ModelRegistrationConfig(BasePipelineConfig):
         if v not in valid_types:
             raise ValueError(f"Content/Response types must be one of {valid_types}")
         return v
+    
+    @field_validator('source_model_inference_input_variable_list')
+    @classmethod
+    def validate_input_variable_list(
+        cls, 
+        v: Union[Dict[str, Union[VariableType, str]], List[List[str]]]
+    ) -> Union[Dict[str, str], List[List[str]]]:
+        """
+        Validate input variable list in either dictionary or list format.
+        
+        Args:
+            v: Either a dictionary of variable names to types,
+               or a list of [variable_name, variable_type] pairs
+               
+        Returns:
+            Validated dictionary or list with standardized type strings
+        """
+        if not v:  # If empty
+            return v
 
-    @field_validator('source_model_inference_output_variable_list', 'source_model_inference_input_variable_list')
+        # Handle dictionary format
+        if isinstance(v, dict):
+            result = {}
+            for key, value in v.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"Key must be string, got {type(key)} for key: {key}")
+                
+                # Convert VariableType to string or validate string value
+                if isinstance(value, VariableType):
+                    result[key] = value.value
+                elif isinstance(value, str) and value.upper() in [vt.value for vt in VariableType]:
+                    result[key] = value.upper()
+                else:
+                    raise ValueError(f"Value must be either 'NUMERIC' or 'TEXT', got: {value}")
+            return result
+
+        # Handle list format
+        elif isinstance(v, list):
+            result = []
+            for item in v:
+                if not isinstance(item, list) or len(item) != 2:
+                    raise ValueError("Each item must be a list of [variable_name, variable_type]")
+                
+                var_name, var_type = item
+                if not isinstance(var_name, str):
+                    raise ValueError(f"Variable name must be string, got {type(var_name)}")
+                
+                if not isinstance(var_type, str) or var_type.upper() not in [vt.value for vt in VariableType]:
+                    raise ValueError(f"Variable type must be either 'NUMERIC' or 'TEXT', got: {var_type}")
+                
+                result.append([var_name, var_type.upper()])
+            return result
+
+        else:
+            raise ValueError("Must be either a dictionary or a list of pairs")
+
+    @field_validator('source_model_inference_output_variable_list')
     @classmethod
     def validate_variable_list(cls, v: Dict[str, Union[VariableType, str]]) -> Dict[str, str]:
         """Validate variable lists and convert to string values"""
@@ -132,14 +189,24 @@ class ModelRegistrationConfig(BasePipelineConfig):
             "output": {"variables": []}
         }
         
-        # Add input variables
-        for name, var_type in self.source_model_inference_input_variable_list.items():
-            schema["input"]["variables"].append({
-                "name": name,
-                "type": var_type if isinstance(var_type, str) else var_type.value
-            })
+        # Handle input variables in either format
+        input_vars = self.source_model_inference_input_variable_list
+        if isinstance(input_vars, dict):
+            # Dictionary format
+            for var_name, var_type in input_vars.items():
+                schema["input"]["variables"].append({
+                    "name": var_name,
+                    "type": var_type if isinstance(var_type, str) else var_type.value
+                })
+        else:
+            # List format
+            for var_name, var_type in input_vars:
+                schema["input"]["variables"].append({
+                    "name": var_name,
+                    "type": var_type
+                })
             
-        # Add output variables
+        # Add output variables (unchanged)
         for name, var_type in self.source_model_inference_output_variable_list.items():
             schema["output"]["variables"].append({
                 "name": name,
@@ -151,15 +218,22 @@ class ModelRegistrationConfig(BasePipelineConfig):
     def model_dump(self, **kwargs) -> Dict[str, Any]:
         """Custom serialization"""
         data = super().model_dump(**kwargs)
-        # Convert enums to strings in variable lists
-        if 'source_model_inference_input_variable_list' in data:
-            data['source_model_inference_input_variable_list'] = {
-                k: v.value if isinstance(v, VariableType) else v
-                for k, v in data['source_model_inference_input_variable_list'].items()
-            }
+        
+        # Convert enums to strings in output variable list
         if 'source_model_inference_output_variable_list' in data:
             data['source_model_inference_output_variable_list'] = {
                 k: v.value if isinstance(v, VariableType) else v
                 for k, v in data['source_model_inference_output_variable_list'].items()
             }
+        
+        # Handle input variable list in either format
+        if 'source_model_inference_input_variable_list' in data:
+            input_vars = data['source_model_inference_input_variable_list']
+            if isinstance(input_vars, dict):
+                data['source_model_inference_input_variable_list'] = {
+                    k: v.value if isinstance(v, VariableType) else v
+                    for k, v in input_vars.items()
+                }
+            # List format doesn't need conversion as it's already strings
+            
         return data

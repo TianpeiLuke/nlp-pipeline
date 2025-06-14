@@ -90,11 +90,17 @@ class PayloadConfig(ModelRegistrationConfig):
         if 'source_model_inference_input_variable_list' in values:
             input_vars = values['source_model_inference_input_variable_list']
             if isinstance(input_vars, dict):
-                # Convert string values to VariableType enum
+                # Convert string values to VariableType enum for dictionary format
                 values['source_model_inference_input_variable_list'] = {
                     k: VariableType(v) if isinstance(v, str) else v
                     for k, v in input_vars.items()
                 }
+            elif isinstance(input_vars, list):
+                # Convert string values to VariableType enum for list format
+                values['source_model_inference_input_variable_list'] = [
+                    [name, VariableType(type_str) if isinstance(type_str, str) else type_str]
+                    for name, type_str in input_vars
+                ]
         
         if 'source_model_inference_output_variable_list' in values:
             output_vars = values['source_model_inference_output_variable_list']
@@ -125,17 +131,32 @@ class PayloadConfig(ModelRegistrationConfig):
             
         # Check if all special fields are in input variable list
         invalid_fields = []
+        input_vars = self.source_model_inference_input_variable_list
+        
         for field_name in self.special_field_values:
-            if field_name not in self.source_model_inference_input_variable_list:
-                invalid_fields.append(field_name)
-            else:
-                # Check if field is marked as TEXT
-                field_type = self.source_model_inference_input_variable_list[field_name]
-                if field_type != VariableType.TEXT:
-                    raise ValueError(
-                        f"Special field '{field_name}' must be of type TEXT, "
-                        f"got {field_type}"
-                    )
+            if isinstance(input_vars, dict):
+                if field_name not in input_vars:
+                    invalid_fields.append(field_name)
+                else:
+                    field_type = input_vars[field_name]
+                    if field_type != VariableType.TEXT:
+                        raise ValueError(
+                            f"Special field '{field_name}' must be of type TEXT, "
+                            f"got {field_type}"
+                        )
+            else:  # List format
+                field_found = False
+                for var_name, var_type in input_vars:
+                    if var_name == field_name:
+                        field_found = True
+                        if var_type != VariableType.TEXT:
+                            raise ValueError(
+                                f"Special field '{field_name}' must be of type TEXT, "
+                                f"got {var_type}"
+                            )
+                        break
+                if not field_found:
+                    invalid_fields.append(field_name)
         
         if invalid_fields:
             raise ValueError(
@@ -173,8 +194,17 @@ class PayloadConfig(ModelRegistrationConfig):
             Comma-separated string of values
         """
         values = []
-        for field_name, var_type in self.source_model_inference_input_variable_list.items():
-            values.append(self.get_field_default_value(field_name, var_type))
+        input_vars = self.source_model_inference_input_variable_list
+        
+        if isinstance(input_vars, dict):
+            # Dictionary format
+            for field_name, var_type in input_vars.items():
+                values.append(self.get_field_default_value(field_name, var_type))
+        else:
+            # List format
+            for field_name, var_type in input_vars:
+                values.append(self.get_field_default_value(field_name, var_type))
+                
         return ",".join(values)
 
     def generate_json_payload(self) -> str:
@@ -185,8 +215,17 @@ class PayloadConfig(ModelRegistrationConfig):
             JSON string with field names and values
         """
         payload = {}
-        for field_name, var_type in self.source_model_inference_input_variable_list.items():
-            payload[field_name] = self.get_field_default_value(field_name, var_type)
+        input_vars = self.source_model_inference_input_variable_list
+        
+        if isinstance(input_vars, dict):
+            # Dictionary format
+            for field_name, var_type in input_vars.items():
+                payload[field_name] = self.get_field_default_value(field_name, var_type)
+        else:
+            # List format
+            for field_name, var_type in input_vars:
+                payload[field_name] = self.get_field_default_value(field_name, var_type)
+                
         return json.dumps(payload)
     
     def generate_sample_payloads(self) -> List[Dict[str, Union[str, dict]]]:
