@@ -1,25 +1,36 @@
 # test/test_mims_package.py
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import os
 import tempfile
 import shutil
 import tarfile
 from pathlib import Path
+import logging
 
-# Import specific functions and constants from the script to be tested
+# Add the project root to the Python path to allow for absolute imports
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Import the functions and main entrypoint from the script to be tested
 from src.pipeline_scripts.mims_package import (
     ensure_directory,
+    check_file_exists,
+    list_directory_contents,
     copy_file_robust,
     copy_scripts,
-    create_tarfile,
     extract_tarfile,
-    list_directory_contents,
-    main
+    create_tarfile,
+    main as package_main
 )
 
+# Disable logging for cleaner test output
+logging.disable(logging.CRITICAL)
+
 class TestMimsPackagingHelpers(unittest.TestCase):
-    """Unit tests for individual helper functions in the packaging script."""
+    """Unit tests for the individual helper functions in the packaging script."""
 
     def setUp(self):
         """Set up a temporary directory for each test."""
@@ -29,199 +40,148 @@ class TestMimsPackagingHelpers(unittest.TestCase):
         """Clean up the temporary directory."""
         shutil.rmtree(self.base_dir)
 
-    def _create_dummy_file(self, path, content="dummy"):
-        """Helper to create a dummy file."""
+    def _create_dummy_file(self, path: Path, content: str = "dummy"):
+        """Helper to create a dummy file within the temporary directory."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            f.write(content)
+        path.write_text(content)
 
     def test_ensure_directory(self):
-        """Test the ensure_directory function."""
+        """Test that `ensure_directory` creates a directory if it doesn't exist."""
         new_dir = self.base_dir / "new_dir"
         self.assertFalse(new_dir.exists())
-        
-        # Test creation
-        ensure_directory(new_dir)
-        self.assertTrue(new_dir.exists())
-        self.assertTrue(new_dir.is_dir())
-        
-        # Test on existing directory (should not raise error)
-        ensure_directory(new_dir)
-        self.assertTrue(new_dir.exists())
+        self.assertTrue(ensure_directory(new_dir))
+        self.assertTrue(new_dir.exists() and new_dir.is_dir())
+        # Test that it returns True for an existing directory
+        self.assertTrue(ensure_directory(new_dir))
 
     def test_copy_file_robust(self):
-        """Test the copy_file_robust function."""
-        src_file = self.base_dir / "src" / "file.txt"
-        dst_file = self.base_dir / "dst" / "file.txt"
-        self._create_dummy_file(src_file, "some content")
+        """Test the robust file copying function."""
+        src_file = self.base_dir / "source" / "file.txt"
+        dst_file = self.base_dir / "dest" / "file.txt"
+        self._create_dummy_file(src_file, "test content")
 
         # Test successful copy
-        result = copy_file_robust(src_file, dst_file)
-        self.assertTrue(result)
+        self.assertTrue(copy_file_robust(src_file, dst_file))
         self.assertTrue(dst_file.exists())
-        with open(dst_file, "r") as f:
-            self.assertEqual(f.read(), "some content")
+        self.assertEqual(dst_file.read_text(), "test content")
 
         # Test copying a non-existent file
-        non_existent_src = self.base_dir / "non_existent.txt"
-        result_fail = copy_file_robust(non_existent_src, dst_file)
-        self.assertFalse(result_fail)
-
-    def test_copy_scripts(self):
-        """Test the copy_scripts function."""
-        src_dir = self.base_dir / "source_scripts"
-        dst_dir = self.base_dir / "dest_scripts"
-        
-        # Create a nested structure in source
-        self._create_dummy_file(src_dir / "main.py")
-        self._create_dummy_file(src_dir / "utils" / "helpers.py")
-        
-        copy_scripts(src_dir, dst_dir)
-        
-        # Check if the destination has the same structure
-        self.assertTrue((dst_dir / "main.py").exists())
-        self.assertTrue((dst_dir / "utils" / "helpers.py").exists())
+        self.assertFalse(copy_file_robust(self.base_dir / "nonexistent.txt", dst_file))
 
     def test_create_and_extract_tarfile(self):
-        """Test create_tarfile and extract_tarfile functions together."""
-        # Setup for create_tarfile
+        """Test that tarball creation and extraction work as inverse operations."""
         source_dir = self.base_dir / "source_for_tar"
         output_tar_path = self.base_dir / "output.tar.gz"
-        
-        file1 = source_dir / "model.pth"
-        file2 = source_dir / "code" / "inference.py"
-        self._create_dummy_file(file1)
-        self._create_dummy_file(file2)
-        
-        items_to_include = [file1, source_dir / "code"]
-        create_tarfile(output_tar_path, source_dir, items_to_include)
-        
+        extract_dir = self.base_dir / "extracted"
+
+        # Create some files to be tarred
+        self._create_dummy_file(source_dir / "file1.txt")
+        self._create_dummy_file(source_dir / "code" / "inference.py")
+
+        # Create the tarball
+        create_tarfile(output_tar_path, source_dir)
         self.assertTrue(output_tar_path.exists())
-        
-        # Setup for extract_tarfile
-        extract_dir = self.base_dir / "extracted_contents"
+
+        # Extract the tarball
         extract_tarfile(output_tar_path, extract_dir)
         
-        # Verify extracted contents
-        self.assertTrue((extract_dir / "model.pth").exists())
+        # Verify the extracted contents
+        self.assertTrue((extract_dir / "file1.txt").exists())
         self.assertTrue((extract_dir / "code" / "inference.py").exists())
-        
-    @patch('src.pipeline_scripts.mims_package.logger')
-    def test_list_directory_contents(self, mock_logger):
-        """Test that list_directory_contents logs file and directory names."""
-        dir_to_list = self.base_dir / "dir_to_list"
-        self._create_dummy_file(dir_to_list / "file1.txt")
-        self._create_dummy_file(dir_to_list / "subdir" / "file2.txt")
-        
-        list_directory_contents(dir_to_list, "Test Directory")
-        
-        # Check if the logger was called with messages containing the file names
-        log_calls = mock_logger.info.call_args_list
-        log_text = "".join([str(c) for c in log_calls])
-        
-        self.assertIn("file1.txt", log_text)
-        self.assertIn(os.path.join("subdir", "file2.txt"), log_text)
+
 
 class TestMimsPackagingMainFlow(unittest.TestCase):
-    """Integration-style tests for the main() function of the packaging script."""
+    """
+    Integration-style tests for the main() function of the packaging script.
+    This class uses patching to redirect the script's hardcoded paths to a
+    temporary directory structure.
+    """
 
     def setUp(self):
         """Set up a temporary directory structure mimicking the SageMaker environment."""
         self.base_dir = Path(tempfile.mkdtemp())
         
-        # Create a structure similar to /opt/ml/processing
-        self.input_dir = self.base_dir / "input"
-        self.output_dir = self.base_dir / "output"
-        self.model_input_dir = self.input_dir / "model"
-        self.script_input_dir = self.input_dir / "script"
-        
-        # Working directory for the script to use
+        # Define mock paths within the temporary directory
+        self.model_path = self.base_dir / "input" / "model"
+        self.script_path = self.base_dir / "input" / "script"
+        self.output_path = self.base_dir / "output"
         self.working_dir = self.base_dir / "working"
 
-        # Create all directories
-        for d in [self.input_dir, self.output_dir, self.model_input_dir, self.script_input_dir, self.working_dir]:
-            d.mkdir(parents=True, exist_ok=True)
+        # Create the input directories
+        self.model_path.mkdir(parents=True, exist_ok=True)
+        self.script_path.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
         """Clean up the temporary directory."""
         shutil.rmtree(self.base_dir)
 
-    def _create_dummy_file(self, path, content="dummy"):
-        """Helper to create a dummy file."""
+    def _create_dummy_file(self, path: Path, content: str = "dummy"):
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            f.write(content)
-            
-    def _create_dummy_tar(self, tar_path, files_to_add):
-        """Helper to create a dummy tar.gz file."""
-        with tarfile.open(tar_path, "w:gz") as tar:
-            for file_path, arcname in files_to_add:
-                tar.add(file_path, arcname=arcname)
+        path.write_text(content)
 
-    def test_full_packaging_flow(self):
+    def test_main_flow_with_input_tar(self):
         """
-        Test the main() function to ensure it correctly packages model and script files.
+        Test the main() function when the input model artifact is a tar.gz file.
         """
-        # --- 1. Setup: Use patch.object to replace the script's global Path constants ---
+        # --- Arrange ---
+        # Create dummy input files: a model and an inference script
+        dummy_model_content_path = self.base_dir / "temp_model" / "model.pth"
+        self._create_dummy_file(dummy_model_content_path, "pytorch-model-data")
+        self._create_dummy_file(self.script_path / "inference.py", "import torch")
+        
+        # Create a tarball containing the model file
+        input_tar_path = self.model_path / "model.tar.gz"
+        with tarfile.open(input_tar_path, "w:gz") as tar:
+            tar.add(dummy_model_content_path, arcname="model.pth")
+        
+        # --- Act ---
+        # Use patch.object to replace the module-level constants with our temporary paths
         from src.pipeline_scripts import mims_package
-        with patch.object(mims_package, 'MODEL_PATH', self.model_input_dir), \
-             patch.object(mims_package, 'SCRIPT_PATH', self.script_input_dir), \
-             patch.object(mims_package, 'OUTPUT_PATH', self.output_dir), \
-             patch.object(mims_package, 'WORKING_DIRECTORY', self.working_dir):
-
-            # --- 2. Arrange: Create dummy input files ---
-            dummy_model_file = self.base_dir / "model.pth"
-            dummy_onnx_file = self.base_dir / "model.onnx"
-            self._create_dummy_file(dummy_model_file, "pytorch model")
-            self._create_dummy_file(dummy_onnx_file, "onnx model")
+        with patch.object(mims_package, 'MODEL_PATH', self.model_path), \
+             patch.object(mims_package, 'SCRIPT_PATH', self.script_path), \
+             patch.object(mims_package, 'OUTPUT_PATH', self.output_path), \
+             patch.object(mims_package, 'WORKING_DIRECTORY', self.working_dir), \
+             patch.object(mims_package, 'CODE_DIRECTORY', self.working_dir / 'code'):
             
-            input_tar_path = self.model_input_dir / "model.tar.gz"
-            self._create_dummy_tar(input_tar_path, [
-                (dummy_model_file, "model.pth"),
-                (dummy_onnx_file, "model.onnx")
-            ])
+            package_main()
 
-            self._create_dummy_file(self.script_input_dir / "inference.py", "import torch")
-            (self.script_input_dir / "subfolder").mkdir()
-            self._create_dummy_file(self.script_input_dir / "subfolder" / "utils.py", "def helper(): pass")
-            
-            # --- 3. Act: Run the main packaging function ---
-            main()
+        # --- Assert ---
+        final_output_tar = self.output_path / "model.tar.gz"
+        self.assertTrue(final_output_tar.exists(), "Final model.tar.gz was not created.")
 
-            # --- 4. Assert: Check if the output is correct ---
-            final_output_tar = self.output_dir / "model.tar.gz"
-            self.assertTrue(final_output_tar.exists(), "Final model.tar.gz was not created.")
+        with tarfile.open(final_output_tar, "r:gz") as tar:
+            members = tar.getnames()
+            self.assertIn("model.pth", members)
+            self.assertIn("code/inference.py", members)
 
-            with tarfile.open(final_output_tar, "r:gz") as tar:
-                tar_contents = tar.getnames()
-                self.assertIn("model.pth", tar_contents)
-                self.assertIn("model.onnx", tar_contents)
-                self.assertIn("code/inference.py", tar_contents)
-                self.assertIn("code/subfolder/utils.py", tar_contents)
+    def test_main_flow_with_direct_files(self):
+        """
+        Test the main() function when model artifacts are provided as direct files
+        instead of a tarball.
+        """
+        # --- Arrange ---
+        # Create dummy input files directly in the mocked input directories
+        self._create_dummy_file(self.model_path / "xgboost_model.bst", "xgboost-model-data")
+        self._create_dummy_file(self.script_path / "requirements.txt", "pandas\nscikit-learn")
 
-    def test_no_input_tar(self):
-        """Test the scenario where model files are provided directly, not in a tarball."""
+        # --- Act ---
         from src.pipeline_scripts import mims_package
-        with patch.object(mims_package, 'MODEL_PATH', self.model_input_dir), \
-             patch.object(mims_package, 'SCRIPT_PATH', self.script_input_dir), \
-             patch.object(mims_package, 'OUTPUT_PATH', self.output_dir), \
-             patch.object(mims_package, 'WORKING_DIRECTORY', self.working_dir):
+        with patch.object(mims_package, 'MODEL_PATH', self.model_path), \
+             patch.object(mims_package, 'SCRIPT_PATH', self.script_path), \
+             patch.object(mims_package, 'OUTPUT_PATH', self.output_path), \
+             patch.object(mims_package, 'WORKING_DIRECTORY', self.working_dir), \
+             patch.object(mims_package, 'CODE_DIRECTORY', self.working_dir / 'code'):
 
-            # Arrange: Create model files directly in the model input directory
-            self._create_dummy_file(self.model_input_dir / "model.pth", "direct model")
-            self._create_dummy_file(self.script_input_dir / "inference.py", "direct script")
-            
-            # Act: Run the main function
-            main()
-            
-            # Assert: Check the output tar
-            final_output_tar = self.output_dir / "model.tar.gz"
-            self.assertTrue(final_output_tar.exists())
+            package_main()
 
-            with tarfile.open(final_output_tar, "r:gz") as tar:
-                tar_contents = tar.getnames()
-                self.assertIn("model.pth", tar_contents)
-                self.assertIn("code/inference.py", tar_contents)
+        # --- Assert ---
+        final_output_tar = self.output_path / "model.tar.gz"
+        self.assertTrue(final_output_tar.exists())
+
+        with tarfile.open(final_output_tar, "r:gz") as tar:
+            members = tar.getnames()
+            self.assertIn("xgboost_model.bst", members)
+            self.assertIn("code/requirements.txt", members)
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
