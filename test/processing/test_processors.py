@@ -1,10 +1,12 @@
 import unittest
 # Import the actual processors to be tested
 from src.processing.processors import (
-    TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
-    DialogueSplitterProcessor, DialogueChunkerProcessor,
     Processor
 )
+from src.processing.bsm_processor import (
+    TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
+    DialogueSplitterProcessor, DialogueChunkerProcessor
+    )
 from src.processing.bert_tokenize_processor import TokenizationProcessor
 from src.processing.categorical_label_processor import CategoricalLabelProcessor
 
