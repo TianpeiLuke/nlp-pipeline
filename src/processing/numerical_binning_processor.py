@@ -110,10 +110,10 @@ class NumericalBinningProcessor(Processor):
         
         if current_strategy == 'equal-width': 
             if self.min_fitted_value_ == self.max_fitted_value_:
-                 logger.warning(f"Column '{self.column_name}' has a single unique value ({self.min_fitted_value_}). Creating one bin encompassing this value.")
-                 epsilon = 1e-9 if abs(self.min_fitted_value_) < 1e-9 else abs(self.min_fitted_value_ * 1e-6)
-                 epsilon = max(epsilon, 1e-9) 
-                 self.bin_edges_ = np.array([self.min_fitted_value_ - epsilon, self.max_fitted_value_ + epsilon])
+                logger.warning(f"Column '{self.column_name}' has a single unique value ({self.min_fitted_value_}). Creating one bin encompassing this value.")
+                epsilon = 1e-9 if abs(self.min_fitted_value_) < 1e-9 else abs(self.min_fitted_value_ * 1e-6)
+                epsilon = max(epsilon, 1e-9) 
+                self.bin_edges_ = np.array([self.min_fitted_value_ - epsilon, self.max_fitted_value_ + epsilon])
             else:
                 _, self.bin_edges_ = pd.cut(column_data, bins=n_bins_to_try, retbins=True, include_lowest=True, right=True)
         
@@ -259,7 +259,7 @@ class NumericalBinningProcessor(Processor):
             final_binned_series.loc[still_nan_after_cut_mask & (series_to_bin <= self.bin_edges_[0])] = self.actual_labels_[0]
             final_binned_series.loc[still_nan_after_cut_mask & (series_to_bin >= self.bin_edges_[-1])] = self.actual_labels_[-1]
         elif self.handle_out_of_range != "boundary_bins":
-             final_binned_series.loc[still_nan_after_cut_mask] = self.handle_out_of_range
+            final_binned_series.loc[still_nan_after_cut_mask] = self.handle_out_of_range
 
 
         # Determine final output type
@@ -267,7 +267,7 @@ class NumericalBinningProcessor(Processor):
             # Convert to CategoricalDtype, NaNs will be pd.NA
             final_binned_series = pd.Series(final_binned_series, dtype='category')
             if self.handle_missing_value == "as_is":
-                 final_binned_series = final_binned_series. όπου(original_nan_mask, pd.NA)
+                final_binned_series = final_binned_series.where(~original_nan_mask, pd.NA)
 
         else: # String labels
             # Convert to string, NaNs will become "nan" or the custom missing label
