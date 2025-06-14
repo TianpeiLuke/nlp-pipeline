@@ -668,8 +668,8 @@ def format_json_response(
     ]
     
     # Simple response format without metadata
-    response = {"predictions": output_records}  #json.dumps({"predictions": output_records})
-    return response
+    response = json.dumps({"predictions": output_records})
+    return response, CONTENT_TYPE_JSON
 
 
 def format_csv_response(
@@ -723,7 +723,7 @@ def format_csv_response(
             csv_lines.append(",".join(map(str, line)))
 
     response_body = "\n".join(csv_lines) + "\n"
-    return response_body
+    return response_body, CONTENT_TYPE_CSV
 
 
 def output_fn(
@@ -754,7 +754,7 @@ def output_fn(
             return format_json_response(scores_list, is_multiclass)
             
         elif accept.lower() == CONTENT_TYPE_CSV:
-            return format_csv_response(scores_list)
+            return format_csv_response(scores_list, is_multiclass)
             
         else:
             logger.error(f"Unsupported accept type: {accept}")
@@ -770,39 +770,4 @@ def output_fn(
             'error': f'Failed to format output: {e}',
             'version': __version__
         })
-        return error_response
-
-
-
-# Optional: Add health check endpoint
-def ping():
-    """
-    Healthcheck endpoint to verify the server is responsive.
-    """
-    return Response(response=json.dumps({
-        "status": "healthy",
-        "version": __version__
-    }), status=200, mimetype=CONTENT_TYPE_JSON)
-
-
-# Optional: Add model info endpoint
-def get_model_info(model_artifacts: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Get information about the loaded model.
-    
-    Args:
-        model_artifacts: Dictionary containing model and preprocessing objects
-        
-    Returns:
-        Dict[str, Any]: Model information
-    """
-    config = model_artifacts["config"]
-    return {
-        "version": __version__,
-        "model_type": "multiclass" if config["is_multiclass"] else "binary",
-        "num_classes": config["num_classes"],
-        "num_features": len(config["feature_columns"]),
-        "feature_names": config["feature_columns"],
-        "hyperparameters": config.get("hyperparameters", {}),
-        "feature_importance": model_artifacts.get("feature_importance", {})
-    }
+        return error_response, CONTENT_TYPE_JSON

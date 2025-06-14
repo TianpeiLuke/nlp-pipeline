@@ -381,10 +381,24 @@ def output_fn(prediction_output, accept='application/json'):
                 probs = probs if isinstance(probs, list) else [probs]
                 max_idx = probs.index(max(probs)) if probs else -1
 
-                record = {
-                    **{f"prob_{str(i+1).zfill(2)}": p for i, p in enumerate(probs)},
-                    "output-label": f"class-{max_idx}" if max_idx >= 0 else "unknown"
-                }
+                #record = {
+                #    **{f"prob_{str(i+1).zfill(2)}": p for i, p in enumerate(probs)},
+                #    "output-label": f"class-{max_idx}" if max_idx >= 0 else "unknown"
+                #}
+                
+                # Create the base record with legacy-score for the first probability
+                # NOTE: output probability in string 
+                record = {"legacy-score": str(probs[0])} if probs else {"legacy-score": None}
+        
+                # Add the rest of the probabilities starting from prob_02
+                record.update({
+                    f"prob_{str(i+1).zfill(2)}": str(p) 
+                    for i, p in enumerate(probs[1:])
+                })
+                
+                # Add the output label
+                record["output-label"] = f"class-{max_idx}" if max_idx >= 0 else "unknown"
+                
                 output_records.append(record)
 
             response = json.dumps({"predictions": output_records})
