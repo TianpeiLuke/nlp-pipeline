@@ -1,5 +1,3 @@
-# test/test_numerical_binning_processor.py
-import unittest
 import pandas as pd
 import numpy as np
 import tempfile
@@ -7,6 +5,7 @@ from pathlib import Path
 import logging
 import sys
 import os
+import unittest
 from unittest.mock import patch, MagicMock
 
 # Add the project root to the Python path to allow for absolute imports
@@ -18,6 +17,8 @@ from src.processing.numerical_binning_processor import NumericalBinningProcessor
 
 
 class TestNumericalBinningProcessor(unittest.TestCase):
+
+    PROCESSOR_MODULE_LOGGER_NAME = "src.processing.numerical_binning_processor"
 
     def setUp(self):
         self.column_to_bin = 'value'
@@ -38,6 +39,7 @@ class TestNumericalBinningProcessor(unittest.TestCase):
             self.column_to_bin: [1.0] * 10
         })
 
+
     def test_initialization_defaults(self):
         processor = NumericalBinningProcessor(column_name=self.column_to_bin)
         self.assertEqual(processor.column_name, self.column_to_bin)
@@ -45,8 +47,18 @@ class TestNumericalBinningProcessor(unittest.TestCase):
         self.assertEqual(processor.strategy, 'quantile')
         self.assertIsNone(processor.bin_labels_config)
         self.assertEqual(processor.output_column_name, f"{self.column_to_bin}_binned")
+        self.assertEqual(processor.handle_missing_value, "as_is")
+        self.assertEqual(processor.handle_out_of_range, "boundary_bins")
+        self.assertFalse(processor.is_fitted)
 
-    # FIX: Use patch on the logger object to make tests more robust
+    def test_fit_raises_errors_on_invalid_input(self):
+        """Test that fit raises errors for invalid input types or missing columns."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin)
+        with self.assertRaisesRegex(TypeError, "requires a pandas DataFrame"):
+            processor.fit([1, 2, 3]) # Should be a DataFrame
+        with self.assertRaisesRegex(ValueError, "not found in input data"):
+            processor.fit(pd.DataFrame({'wrong_column': [1, 2]}))
+
     @patch('src.processing.numerical_binning_processor.logger')
     def test_fit_with_all_nan_data(self, mock_logger):
         """Test the fit method when the column contains only NaN values."""
@@ -91,15 +103,37 @@ class TestNumericalBinningProcessor(unittest.TestCase):
         processor = NumericalBinningProcessor(column_name=self.column_to_bin, handle_missing_value="as_is")
         processor.fit(self.data)
         self.assertIsNone(processor.process(np.nan))
-        
-    def test_fit_raises_errors_on_invalid_input(self):
-        """Test that fit raises errors for invalid input types or missing columns."""
-        processor = NumericalBinningProcessor(column_name=self.column_to_bin)
-        with self.assertRaisesRegex(TypeError, "requires a pandas DataFrame"):
-            processor.fit([1, 2, 3])
-        with self.assertRaisesRegex(ValueError, "not found in input data"):
-            processor.fit(pd.DataFrame({'wrong_column': [1, 2]}))
-            
+
+    # --- Other existing tests remain unchanged ---
+    
+    def test_initialization_custom(self):
+        labels = ['Low', 'Med', 'High']
+        processor = NumericalBinningProcessor(
+            column_name="age", n_bins=3, strategy='equal-width', bin_labels=labels,
+            output_column_name="age_group", handle_missing_value="MissingAge",
+            handle_out_of_range="AgeOutOfRange"
+        )
+        self.assertEqual(processor.column_name, "age")
+        self.assertEqual(processor.n_bins_requested, 3)
+        self.assertEqual(processor.strategy, 'equal-width')
+        self.assertEqual(processor.bin_labels_config, labels)
+        self.assertEqual(processor.output_column_name, "age_group")
+        self.assertEqual(processor.handle_missing_value, "MissingAge")
+        self.assertEqual(processor.handle_out_of_range, "AgeOutOfRange")
+
+    def test_fit_equal_width(self):
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width', bin_labels=True)
+        processor.fit(self.data)
+        self.assertTrue(processor.is_fitted)
+        self.assertIsNotNone(processor.bin_edges_)
+        self.assertEqual(len(processor.bin_edges_), processor.n_bins_actual_ + 1)
+        self.assertEqual(processor.n_bins_actual_, 3)
+
+    def test_process_value(self):
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width', bin_labels=True)
+        processor.fit(self.data) 
+        self.assertEqual(processor(50.0), 'Bin_1') 
+
     @patch('src.processing.numerical_binning_processor.logger')
     def test_fit_quantile_fallback(self, mock_logger):
         """Test quantile binning falls back to equal-width on failure."""
@@ -113,8 +147,8 @@ class TestNumericalBinningProcessor(unittest.TestCase):
         
         # Check that the fallback warning was logged
         self.assertTrue(any("Falling back to equal-width" in call.args[0] for call in mock_logger.warning.call_args_list))
-        # The internal strategy should now be 'equal-width'
-        self.assertEqual(processor.strategy, 'quantile') # Public strategy remains, internal behavior changes
+        # The public strategy remains, but the internal behavior changes
+        self.assertEqual(processor.strategy, 'quantile') 
         self.assertTrue(processor.is_fitted)
 
 if __name__ == '__main__':
