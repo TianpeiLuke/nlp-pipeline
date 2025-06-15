@@ -278,7 +278,13 @@ class MDSXGBoostPipelineBuilder:
     
     def _create_xgboost_train_step(self, dependency_step: Step) -> TrainingStep:
         """Creates the XGBoost TrainingStep, taking preprocessed data as input."""
-        xgb_builder = XGBoostTrainingStepBuilder(config=self.xgb_train_cfg, sagemaker_session=self.session, role=self.role)
+        # Force the model training region to be NA
+        temp_train_cfg = self.xgb_train_cfg.copy()
+        temp_train_cfg.region = 'NA'
+        temp_train_cfg.aws_region = 'us-east-1'
+        logger.info(f"Force Model Training in aws region: {temp_train_cfg.aws_region}")
+        
+        xgb_builder = XGBoostTrainingStepBuilder(config=temp_train_cfg, sagemaker_session=self.session, role=self.role)
         
         # Set the dynamic input path from the previous step's output
         object.__setattr__(
@@ -295,7 +301,13 @@ class MDSXGBoostPipelineBuilder:
     
     def _create_model_creation_step(self, dependency_step: Step) -> ModelStep:
         """Creates the XGBoost Model Creation step."""
-        model_builder = XGBoostModelStepBuilder(config=self.xgb_model_cfg, sagemaker_session=self.session, role=self.role)
+        # Force the model creation region to be NA
+        temp_model_cfg = self.xgb_model_cfg.copy()
+        temp_model_cfg.region = 'NA'
+        temp_model_cfg.aws_region = 'us-east-1'
+        logger.info(f"Force Model Training in aws region: {temp_model_cfg.aws_region}")
+
+        model_builder = XGBoostModelStepBuilder(config=temp_model_cfg, sagemaker_session=self.session, role=self.role)
         return model_builder.create_step(
             model_data=dependency_step.properties.ModelArtifacts.S3ModelArtifacts,
             dependencies=[dependency_step]

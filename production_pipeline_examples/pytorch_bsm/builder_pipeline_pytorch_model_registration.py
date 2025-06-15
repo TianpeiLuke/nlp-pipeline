@@ -104,12 +104,13 @@ class PytorchPipelineBuilder:
         logger.info(f"Creating model step with model from: {model_s3_path}")
         
         # Force the model region to be NA
-        self.model_config.region = 'NA'
-        self.model_config.aws_region = 'us-east-1'
-        logger.info(f"Model aws region: {self.model_config.aws_region}")
+        model_config_copy = self.model_config.copy()
+        model_config_copy.region = 'NA'
+        model_config_copy.aws_region = 'us-east-1'
+        logger.info(f"Model aws region: {model_config_copy.aws_region}")
 
         model_builder = PytorchModelStepBuilder(
-            config=self.model_config,
+            config=model_config_copy,
             sagemaker_session=self.session,
             role=self.role
         )
