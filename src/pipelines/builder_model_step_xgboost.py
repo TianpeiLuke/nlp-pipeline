@@ -132,13 +132,16 @@ class XGBoostModelStepBuilder(StepBuilderBase):
         step_creation_args = model.create(
             instance_type=instance_type_param,
             accelerator_type=None
-        )
-        
+        )  # Ensure model.create() is used correctly and returns valid step_args
+
+        if not step_creation_args:
+            raise ValueError("Failed to generate step_args from model.create(). Ensure model configuration is correct.")
+
         step_name = self._get_step_name('XGBoostModel')
         
         model_step = ModelStep(
             name=step_name,
-            step_args=step_creation_args
+            step_args=step_creation_args  # Use step_args from model.create()
         )
         
         # Store model data path for subsequent steps
