@@ -3,9 +3,6 @@ import os
 import json
 import sys
 
-# Dynamically add the nlp-pipeline directory to the Python path
-sys.path.append("/Users/tianpeixie/github_workspace/nlp-pipeline")
-
 from docker_source_code_examples.pytorch_bsm.train import load_parse_hyperparameters
 
 class TestTrain(unittest.TestCase):
