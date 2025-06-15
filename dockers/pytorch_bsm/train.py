@@ -295,11 +295,7 @@ def load_parse_hyperparameters(hparam_path: str) -> Dict:
 def find_first_data_file(
     data_dir: str, extensions: List[str] = [".tsv", ".csv", ".parquet"]
 ) -> Optional[str]:
-    # Prefer processed_data.csv if present
-    for fname in sorted(os.listdir(data_dir)):
-        if fname.endswith("_processed_data.csv"):
-            return fname
-    # Fallback to any supported file
+    # Do not constrain to a specific processed file name; pick the first supported file
     for fname in sorted(os.listdir(data_dir)):
         cleaned_fname = fname.strip().lower()
         if any(cleaned_fname.endswith(ext) for ext in extensions):
