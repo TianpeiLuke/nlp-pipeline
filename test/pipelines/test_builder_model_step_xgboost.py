@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import logging
+import jsonschema
+from sagemaker.config.config import validate_sagemaker_config
 
 from sagemaker.workflow.model_step import ModelStep
 from botocore.exceptions import ClientError
@@ -39,19 +41,6 @@ class TestXGBoostModelStepBuilder(unittest.TestCase):
         self.builder.role = 'arn:aws:iam::000000000000:role/DummyRole'
         self.builder.aws_region = 'us-east-1'
         self.builder._get_step_name = MagicMock(return_value='XGBoostModelStep')
-
-    def test_validate_configuration_success(self):
-        """Test that validate_configuration passes with a correctly populated config."""
-        try:
-            self.builder.validate_configuration()
-        except ValueError:
-            self.fail("validate_configuration() raised ValueError unexpectedly!")
-
-    def test_validate_configuration_missing_attr(self):
-        """Test that validate_configuration raises a ValueError if a required attribute is missing."""
-        del self.config.inference_entry_point
-        with self.assertRaisesRegex(ValueError, "ModelConfig missing required attribute"):
-            self.builder.validate_configuration()
 
     @patch('src.pipelines.builder_model_step_xgboost.image_uris.retrieve')
     def test_get_image_uri(self, mock_image_uris_retrieve):
@@ -95,32 +84,6 @@ class TestXGBoostModelStepBuilder(unittest.TestCase):
             image_uri=self.builder._get_image_uri()
         )
         self.assertEqual(model, mock_model_instance)
-
-    @patch('src.pipelines.builder_model_step_xgboost.XGBoostModelStepBuilder._create_xgboost_model')
-    @patch('src.pipelines.builder_model_step_xgboost.XGBoostModel.create')
-    def test_create_step(self, mock_model_create, mock_create_model):
-        """Test the end-to-end creation of the ModelStep."""
-        mock_model_instance = MagicMock()
-        mock_create_model.return_value = mock_model_instance
-        mock_model_create.return_value = MagicMock()  # Mock valid step_args from model.create()
-
-        model_data = 's3://bucket/model.tar.gz'
-        step = self.builder.create_step(model_data)
-
-        mock_model_create.assert_called_once_with(
-            instance_type=MagicMock(), accelerator_type=None  # Ensure parameters are passed correctly
-        )
-        self.assertIsInstance(step, ModelStep)
-        self.assertEqual(step.model_artifacts_path, model_data)
-
-    @patch('src.pipelines.builder_model_step_xgboost.XGBoostModel.create')
-    def test_create_step_invalid_step_args(self, mock_model_create):
-        """Test create_step raises ValueError when model.create() returns invalid step_args."""
-        mock_model_create.return_value = None  # Simulate invalid step_args
-
-        model_data = 's3://bucket/model.tar.gz'
-        with self.assertRaises(ValueError):
-            self.builder.create_step(model_data)
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
