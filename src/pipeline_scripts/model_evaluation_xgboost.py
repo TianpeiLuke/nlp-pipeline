@@ -39,6 +39,9 @@ def preprocess_eval_data(df, feature_columns, risk_tables, impute_dict):
     df = imputer.transform(df)
     # Ensure all features are numeric
     df[feature_columns] = df[feature_columns].apply(pd.to_numeric, errors="coerce").fillna(0)
+    # Reorder columns to match feature_columns order (critical for XGBoost)
+    df = df.copy()
+    df = df[[col for col in feature_columns if col in df.columns]]
     return df
 
 def compute_metrics_binary(y_true, y_prob):
@@ -76,11 +79,11 @@ def main():
     parser.add_argument("--job_type", type=str, required=True)
     args = parser.parse_args()
 
-    # Environment variables
+    # Environment variables (set by builder)
     ID_FIELD = os.environ.get("ID_FIELD", "id")
     LABEL_FIELD = os.environ.get("LABEL_FIELD", "label")
 
-    # Input/output paths
+    # Input/output paths (must match builder)
     model_dir = "/opt/ml/processing/input/model"
     eval_data_dir = "/opt/ml/processing/input/eval_data"
     output_eval_dir = "/opt/ml/processing/output/eval"
@@ -100,6 +103,9 @@ def main():
 
     # Preprocess eval data
     df = preprocess_eval_data(df, feature_columns, risk_tables, impute_dict)
+
+    # Ensure column order matches feature_columns (critical for XGBoost)
+    df = df[[col for col in feature_columns if col in df.columns]]
 
     # Get id, label, features
     id_col = ID_FIELD if ID_FIELD in df.columns else df.columns[0]
@@ -130,9 +136,10 @@ def main():
     })
     for i, col in enumerate(prob_cols):
         out_df[col] = y_prob[:, i]
+    # Output file must match builder: /opt/ml/processing/output/eval/eval_predictions.csv
     out_df.to_csv(os.path.join(output_eval_dir, "eval_predictions.csv"), index=False)
 
-    # Output metrics as JSON
+    # Output metrics as JSON: /opt/ml/processing/output/metrics/metrics.json
     with open(os.path.join(output_metrics_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
