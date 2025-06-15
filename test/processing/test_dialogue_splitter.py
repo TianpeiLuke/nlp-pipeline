@@ -1,6 +1,6 @@
 import unittest
 from typing import List
-from src.processing.processors import (
+from src.processing.bsm_processor import (
     DialogueSplitterProcessor
 )
 
