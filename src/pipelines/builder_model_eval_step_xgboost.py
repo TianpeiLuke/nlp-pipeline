@@ -69,6 +69,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             base_job_name=f"{base_job_name_prefix}-xgb-eval",
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
+            source_dir=self.config.processing_source_dir  # <-- Use 'source_dir' here
         )
 
     def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
