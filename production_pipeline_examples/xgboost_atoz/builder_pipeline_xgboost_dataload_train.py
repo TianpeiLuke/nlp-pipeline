@@ -200,8 +200,14 @@ class MDSXGBoostPipelineBuilder:
         prep_step.add_depends_on([load_step])
 
         # 3) XGBoost Training
+        # Force the model training region to be NA
+        temp_train_cfg = self.xgb_train_cfg.model_copy()
+        temp_train_cfg.region = 'NA'
+        temp_train_cfg.aws_region = 'us-east-1'
+        logger.info(f"Force Model Training in aws region: {temp_train_cfg.aws_region}")
+        
         xgb_builder = XGBoostTrainingStepBuilder(
-            config=self.xgb_train_cfg, sagemaker_session=self.session, role=self.role
+            config=temp_train_cfg, sagemaker_session=self.session, role=self.role
         )
         
         # Set the training step's input path to be the S3 URI from the preprocessing step's output
