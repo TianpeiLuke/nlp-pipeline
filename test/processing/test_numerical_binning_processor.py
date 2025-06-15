@@ -104,8 +104,81 @@ class TestNumericalBinningProcessor(unittest.TestCase):
         processor.fit(self.data)
         self.assertIsNone(processor.process(np.nan))
 
-    # --- Other existing tests remain unchanged ---
-    
+    def test_fit_with_single_unique_value(self):
+        """Test fit method with data containing a single unique value."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
+        processor.fit(self.data_single_value)
+        self.assertTrue(processor.is_fitted)
+        self.assertEqual(processor.n_bins_actual_, 1)
+        np.testing.assert_array_equal(processor.bin_edges_, np.array([4.999995, 5.000005]))  # Updated expected bin edges
+
+    def test_fit_with_few_unique_values(self):
+        """Test fit method with data containing few unique values."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=5, strategy='quantile')
+        processor.fit(self.data_few_unique)
+        self.assertTrue(processor.is_fitted)
+        self.assertLessEqual(processor.n_bins_actual_, processor.n_bins_requested)
+
+    def test_process_out_of_range_value(self):
+        """Test process method with values outside the fitted range."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width', handle_out_of_range="OutOfRange")
+        processor.fit(self.data)
+        self.assertEqual(processor.process(-100), "OutOfRange")
+        self.assertEqual(processor.process(1000), "OutOfRange")
+
+    def test_process_boundary_bins(self):
+        """Test process method with handle_out_of_range set to 'boundary_bins'."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width', handle_out_of_range="boundary_bins")
+        processor.fit(self.data)
+        self.assertEqual(processor.process(-100), "Bin_0")
+        self.assertEqual(processor.process(1000), "Bin_2")
+
+    def test_transform_with_dataframe(self):
+        """Test transform method with a DataFrame input."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
+        processor.fit(self.data)
+        transformed = processor.transform(self.data)
+        self.assertIn(f"{self.column_to_bin}_binned", transformed.columns)
+        self.assertTrue(isinstance(transformed[f"{self.column_to_bin}_binned"].dtype, pd.CategoricalDtype))  # Ensure categorical dtype
+        self.assertEqual(transformed[f"{self.column_to_bin}_binned"].cat.categories.tolist(), ["Bin_0", "Bin_1", "Bin_2"])  # Verify categories
+
+    def test_transform_with_series(self):
+        """Test transform method with a Series input."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
+        processor.fit(self.data)
+        series_to_transform = pd.Series([1.0, 50.0, 100.0])
+        transformed = processor.transform(series_to_transform)
+        self.assertTrue(isinstance(transformed.dtype, pd.CategoricalDtype))  # Ensure categorical dtype
+        self.assertEqual(transformed.cat.categories.tolist(), ["Bin_0", "Bin_1", "Bin_2"])  # Verify categories
+
+    def test_transform_with_missing_column(self):
+        """Test transform method raises error when column is missing in DataFrame."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
+        processor.fit(self.data)
+        with self.assertRaisesRegex(ValueError, "not found in input DataFrame"):
+            processor.transform(pd.DataFrame({'wrong_column': [1, 2, 3]}))
+
+    def test_save_and_load_params(self):
+        """Test saving and loading processor parameters."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
+        processor.fit(self.data)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            processor.save_params(temp_dir)
+            loaded_processor = NumericalBinningProcessor.load_params(Path(temp_dir) / f"numerical_binning_processor_{self.column_to_bin}_params.json")
+            self.assertTrue(loaded_processor.is_fitted)
+            self.assertEqual(loaded_processor.column_name, processor.column_name)
+            np.testing.assert_array_equal(loaded_processor.bin_edges_, processor.bin_edges_)
+
+    def test_get_params(self):
+        """Test get_params method returns correct parameters."""
+        processor = NumericalBinningProcessor(column_name=self.column_to_bin, n_bins=3, strategy='equal-width')
+        processor.fit(self.data)
+        params = processor.get_params()
+        self.assertEqual(params["column_name"], self.column_to_bin)
+        self.assertEqual(params["n_bins_requested"], 3)
+        self.assertEqual(params["strategy"], 'equal-width')
+        self.assertIsNotNone(params["bin_edges"])
+
     def test_initialization_custom(self):
         labels = ['Low', 'Med', 'High']
         processor = NumericalBinningProcessor(
