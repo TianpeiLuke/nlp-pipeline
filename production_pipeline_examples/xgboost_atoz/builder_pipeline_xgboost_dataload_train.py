@@ -26,12 +26,17 @@ from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessin
 from src.pipelines.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 
 # Common parameters
-from mods_workflow_core.utils.constants import (
-    PIPELINE_EXECUTION_TEMP_DIR,
-    KMS_ENCRYPTION_KEY_PARAM,
-    SECURITY_GROUP_ID,
-    VPC_SUBNET,
-)
+#from mods_workflow_core.utils.constants import (
+#    PIPELINE_EXECUTION_TEMP_DIR,
+#    KMS_ENCRYPTION_KEY_PARAM,
+#    SECURITY_GROUP_ID,
+#    VPC_SUBNET,
+#)
+PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="PipelineExecutionTempDir", default_value="/tmp")
+KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMSEncryptionKey", default_value="")
+SECURITY_GROUP_ID = ParameterString(name="SecurityGroupId", default_value="")
+VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
+
 
 # Map JSON keys → Pydantic classes
 CONFIG_CLASSES = {

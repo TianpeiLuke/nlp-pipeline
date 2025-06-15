@@ -8,13 +8,17 @@ from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.pipeline_context import PipelineSession
 
-from mods_workflow_core.utils.constants import (
-    PIPELINE_EXECUTION_TEMP_DIR,
-    KMS_ENCRYPTION_KEY_PARAM,
-    PROCESSING_JOB_SHARED_NETWORK_CONFIG,
-    SECURITY_GROUP_ID,
-    VPC_SUBNET,
-)
+# Common parameters
+#from mods_workflow_core.utils.constants import (
+#    PIPELINE_EXECUTION_TEMP_DIR,
+#    KMS_ENCRYPTION_KEY_PARAM,
+#    SECURITY_GROUP_ID,
+#    VPC_SUBNET,
+#)
+PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="PipelineExecutionTempDir", default_value="/tmp")
+KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMSEncryptionKey", default_value="")
+SECURITY_GROUP_ID = ParameterString(name="SecurityGroupId", default_value="")
+VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
 
 
 from src.pipelines.utils import load_configs

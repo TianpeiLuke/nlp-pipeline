@@ -20,13 +20,18 @@ from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessing
 from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 
-# Common parameters (VPC, KMS, etc.)
-from mods_workflow_core.utils.constants import (
-    PIPELINE_EXECUTION_TEMP_DIR,
-    KMS_ENCRYPTION_KEY_PARAM,
-    SECURITY_GROUP_ID,
-    VPC_SUBNET,
-)
+# Common parameters
+#from mods_workflow_core.utils.constants import (
+#    PIPELINE_EXECUTION_TEMP_DIR,
+#    KMS_ENCRYPTION_KEY_PARAM,
+#    SECURITY_GROUP_ID,
+#    VPC_SUBNET,
+#)
+PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="PipelineExecutionTempDir", default_value="/tmp")
+KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMSEncryptionKey", default_value="")
+SECURITY_GROUP_ID = ParameterString(name="SecurityGroupId", default_value="")
+VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
+
 
 # Map JSON keys → Pydantic classes
 CONFIG_CLASSES = {
