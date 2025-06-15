@@ -309,7 +309,7 @@ class MDSXGBoostPipelineBuilder:
         temp_model_cfg = self.xgb_model_cfg.model_copy()
         temp_model_cfg.region = 'NA'
         temp_model_cfg.aws_region = 'us-east-1'
-        logger.info(f"Force Model Training in aws region: {temp_model_cfg.aws_region}")
+        logger.info(f"Force Model Creation in aws region: {temp_model_cfg.aws_region}")
 
         model_builder = XGBoostModelStepBuilder(config=temp_model_cfg, sagemaker_session=self.session, role=self.role)
         return model_builder.create_step(
