@@ -6,7 +6,8 @@ from torch.nn.utils.rnn import pad_sequence
 
 from src.processing.bsm_dataloader import build_collate_batch
 from src.processing.bsm_datasets import BSMDataset
-from src.processing.processors import (
+from src.processing.processors import Processor
+from src.processing.bsm_processor import (
     TextNormalizationProcessor, HTMLNormalizerProcessor, EmojiRemoverProcessor,
     DialogueSplitterProcessor, DialogueChunkerProcessor, Processor
 )
