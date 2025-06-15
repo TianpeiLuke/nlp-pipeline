@@ -86,7 +86,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
         )
 
         # Name the step using registry or fallback
-        step_name = f"BatchTransform-{self.config.job_type.capitalize()}"
+        step_name = f"{self._get_step_name('BatchTransform')}-{self.config.job_type.capitalize()}"
 
         transform_step = TransformStep(
             name=step_name,
