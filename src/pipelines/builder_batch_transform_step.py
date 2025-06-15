@@ -4,7 +4,7 @@ import logging
 
 from sagemaker.transformer import Transformer
 from sagemaker.workflow.steps import TransformStep, Step
-from sagemaker.workflow.transform import TransformInput
+from sagemaker.inputs import TransformInput
 from sagemaker.workflow.properties import Properties
 from sagemaker.workflow.pipeline_context import PipelineSession
 
