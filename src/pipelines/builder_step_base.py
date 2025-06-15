@@ -13,18 +13,19 @@ logger = logging.getLogger(__name__)
 
 
 STEP_NAMES = {
-    'Base': 'BaseStep',
-    'Processing': 'ProcessingStep',
-    'PytorchTraining': 'PytorchTrainingStep',
-    'XGBoostTraining': 'XGBoostTrainingStep',
-    'PytorchModel': 'CreatePytorchModelStep',
-    'XGBoostModel': 'CreateXGBoostModelStep',
-    'Package': 'PackagingStep',
-    'Payload': 'PayloadTestStep',
-    'Registration': 'RegistrationStep',
+    'Base':                 'BaseStep',
+    'Processing':           'ProcessingStep',
+    'PytorchTraining':      'PytorchTrainingStep',
+    'XGBoostTraining':      'XGBoostTrainingStep',
+    'PytorchModel':         'CreatePytorchModelStep',
+    'XGBoostModel':         'CreateXGBoostModelStep',
+    'Package':              'PackagingStep',
+    'Payload':              'PayloadTestStep',
+    'Registration':         'RegistrationStep',
     'TabularPreprocessing': 'TabularPreprocessingStep',
-    'CurrencyConversion': 'CurrencyConversionStep',
-    'CradleDataLoading': 'CradleDataLoadingStep',
+    'CurrencyConversion':   'CurrencyConversionStep',
+    'CradleDataLoading':    'CradleDataLoadingStep',
+    'BatchTransform':       'BatchTransformStep'
     }
 
 

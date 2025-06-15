@@ -5,18 +5,19 @@ import json
 from datetime import datetime
 
 STEP_REGISTRY = {
-        'BasePipelineConfig': 'Base',
-        'PytorchTrainingConfig': 'PytorchTraining',
+        'BasePipelineConfig':         'Base',
+        'PytorchTrainingConfig':      'PytorchTraining',
         'PytorchModelCreationConfig': 'PytorchModel',
-        'XGBoostTrainingConfig': 'XGBoostTraining',
+        'XGBoostTrainingConfig':      'XGBoostTraining',
         'XGBoostModelCreationConfig': 'XGBoostModel',
-        'ProcessingStepConfigBase': 'Processing',
-        'PackageStepConfig': 'Package',
-        'ModelRegistrationConfig': 'Registration',
-        'PayloadConfig': 'Payload',
+        'ProcessingStepConfigBase':   'Processing',
+        'PackageStepConfig':          'Package',
+        'ModelRegistrationConfig':    'Registration',
+        'PayloadConfig':              'Payload',
         'TabularPreprocessingConfig': 'TabularPreprocessing',
-        'CurrencyConversionConfig': 'CurrencyConversion',
-        'CradleDataLoadConfig': 'CradleDataLoading',
+        'CurrencyConversionConfig':   'CurrencyConversion',
+        'CradleDataLoadConfig':       'CradleDataLoading',
+        'BatchTransformStepConfig':   'BatchTransform',
     }
 
 
