@@ -25,7 +25,9 @@ STEP_NAMES = {
     'TabularPreprocessing': 'TabularPreprocessingStep',
     'CurrencyConversion':   'CurrencyConversionStep',
     'CradleDataLoading':    'CradleDataLoadingStep',
-    'BatchTransform':       'BatchTransformStep'
+    'BatchTransform':       'BatchTransformStep',
+    'XGBoostModelEval':     'XGBoostModelEvaluationStep',
+    'PytorchModelEval':     'PytorchModelEvaluationStep',
     }
 
 

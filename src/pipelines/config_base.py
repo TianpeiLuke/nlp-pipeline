@@ -18,6 +18,8 @@ STEP_REGISTRY = {
         'CurrencyConversionConfig':   'CurrencyConversion',
         'CradleDataLoadConfig':       'CradleDataLoading',
         'BatchTransformStepConfig':   'BatchTransform',
+        'XGBoostModelEvalConfig':     'XGBoostModelEval',
+        'PytorchModelEvalConfig':     'PytorchModelEval',
     }
 
 
