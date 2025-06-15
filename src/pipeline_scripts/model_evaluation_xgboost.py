@@ -9,8 +9,8 @@ from sklearn.metrics import roc_auc_score, average_precision_score, precision_re
 import xgboost as xgb
 import matplotlib.pyplot as plt
 
-from processing.risk_table_processor import RiskTableMappingProcessor
-from processing.numerical_imputation_processor import NumericalVariableImputationProcessor
+from ..processing.risk_table_processor import RiskTableMappingProcessor
+from ..processing.numerical_imputation_processor import NumericalVariableImputationProcessor
 
 import logging
 
