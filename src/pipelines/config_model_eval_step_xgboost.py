@@ -27,13 +27,11 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         "metrics_output": "Output name for evaluation metrics"
     }
 
-    # Add job_type to allow evaluation on different splits (e.g., 'training', 'calibration')
     job_type: str = Field(
         default="calibration",
         description="Which split to evaluate on (e.g., 'training', 'calibration', 'validation', 'test')."
     )
 
-    # Use the base hyperparameters config for all label/field info
     hyperparameters: ModelHyperparameters = Field(
         ...,
         description="Model hyperparameters config, including id_name, label_name, field lists, etc."
@@ -42,6 +40,12 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     eval_metric_choices: Optional[list] = Field(
         default_factory=lambda: ["auc", "average_precision", "f1_score"],
         description="List of evaluation metrics to compute"
+    )
+
+    # XGBoost specific fields
+    xgboost_framework_version: str = Field(
+        default="1.5-1",
+        description="XGBoost framework version for processing"
     )
 
     class Config(ProcessingStepConfigBase.Config):
@@ -53,32 +57,20 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         if not self.processing_entry_point:
             raise ValueError("evaluation step requires a processing_entry_point")
             
-        # Validate job_type
         valid_job_types = {"training", "calibration", "validation", "test"}
         if self.job_type not in valid_job_types:
             raise ValueError(f"job_type must be one of {valid_job_types}, got '{self.job_type}'")
         
-        # Validate hyperparameters
         if not isinstance(self.hyperparameters, ModelHyperparameters):
             raise ValueError("hyperparameters must be an instance of ModelHyperparameters")
             
         return self
 
     def get_input_names(self) -> Dict[str, str]:
-        """
-        Get the fixed input channel names and descriptions.
-        """
         return self.INPUT_CHANNELS
 
     def get_output_names(self) -> Dict[str, str]:
-        """
-        Get the fixed output channel names and descriptions.
-        """
         return self.OUTPUT_CHANNELS
 
     def get_script_path(self) -> str:
-        """
-        Get the full path to the processing script.
-        """
         return super().get_script_path() or self.processing_entry_point
-

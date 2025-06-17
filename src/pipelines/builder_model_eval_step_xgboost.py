@@ -3,7 +3,7 @@ from pathlib import Path
 import logging
 
 from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.sklearn import SKLearnProcessor
+from sagemaker.xgboost import XGBoostProcessor
 from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.properties import Properties
@@ -38,7 +38,6 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         self.config: XGBoostModelEvalConfig = config
 
     def validate_configuration(self) -> None:
-        """Validate required configuration settings for model evaluation."""
         logger.info(f"Running {self.__class__.__name__} specific configuration validation.")
         
         required_attrs = [
@@ -47,15 +46,14 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             'processing_volume_size',
             'pipeline_name',
             'job_type',
-            'hyperparameters'
+            'hyperparameters',
+            'xgboost_framework_version'
         ]
         
-        # Validate required attributes
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"XGBoostModelEvalConfig missing required attribute: {attr}")
 
-        # Validate input/output names
         input_names = self.config.get_input_names()
         output_names = self.config.get_output_names()
         
@@ -71,7 +69,6 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         logger.info(f"{self.__class__.__name__} configuration validation passed.")
         
     def _get_environment_variables(self) -> Dict[str, str]:
-        # Use id_name and label_name from hyperparameters
         env_vars = {
             "ID_FIELD": str(self.config.hyperparameters.id_name),
             "LABEL_FIELD": str(self.config.hyperparameters.label_name),
@@ -79,8 +76,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         logger.info(f"Evaluation environment variables: {env_vars}")
         return env_vars
 
-    def _create_processor(self) -> SKLearnProcessor:
-        """Create SKLearn processor for model evaluation."""
+    def _create_processor(self) -> XGBoostProcessor:
+        """Create XGBoost processor for model evaluation."""
         instance_type = self.config.get_instance_type(
             'large' if self.config.use_large_processing_instance else 'small'
         )
@@ -88,8 +85,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
         base_job_name_prefix = self._sanitize_name_for_sagemaker(self.config.pipeline_name, 30)
 
-        return SKLearnProcessor(
-            framework_version=self.config.processing_framework_version,
+        return XGBoostProcessor(
+            framework_version=self.config.xgboost_framework_version,
             role=self.role,
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
@@ -100,14 +97,11 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         )
 
     def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
-        """Get processor inputs."""
-        # Use fixed input channels from config
         required_inputs = self.config.INPUT_CHANNELS.keys()
         
         if not inputs or not all(k in inputs for k in required_inputs):
             raise ValueError(f"Must supply S3 URIs for all required inputs: {required_inputs}")
 
-        # Map input channels to container destinations
         input_destinations = {
             "model_input": "/opt/ml/processing/input/model",
             "eval_data_input": "/opt/ml/processing/input/eval_data",
@@ -124,14 +118,11 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         ]
 
     def _get_processing_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        """Get processor outputs."""
-        # Use fixed output channels from config
         required_outputs = self.config.OUTPUT_CHANNELS.keys()
         
         if not outputs or not all(k in outputs for k in required_outputs):
             raise ValueError(f"Must supply S3 URIs for all required outputs: {required_outputs}")
 
-        # Map output channels to container sources
         output_sources = {
             "eval_output": "/opt/ml/processing/output/eval",
             "metrics_output": "/opt/ml/processing/output/metrics"
@@ -147,11 +138,9 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         ]
 
     def _get_job_arguments(self) -> List[str]:
-        """Get job arguments for the processing step."""
         return ["--job_type", self.config.job_type]
 
     def _get_cache_config(self, enable_caching: bool = True) -> Optional[CacheConfig]:
-        """Get cache configuration for the step."""
         if not enable_caching:
             return None
         return CacheConfig(
@@ -166,18 +155,6 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         dependencies: Optional[List[Step]] = None,
         enable_caching: bool = True
     ) -> ProcessingStep:
-        """
-        Creates a ProcessingStep for model evaluation.
-        
-        Args:
-            inputs: Dictionary containing input sources
-            outputs: Dictionary containing output destinations
-            dependencies: Optional list of step dependencies
-            enable_caching: Whether to enable step caching
-            
-        Returns:
-            ProcessingStep object
-        """
         logger.info("Creating XGBoost Model Evaluation ProcessingStep...")
 
         processor = self._create_processor()
