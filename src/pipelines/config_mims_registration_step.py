@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 from typing import Union, Optional, Dict, List, Any
 from enum import Enum
 from datetime import datetime
+from pathlib import Path
 
 from .config_base import BasePipelineConfig
 
@@ -25,6 +26,22 @@ class VariableType(str, Enum):
     
 class ModelRegistrationConfig(BasePipelineConfig):
     """Configuration for model registration step."""
+    
+    # Framework related fields
+    framework: str = Field(
+        default="xgboost",
+        description="ML framework used for the model"
+    )
+    
+    # Inference related fields
+    inference_instance_type: str = Field(
+        default='ml.m5.large', 
+        description="Instance type for inference endpoint/transform job"
+    )
+    inference_entry_point: str = Field(
+        default='inference.py', 
+        description="Entry point script for inference"
+    )
     
     # Model registration specific fields
     model_owner: str = Field(
@@ -72,6 +89,38 @@ class ModelRegistrationConfig(BasePipelineConfig):
         json_encoders = {
             VariableType: lambda v: v.value
         }
+        
+    @field_validator('inference_instance_type')
+    @classmethod
+    def validate_inference_instance_type(cls, v: str) -> str:
+        """Validate the inference instance type"""
+        if not v.startswith('ml.'):
+            raise ValueError(f"Invalid inference instance type: {v}. Must start with 'ml.'")
+        return v
+
+    @field_validator('framework')
+    @classmethod
+    def validate_framework(cls, v: str) -> str:
+        """Validate the ML framework"""
+        valid_frameworks = ['xgboost', 'sklearn', 'pytorch', 'tensorflow']
+        if v.lower() not in valid_frameworks:
+            raise ValueError(f"Framework must be one of {valid_frameworks}")
+        return v.lower()
+
+    @model_validator(mode='after')
+    def validate_registration_configs(self) -> 'ModelRegistrationConfig':
+        """Validate registration-specific configurations"""
+        # Existing validation
+        if not self.model_registration_objective:
+            raise ValueError("model_registration_objective must be provided")
+        
+        # New validation for entry point
+        if self.source_dir and not self.source_dir.startswith('s3://'):
+            entry_point_path = Path(self.source_dir) / self.inference_entry_point
+            if not entry_point_path.exists():
+                raise ValueError(f"Inference entry point script not found: {entry_point_path}")
+        
+        return self
 
     @field_validator('source_model_inference_content_types', 'source_model_inference_response_types')
     @classmethod
@@ -159,14 +208,6 @@ class ModelRegistrationConfig(BasePipelineConfig):
                 raise ValueError(f"Value must be either 'NUMERIC' or 'TEXT', got: {value}")
     
         return result
-
-    @model_validator(mode='after')
-    def validate_registration_configs(self) -> 'ModelRegistrationConfig':
-        """Validate registration-specific configurations"""
-        if not self.model_registration_objective:
-            raise ValueError("model_registration_objective must be provided")
-        
-        return self
         
     def get_registration_job_name(self) -> str:
         """Generate a unique registration job name"""
@@ -219,14 +260,13 @@ class ModelRegistrationConfig(BasePipelineConfig):
         """Custom serialization"""
         data = super().model_dump(**kwargs)
         
-        # Convert enums to strings in output variable list
+        # Existing serialization logic...
         if 'source_model_inference_output_variable_list' in data:
             data['source_model_inference_output_variable_list'] = {
                 k: v.value if isinstance(v, VariableType) else v
                 for k, v in data['source_model_inference_output_variable_list'].items()
             }
         
-        # Handle input variable list in either format
         if 'source_model_inference_input_variable_list' in data:
             input_vars = data['source_model_inference_input_variable_list']
             if isinstance(input_vars, dict):
@@ -234,6 +274,5 @@ class ModelRegistrationConfig(BasePipelineConfig):
                     k: v.value if isinstance(v, VariableType) else v
                     for k, v in input_vars.items()
                 }
-            # List format doesn't need conversion as it's already strings
             
         return data
