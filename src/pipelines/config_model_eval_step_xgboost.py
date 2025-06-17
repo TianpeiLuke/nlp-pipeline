@@ -1,5 +1,5 @@
 from pydantic import Field, model_validator
-from typing import Optional, Dict
+from typing import Optional, Dict, ClassVar
 
 from .config_processing_step_base import ProcessingStepConfigBase
 from .hyperparameters_base import ModelHyperparameters
@@ -16,14 +16,16 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     )
 
     # Input/output names for evaluation with defaults
-    input_names: Optional[Dict[str, str]] = Field(
-        default=None,
-        description="Dictionary mapping input names to their descriptions. If None, defaults will be used."
-    )
-    output_names: Optional[Dict[str, str]] = Field(
-        default=None,
-        description="Dictionary mapping output names to their descriptions. If None, defaults will be used."
-    )
+    INPUT_CHANNELS: ClassVar[Dict[str, str]] = {
+        "model_input": "Model artifacts input",
+        "eval_data_input": "Evaluation data input",
+        "code_input": "Processing code input"
+    }
+
+    OUTPUT_CHANNELS: ClassVar[Dict[str, str]] = {
+        "eval_output": "Output name for evaluation predictions",
+        "metrics_output": "Output name for evaluation metrics"
+    }
 
     # Add job_type to allow evaluation on different splits (e.g., 'training', 'calibration')
     job_type: str = Field(
@@ -50,30 +52,6 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         """Additional validation specific to evaluation configuration"""
         if not self.processing_entry_point:
             raise ValueError("evaluation step requires a processing_entry_point")
-        
-        # Set default input names if not provided
-        if self.input_names is None:
-            self.input_names = {
-                "model_input": "Input name for model artifacts",
-                "eval_data_input": "Input name for evaluation data"
-            }
-        
-        # Set default output names if not provided
-        if self.output_names is None:
-            self.output_names = {
-                "eval_output": "Output name for evaluation predictions",
-                "metrics_output": "Output name for evaluation metrics"
-            }
-        
-        # Validate required input/output names
-        required_inputs = {"model_input", "eval_data_input"}
-        required_outputs = {"eval_output", "metrics_output"}
-        
-        if not all(name in self.input_names for name in required_inputs):
-            raise ValueError(f"Missing required input names: {required_inputs - set(self.input_names.keys())}")
-        
-        if not all(name in self.output_names for name in required_outputs):
-            raise ValueError(f"Missing required output names: {required_outputs - set(self.output_names.keys())}")
             
         # Validate job_type
         valid_job_types = {"training", "calibration", "validation", "test"}
@@ -88,18 +66,19 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
 
     def get_input_names(self) -> Dict[str, str]:
         """
-        Get the input names, using defaults if not set.
+        Get the fixed input channel names and descriptions.
         """
-        return self.input_names or {
-            "model_input": "Input name for model artifacts",
-            "eval_data_input": "Input name for evaluation data"
-        }
+        return self.INPUT_CHANNELS
 
     def get_output_names(self) -> Dict[str, str]:
         """
-        Get the output names, using defaults if not set.
+        Get the fixed output channel names and descriptions.
         """
-        return self.output_names or {
-            "eval_output": "Output name for evaluation predictions",
-            "metrics_output": "Output name for evaluation metrics"
-        }
+        return self.OUTPUT_CHANNELS
+
+    def get_script_path(self) -> str:
+        """
+        Get the full path to the processing script.
+        """
+        return super().get_script_path() or self.processing_entry_point
+
