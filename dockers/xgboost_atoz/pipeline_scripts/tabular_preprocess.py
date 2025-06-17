@@ -148,10 +148,7 @@ def main(job_type: str, label_field: str, train_ratio: float, test_val_ratio: fl
         subfolder = output_path / split_name
         subfolder.mkdir(exist_ok=True)
         
-        full_path = subfolder / f"{split_name}_full_data.csv"
-        split_df.to_csv(full_path, index=False)
-        print(f"[INFO] Saved {full_path} (shape={split_df.shape})")
-
+        # Only output processed_data.csv
         proc_path = subfolder / f"{split_name}_processed_data.csv"
         split_df.to_csv(proc_path, index=False)
         print(f"[INFO] Saved {proc_path} (shape={split_df.shape})")

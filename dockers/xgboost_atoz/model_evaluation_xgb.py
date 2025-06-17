@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 import argparse
 import pandas as pd
 import numpy as np
@@ -8,14 +9,61 @@ from pathlib import Path
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, roc_curve, f1_score
 import xgboost as xgb
 import matplotlib.pyplot as plt
-
-from processing.risk_table_processor import RiskTableMappingProcessor
-from processing.numerical_imputation_processor import NumericalVariableImputationProcessor
-
 import logging
 
+# Setup logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Define constants for paths
+CODE_DIR = '/opt/ml/processing/input/code'
+SOURCECODE_DIR = '/opt/ml/processing/input/sourcecode'
+MODEL_DIR = '/opt/ml/processing/input/model'
+DATA_DIR = '/opt/ml/processing/input/data'
+EVAL_OUTPUT_DIR = '/opt/ml/processing/output/eval'
+METRICS_OUTPUT_DIR = '/opt/ml/processing/output/metrics'
+
+# Add the code directories to Python path
+sys.path.append(CODE_DIR)
+sys.path.append(SOURCECODE_DIR)
+logger.info(f"Added {CODE_DIR} and {SOURCECODE_DIR} to Python path")
+
+# Now import from the processing package
+try:
+    from processing.risk_table_processor import RiskTableMappingProcessor
+    from processing.numerical_imputation_processor import NumericalVariableImputationProcessor
+    logger.info("Successfully imported processing modules")
+except ImportError as e:
+    logger.error(f"Failed to import processing modules: {e}")
+    logger.error(f"Current PYTHONPATH: {sys.path}")
+    raise
+
+    
+def validate_environment():
+    """Validate the processing environment setup."""
+    logger.info("Validating processing environment")
+    
+    # Validate directories
+    required_dirs = {
+        'code': CODE_DIR,
+        'sourcecode': SOURCECODE_DIR,
+        'model': MODEL_DIR,
+        'data': DATA_DIR,
+        'output_eval': EVAL_OUTPUT_DIR,
+        'output_metrics': METRICS_OUTPUT_DIR
+    }
+
+    for name, path in required_dirs.items():
+        if not os.path.exists(path):
+            raise RuntimeError(f"Required directory {name} ({path}) does not exist")
+        logger.info(f"Validated {name} directory: {path}")
+
+    # Validate processing package
+    processing_dir = os.path.join(SOURCECODE_DIR, 'processing')
+    if not os.path.exists(processing_dir):
+        raise RuntimeError(f"Processing package not found in {processing_dir}")
+    logger.info(f"Validated processing package at {processing_dir}")
+
 
 def load_model_artifacts(model_dir):
     """
@@ -81,6 +129,7 @@ def compute_metrics_binary(y_true, y_prob):
     logger.info(f"Binary metrics: {metrics}")
     return metrics
 
+
 def compute_metrics_multiclass(y_true, y_prob, n_classes):
     """
     Compute multiclass metrics: one-vs-rest AUC-ROC, average precision, F1 for each class,
@@ -123,6 +172,7 @@ def load_eval_data(eval_data_dir):
     logger.info(f"Loaded eval data shape: {df.shape}")
     return df
 
+
 def get_id_label_columns(df, id_field, label_field):
     """
     Determine the ID and label columns in the DataFrame.
@@ -132,6 +182,7 @@ def get_id_label_columns(df, id_field, label_field):
     label_col = label_field if label_field in df.columns else df.columns[1]
     logger.info(f"Using id_col: {id_col}, label_col: {label_col}")
     return id_col, label_col
+
 
 def save_predictions(ids, y_true, y_prob, id_col, label_col, output_eval_dir):
     """
@@ -146,6 +197,7 @@ def save_predictions(ids, y_true, y_prob, id_col, label_col, output_eval_dir):
     out_df.to_csv(out_path, index=False)
     logger.info(f"Saved predictions to {out_path}")
 
+
 def save_metrics(metrics, output_metrics_dir):
     """
     Save computed metrics as a JSON file.
@@ -154,6 +206,7 @@ def save_metrics(metrics, output_metrics_dir):
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
     logger.info(f"Saved metrics to {out_path}")
+
 
 def plot_and_save_roc_curve(y_true, y_score, output_dir, prefix=""):
     """
@@ -173,6 +226,7 @@ def plot_and_save_roc_curve(y_true, y_score, output_dir, prefix=""):
     plt.close()
     logger.info(f"Saved ROC curve to {out_path}")
 
+
 def plot_and_save_pr_curve(y_true, y_score, output_dir, prefix=""):
     """
     Plot Precision-Recall curve and save as JPG.
@@ -189,6 +243,7 @@ def plot_and_save_pr_curve(y_true, y_score, output_dir, prefix=""):
     plt.savefig(out_path, format="jpg")
     plt.close()
     logger.info(f"Saved PR curve to {out_path}")
+
 
 def evaluate_model(model, df, feature_columns, id_col, label_col, hyperparams, output_eval_dir, output_metrics_dir):
     """
@@ -226,7 +281,12 @@ def evaluate_model(model, df, feature_columns, id_col, label_col, hyperparams, o
     save_metrics(metrics, output_metrics_dir)
     logger.info("Evaluation complete")
 
+
 def main():
+    """
+    Main entry point for XGBoost model evaluation script.
+    Loads model and data, runs evaluation, and saves results.
+    """
     """
     Main entry point for XGBoost model evaluation script.
     Loads model and data, runs evaluation, and saves results.
@@ -235,26 +295,39 @@ def main():
     parser.add_argument("--job_type", type=str, required=True)
     args = parser.parse_args()
 
+    logger.info(f"Starting model evaluation for job type: {args.job_type}")
+    
+    # Validate environment setup
+    validate_environment()
+
     ID_FIELD = os.environ.get("ID_FIELD", "id")
     LABEL_FIELD = os.environ.get("LABEL_FIELD", "label")
 
-    model_dir = "/opt/ml/processing/input/model"
-    eval_data_dir = "/opt/ml/processing/input/eval_data"
-    output_eval_dir = "/opt/ml/processing/output/eval"
-    output_metrics_dir = "/opt/ml/processing/output/metrics"
-    os.makedirs(output_eval_dir, exist_ok=True)
-    os.makedirs(output_metrics_dir, exist_ok=True)
-
-    logger.info("Starting model evaluation script")
-    model, risk_tables, impute_dict, feature_columns, hyperparams = load_model_artifacts(model_dir)
-    df = load_eval_data(eval_data_dir)
-    df = preprocess_eval_data(df, feature_columns, risk_tables, impute_dict)
-    df = df[[col for col in feature_columns if col in df.columns]]
-    id_col, label_col = get_id_label_columns(df, ID_FIELD, LABEL_FIELD)
-    evaluate_model(
-        model, df, feature_columns, id_col, label_col, hyperparams, output_eval_dir, output_metrics_dir
-    )
-    logger.info("Model evaluation script complete")
+    try:
+        logger.info("Loading model artifacts")
+        model, risk_tables, impute_dict, feature_columns, hyperparams = load_model_artifacts(MODEL_DIR)
+        
+        logger.info("Loading and preprocessing evaluation data")
+        df = load_eval_data(DATA_DIR)
+        df = preprocess_eval_data(df, feature_columns, risk_tables, impute_dict)
+        df = df[[col for col in feature_columns if col in df.columns]]
+        
+        logger.info("Running model evaluation")
+        id_col, label_col = get_id_label_columns(df, ID_FIELD, LABEL_FIELD)
+        evaluate_model(
+            model, df, feature_columns, id_col, label_col, hyperparams, 
+            EVAL_OUTPUT_DIR, METRICS_OUTPUT_DIR
+        )
+        
+        logger.info("Model evaluation completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error during model evaluation: {e}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.error(f"Fatal error in main: {e}", exc_info=True)
+        sys.exit(1)
