@@ -277,24 +277,31 @@ def evaluate_model(model, df, feature_columns, id_col, label_col, hyperparams, o
     dmatrix = xgb.DMatrix(X)
     y_prob = model.predict(dmatrix)
     logger.info(f"Model prediction shape: {y_prob.shape}")
+    
     if len(y_prob.shape) == 1:
         y_prob = np.column_stack([1 - y_prob, y_prob])
         logger.info("Converted binary prediction to two-column probabilities")
-
-    if hyperparams.get("is_binary", True) or y_prob.shape[1] == 2:
+        
+    # FIX: Determine the classification type from the model's saved hyperparameters,
+    # which is the definitive source of truth.
+    is_binary_model = hyperparams.get("is_binary", True)
+    
+    if is_binary_model:
+        logger.info("Detected binary classification task based on model hyperparameters.")
+        # Ensure y_true is also binary (0 or 1) for consistent metric calculation
+        y_true = (y_true > 0).astype(int)
         metrics = compute_metrics_binary(y_true, y_prob)
-        # Plot ROC and PR curves for binary
         plot_and_save_roc_curve(y_true, y_prob[:, 1], output_metrics_dir)
         plot_and_save_pr_curve(y_true, y_prob[:, 1], output_metrics_dir)
     else:
         n_classes = y_prob.shape[1]
+        logger.info(f"Detected multiclass classification task with {n_classes} classes.")
         metrics = compute_metrics_multiclass(y_true, y_prob, n_classes)
-        # For multiclass: plot ROC/PR for each class (one-vs-rest) and micro/macro
         for i in range(n_classes):
             y_true_bin = (y_true == i).astype(int)
-            plot_and_save_roc_curve(y_true_bin, y_prob[:, i], output_metrics_dir, prefix=f"class_{i}_")
-            plot_and_save_pr_curve(y_true_bin, y_prob[:, i], output_metrics_dir, prefix=f"class_{i}_")
-        # Optionally, plot micro/macro average ROC/PR if desired
+            if len(np.unique(y_true_bin)) > 1:
+                plot_and_save_roc_curve(y_true_bin, y_prob[:, i], output_metrics_dir, prefix=f"class_{i}_")
+                plot_and_save_pr_curve(y_true_bin, y_prob[:, i], output_metrics_dir, prefix=f"class_{i}_")
 
     save_predictions(ids, y_true, y_prob, id_col, label_col, output_eval_dir)
     save_metrics(metrics, output_metrics_dir)
