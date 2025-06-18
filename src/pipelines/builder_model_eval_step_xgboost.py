@@ -177,6 +177,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         )
         
         step_name = f"{self._get_step_name('XGBoostModelEval')}-{self.config.job_type.capitalize()}"
+        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
 
         return ProcessingStep(
             name=step_name,
