@@ -58,7 +58,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         input_names = self.config.get_input_names()
         output_names = self.config.get_output_names()
         
-        required_inputs = {"model_input", "eval_data_input"} #, "code_input"}
+        required_inputs = {"model_input", "eval_data_input"}
         required_outputs = {"eval_output", "metrics_output"}
         
         if not all(name in input_names for name in required_inputs):
@@ -109,7 +109,6 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         input_destinations = {
             "model_input": "/opt/ml/processing/input/model",
             "eval_data_input": "/opt/ml/processing/input/eval_data",
-            #"code_input": "/opt/ml/processing/input/sourcecode"
         }
 
         return [
