@@ -1,6 +1,77 @@
 import os
-import json
 import sys
+
+from subprocess import check_call
+import boto3
+
+
+def _get_secure_pypi_access_tokens() -> str:
+    os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
+    sts = boto3.client("sts", region_name="us-east-1")
+    caller_identity = sts.get_caller_identity()
+    assumed_role_object = sts.assume_role(
+        RoleArn="arn:aws:iam::675292366480:role/SecurePyPIReadRole_" + caller_identity["Account"],
+        RoleSessionName="SecurePypiReadRole",
+    )
+    credentials = assumed_role_object["Credentials"]
+    code_artifact_client = boto3.client(
+        "codeartifact",
+        aws_access_key_id=credentials["AccessKeyId"],
+        aws_secret_access_key=credentials["SecretAccessKey"],
+        aws_session_token=credentials["SessionToken"],
+        region_name="us-west-2",
+    )
+    token = code_artifact_client.get_authorization_token(
+        domain="amazon", domainOwner="149122183214"
+    )["authorizationToken"]
+
+    return token
+
+
+def install_requirements(path: str = "requirements.txt") -> None:
+    token = _get_secure_pypi_access_tokens()
+    check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--index-url",
+            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+            "-r",
+            path,
+        ]
+    )
+
+
+def install_requirements_single(package: str = "numpy") -> None:
+    token = _get_secure_pypi_access_tokens()
+    check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--index-url",
+            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+            package,
+        ]
+    )
+
+
+# Install required packages
+required_packages = [
+    "scikit-learn>=0.23.2,<1.0.0",
+    "pandas>=1.2.0,<2.0.0",
+    "pydantic>=2.0.0,<3.0.0"
+]
+
+for package in required_packages:
+    install_requirements_single(package)
+print("***********************Package Installed*********************")
+
+
+import json
 import argparse
 import pandas as pd
 import numpy as np
@@ -16,17 +87,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define constants for paths
-CODE_DIR = '/opt/ml/processing/input/code'
-SOURCECODE_DIR = '/opt/ml/processing/input/sourcecode'
-MODEL_DIR = '/opt/ml/processing/input/model'
-DATA_DIR = '/opt/ml/processing/input/data'
-EVAL_OUTPUT_DIR = '/opt/ml/processing/output/eval'
-METRICS_OUTPUT_DIR = '/opt/ml/processing/output/metrics'
+SOURCECODE_DIR = '/opt/ml/processing/input/code'   # This is correct
+MODEL_DIR = '/opt/ml/processing/input/model'  # This is correct
+DATA_DIR = '/opt/ml/processing/input/eval_data'  # Changed from 'data' to 'eval_data'
+EVAL_OUTPUT_DIR = '/opt/ml/processing/output/eval'  # This is correct
+METRICS_OUTPUT_DIR = '/opt/ml/processing/output/metrics'  # This is correct
 
 # Add the code directories to Python path
-sys.path.append(CODE_DIR)
 sys.path.append(SOURCECODE_DIR)
-logger.info(f"Added {CODE_DIR} and {SOURCECODE_DIR} to Python path")
+logger.info(f"Added {SOURCECODE_DIR} to Python path")
 
 # Now import from the processing package
 try:
@@ -38,17 +107,16 @@ except ImportError as e:
     logger.error(f"Current PYTHONPATH: {sys.path}")
     raise
 
-    
+
 def validate_environment():
     """Validate the processing environment setup."""
     logger.info("Validating processing environment")
     
     # Validate directories
     required_dirs = {
-        'code': CODE_DIR,
         'sourcecode': SOURCECODE_DIR,
         'model': MODEL_DIR,
-        'data': DATA_DIR,
+        'eval_data': DATA_DIR,
         'output_eval': EVAL_OUTPUT_DIR,
         'output_metrics': METRICS_OUTPUT_DIR
     }
@@ -65,12 +133,30 @@ def validate_environment():
     logger.info(f"Validated processing package at {processing_dir}")
 
 
+def decompress_model_artifacts(model_dir: str):
+    """
+    Checks for a model.tar.gz file in the model directory and extracts it.
+    """
+    model_tar_path = Path(model_dir) / "model.tar.gz"
+    if model_tar_path.exists():
+        logger.info(f"Found model.tar.gz at {model_tar_path}. Extracting...")
+        with tarfile.open(model_tar_path, "r:gz") as tar:
+            tar.extractall(path=model_dir)
+        logger.info("Extraction complete.")
+    else:
+        logger.info("No model.tar.gz found. Assuming artifacts are directly available.")
+
+
 def load_model_artifacts(model_dir):
     """
     Load the trained XGBoost model and all preprocessing artifacts from the specified directory.
     Returns model, risk_tables, impute_dict, feature_columns, and hyperparameters.
     """
     logger.info(f"Loading model artifacts from {model_dir}")
+    
+    # Decompress the model tarball if it exists.
+    decompress_model_artifacts(model_dir)
+    
     model = xgb.Booster()
     model.load_model(os.path.join(model_dir, "xgboost_model.bst"))
     logger.info("Loaded xgboost_model.bst")
@@ -87,6 +173,7 @@ def load_model_artifacts(model_dir):
         hyperparams = json.load(f)
     logger.info("Loaded hyperparameters.json")
     return model, risk_tables, impute_dict, feature_columns, hyperparams
+
 
 def preprocess_eval_data(df, feature_columns, risk_tables, impute_dict):
     """
@@ -114,6 +201,7 @@ def preprocess_eval_data(df, feature_columns, risk_tables, impute_dict):
     df = df[[col for col in feature_columns if col in df.columns]]
     logger.info(f"Preprocessed eval data shape: {df.shape}")
     return df
+
 
 def compute_metrics_binary(y_true, y_prob):
     """
@@ -308,7 +396,7 @@ def main():
         model, risk_tables, impute_dict, feature_columns, hyperparams = load_model_artifacts(MODEL_DIR)
         
         logger.info("Loading and preprocessing evaluation data")
-        df = load_eval_data(DATA_DIR)
+        df = load_eval_data(DATA_DIR)  # This now points to /opt/ml/processing/input/eval_data
         df = preprocess_eval_data(df, feature_columns, risk_tables, impute_dict)
         df = df[[col for col in feature_columns if col in df.columns]]
         

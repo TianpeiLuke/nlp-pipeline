@@ -19,7 +19,7 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     INPUT_CHANNELS: ClassVar[Dict[str, str]] = {
         "model_input": "Model artifacts input",
         "eval_data_input": "Evaluation data input",
-        "code_input": "Processing code input"
+        #"code_input": "Processing code input"
     }
 
     OUTPUT_CHANNELS: ClassVar[Dict[str, str]] = {

@@ -42,6 +42,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         
         required_attrs = [
             'processing_entry_point',
+            'processing_source_dir',
             'processing_instance_count', 
             'processing_volume_size',
             'pipeline_name',
@@ -57,7 +58,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         input_names = self.config.get_input_names()
         output_names = self.config.get_output_names()
         
-        required_inputs = {"model_input", "eval_data_input", "code_input"}
+        required_inputs = {"model_input", "eval_data_input"} #, "code_input"}
         required_outputs = {"eval_output", "metrics_output"}
         
         if not all(name in input_names for name in required_inputs):
@@ -84,6 +85,9 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         logger.info(f"Using processing instance type for evaluation: {instance_type}")
 
         base_job_name_prefix = self._sanitize_name_for_sagemaker(self.config.pipeline_name, 30)
+        
+        # Create a command that will run the entry point from within the package
+        # Construct the command to run the entry point script from the source directory
 
         return XGBoostProcessor(
             framework_version=self.config.xgboost_framework_version,
@@ -93,7 +97,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             volume_size_in_gb=self.config.processing_volume_size,
             sagemaker_session=self.session,
             base_job_name=f"{base_job_name_prefix}-xgb-eval",
-            env=self._get_environment_variables()
+            env=self._get_environment_variables(),
         )
 
     def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
@@ -105,7 +109,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         input_destinations = {
             "model_input": "/opt/ml/processing/input/model",
             "eval_data_input": "/opt/ml/processing/input/eval_data",
-            "code_input": "/opt/ml/processing/input/sourcecode"
+            #"code_input": "/opt/ml/processing/input/sourcecode"
         }
 
         return [
@@ -139,7 +143,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
     def _get_job_arguments(self) -> List[str]:
         return ["--job_type", self.config.job_type]
-
+    
     def _get_cache_config(self, enable_caching: bool = True) -> Optional[CacheConfig]:
         if not enable_caching:
             return None
@@ -162,15 +166,22 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         proc_outputs = self._get_processing_outputs(outputs)
         job_args = self._get_job_arguments()
 
-        step_name = f"{self._get_step_name('XGBoostModelEval')}-{self.config.job_type.capitalize()}"
-
-        processing_step = ProcessingStep(
-            name=step_name,
-            processor=processor,
+        # FIX: The processor's `.run()` method is called to correctly package the code,
+        # entrypoint, and dependencies. The output of this call (`step_args`) is then passed
+        # to the ProcessingStep.
+        step_args = processor.run(
+            code=self.config.processing_entry_point, #self.config.get_script_path(),
+            source_dir=self.config.processing_source_dir, # This is the crucial part
             inputs=proc_inputs,
             outputs=proc_outputs,
-            code=self.config.get_script_path(),
-            job_arguments=job_args,
+            arguments=job_args,
+        )
+        
+        step_name = f"{self._get_step_name('XGBoostModelEval')}-{self.config.job_type.capitalize()}"
+
+        return ProcessingStep(
+            name=step_name,
+            step_args=step_args,
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching)
         )
