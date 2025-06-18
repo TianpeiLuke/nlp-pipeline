@@ -235,7 +235,9 @@ class XGBoostTrainEvaluatePipelineBuilder:
 
     def _create_data_load_step(self, cradle_config: CradleDataLoadConfig) -> ProcessingStep:
         loader = CradleDataLoadingStepBuilder(config=cradle_config, sagemaker_session=self.session, role=self.role)
-        return loader.create_step()
+        step = loader.create_step()
+        self.cradle_loading_requests[step.name] = loader.get_request_dict()
+        return step
 
     def _create_tabular_preprocess_step(self, tp_config: TabularPreprocessingConfig, dependency_step: Step) -> ProcessingStep:
         prep_builder = TabularPreprocessingStepBuilder(config=tp_config, sagemaker_session=self.session, role=self.role)
