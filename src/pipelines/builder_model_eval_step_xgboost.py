@@ -185,6 +185,3 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching)
         )
-        
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
-        return processing_step
