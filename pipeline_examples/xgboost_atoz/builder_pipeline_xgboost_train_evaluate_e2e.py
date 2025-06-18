@@ -324,7 +324,7 @@ class XGBoostTrainEvaluatePipelineBuilder:
         if not os.path.exists(eval_script_path):
             raise ValueError(
                 f"Evaluation script not found at: {eval_script_path}. "
-                f"Make sure 'model_evaluation_xgb.py' exists in {effective_source_dir}"
+                f"Make sure entry point {self.xgb_eval_cfg.processing_entry_point} exists in {effective_source_dir}"
             )
 
         logger.info(f"Found evaluation script at: {eval_script_path}")
@@ -337,7 +337,6 @@ class XGBoostTrainEvaluatePipelineBuilder:
         inputs = {
             "model_input": train_step.properties.ModelArtifacts.S3ModelArtifacts,
             "eval_data_input": calib_preprocess_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"].S3Output.S3Uri,
-            #"code_input": effective_source_dir
         }
 
         # Validate that all required input channels are provided
