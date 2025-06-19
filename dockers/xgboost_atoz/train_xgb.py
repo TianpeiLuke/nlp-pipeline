@@ -329,9 +329,9 @@ def save_preds_and_metrics(ids, y_true, y_prob, id_col, label_col, out_dir, is_b
             "average_precision": average_precision_score(y_true, score),
             "f1_score": f1_score(y_true, score>0.5),
         }
-        logger.info("AUC-ROC": metrics['auc_roc'])
-        logger.info("Average Precision": metrics['average_precision'])
-        logger.info("F1-Score": metrics['f1_score'])
+        logger.info(f"AUC-ROC: {metrics['auc_roc']}")
+        logger.info(f"Average Precision: {metrics['average_precision']}")
+        logger.info(f"F1-Score: {metrics['f1_score']}")
     else:
         n = y_prob.shape[1]
         for i in range(n):
@@ -346,12 +346,12 @@ def save_preds_and_metrics(ids, y_true, y_prob, id_col, label_col, out_dir, is_b
         y_pred = np.argmax(y_prob, axis=1)
         metrics["f1_score_micro"] = f1_score(y_true, y_pred, average="micro")
         metrics["f1_score_macro"] = f1_score(y_true, y_pred, average="macro")
-        logger.info("AUC-ROC (micro)": metrics['auc_roc_micro'])
-        logger.info("AUC-ROC (macro)": metrics['auc_roc_macro'])
-        logger.info("Average Precision (micro)": metrics['average_precision_micro'])
-        logger.info("Average Precision (macro)": metrics['average_precision_macro'])
-        logger.info("F1-Score (micro)": metrics['f1_score_micro'])
-        logger.info("F1-Score (macro)": metrics['f1_score_macro'])
+        logger.info(f"AUC-ROC (micro): {metrics['auc_roc_micro']}")
+        logger.info(f"AUC-ROC (macro): {metrics['auc_roc_macro']}")
+        logger.info(f"Average Precision (micro): {metrics['average_precision_micro']}")
+        logger.info(f"Average Precision (macro): {metrics['average_precision_macro']}")
+        logger.info(f"F1-Score (micro): {metrics['f1_score_micro']}")
+        logger.info(f"F1-Score (macro): {metrics['f1_score_macro']}")
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
     # preds
