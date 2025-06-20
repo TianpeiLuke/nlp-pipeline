@@ -243,7 +243,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             elif ds_cfg.data_source_type == "ANDES":
                 andes_props_cfg: AndesDataSourceConfig = ds_cfg.andes_data_source_properties  # type: ignore
                 if andes_props_cfg.andes3_enabled:
-                    logger.warning(f"ANDES 3.0 is enabled for table {andes_props_cfg.table_name}")
+                    logger.info(f"ANDES 3.0 is enabled for table {andes_props_cfg.table_name}")
                 andes_props = AndesDataSourceProperties(
                     provider=andes_props_cfg.provider,
                     table_name=andes_props_cfg.table_name,
