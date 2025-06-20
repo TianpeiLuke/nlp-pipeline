@@ -102,35 +102,141 @@ class EdxDataSourceConfig(BaseModel):
             )
         return model
 
+    
+class AndesDataSourceConfig(BaseModel):
+    """
+    Configuration for Andes Data Source Properties.
+    
+    Attributes:
+        provider: Andes provider ID (32-digit UUID or 'booker')
+        table_name: Name of the Andes table
+        andes3_enabled: Whether the table uses Andes 3.0
+    """
+    provider: str = Field(
+        ...,
+        description="Andes provider ID (32-digit UUID or 'booker')"
+    )
+    
+    table_name: str = Field(
+        ...,
+        description="Name of the Andes table"
+    )
+    
+    andes3_enabled: bool = Field(
+        default=False,
+        description="Whether the table uses Andes 3.0 with latest version"
+    )
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        """
+        Validate that the provider is either:
+        1. A valid 32-character UUID
+        2. The special case 'booker'
+        """
+        if v == 'booker':
+            return v
+            
+        uuid_pattern = re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        )
+        
+        if not uuid_pattern.match(v.lower()):
+            raise ValueError(
+                "provider must be either 'booker' or a valid 32-digit UUID "
+                "(8-4-4-4-12 format). "
+                "Verify provider validity at: "
+                f"https://datacentral.a2z.com/hoot/providers/{v}"
+            )
+            
+        return v
+
+    @field_validator("table_name")
+    @classmethod
+    def validate_table_name(cls, v: str) -> str:
+        """
+        Validate that the table name is not empty and follows valid format.
+        """
+        if not v or not v.strip():
+            raise ValueError("table_name cannot be empty")
+            
+        # Add any specific table name format validation rules here
+        # For example, if table names must be lowercase and hyphenated:
+        if not re.match(r'^[a-z0-9-]+$', v):
+            raise ValueError(
+                "table_name must contain only lowercase letters, numbers, and hyphens"
+            )
+            
+        return v
+
+    @model_validator(mode='after')
+    def validate_andes_config(self) -> 'AndesDataSourceConfig':
+        """
+        Additional validation for the complete Andes configuration.
+        """
+        # Log warning if Andes 3.0 is enabled
+        if self.andes3_enabled:
+            logger.warning(
+                f"Andes 3.0 is enabled for table '{self.table_name}'. "
+                "Ensure all features are compatible with Andes 3.0."
+            )
+            
+        # Add any cross-field validations here
+        return self
+
+    class Config:
+        """Pydantic model configuration."""
+        frozen = True  # Make the config immutable
+        extra = "forbid"  # Prevent additional attributes
+        str_strip_whitespace = True  # Strip whitespace from string values
+
+    def __str__(self) -> str:
+        """String representation of the Andes config."""
+        return (
+            f"AndesDataSourceConfig(provider='{self.provider}', "
+            f"table_name='{self.table_name}', "
+            f"andes3_enabled={self.andes3_enabled})"
+        )
+    
 
 class DataSourceConfig(BaseModel):
     """
     Corresponds to com.amazon.secureaisandboxproxyservice.models.datasource.DataSource:
       - data_source_name: e.g. 'RAW_MDS_NA' or 'TAGS'
-      - data_source_type: either 'MDS' or 'EDX'
-      - one of mds_data_source_properties or edx_data_source_properties must be present
+      - data_source_type: one of 'MDS', 'EDX', or 'ANDES'
+      - one of mds_data_source_properties, edx_data_source_properties, 
+        or andes_data_source_properties must be present
     """
     data_source_name: str = Field(
         ...,
         description="Logical name for this data source (e.g. 'RAW_MDS_NA' or 'TAGS')"
     )
+    
     data_source_type: str = Field(
         ...,
-        description="Either 'MDS' or 'EDX'"
+        description="One of 'MDS', 'EDX', or 'ANDES'"
     )
+    
     mds_data_source_properties: Optional[MdsDataSourceConfig] = Field(
         default=None,
         description="If data_source_type=='MDS', this must be provided"
     )
+    
     edx_data_source_properties: Optional[EdxDataSourceConfig] = Field(
         default=None,
         description="If data_source_type=='EDX', this must be provided"
+    )
+    
+    andes_data_source_properties: Optional[AndesDataSourceConfig] = Field(
+        default=None,
+        description="If data_source_type=='ANDES', this must be provided"
     )
 
     @field_validator("data_source_type")
     @classmethod
     def validate_type(cls, v: str) -> str:
-        allowed = {"MDS", "EDX"}
+        allowed: Set[str] = {"MDS", "EDX", "ANDES"}
         if v not in allowed:
             raise ValueError(f"data_source_type must be one of {allowed}, got '{v}'")
         return v
@@ -138,12 +244,41 @@ class DataSourceConfig(BaseModel):
     @model_validator(mode="after")
     @classmethod
     def check_properties(cls, model: "DataSourceConfig") -> "DataSourceConfig":
+        """
+        Ensure the appropriate properties are set based on data_source_type
+        and that only one set of properties is provided.
+        """
         t = model.data_source_type
+        
+        # Check required properties are present
         if t == "MDS" and model.mds_data_source_properties is None:
             raise ValueError("mds_data_source_properties must be set when data_source_type=='MDS'")
         if t == "EDX" and model.edx_data_source_properties is None:
             raise ValueError("edx_data_source_properties must be set when data_source_type=='EDX'")
+        if t == "ANDES" and model.andes_data_source_properties is None:
+            raise ValueError("andes_data_source_properties must be set when data_source_type=='ANDES'")
+            
+        # Ensure only one set of properties is provided
+        properties_count = sum(
+            1 for prop in [
+                model.mds_data_source_properties,
+                model.edx_data_source_properties,
+                model.andes_data_source_properties
+            ] if prop is not None
+        )
+        
+        if properties_count > 1:
+            raise ValueError(
+                "Only one of mds_data_source_properties, edx_data_source_properties, "
+                "or andes_data_source_properties should be provided"
+            )
+            
         return model
+
+    class Config:
+        """Pydantic model configuration."""
+        frozen = True
+        extra = "forbid"
 
 
 class DataSourcesSpecificationConfig(BaseModel):

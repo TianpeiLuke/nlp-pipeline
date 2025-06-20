@@ -35,6 +35,7 @@ if SECUREAI_PROXY_MODELS_BASE:
         DataSource = importlib.import_module(f"{mod}.datasource").DataSource
         MdsDataSourceProperties = importlib.import_module(f"{mod}.mdsdatasourceproperties").MdsDataSourceProperties
         EdxDataSourceProperties = importlib.import_module(f"{mod}.edxdatasourceproperties").EdxDataSourceProperties
+        AndesDataSourceProperties = importlib.import_module(f"{mod}.andesdatasourceproperties").AndesDataSourceProperties
         DataSourcesSpecification = importlib.import_module(f"{mod}.datasourcesspecification").DataSourcesSpecification
         JobSplitOptions = importlib.import_module(f"{mod}.jobsplitoptions").JobSplitOptions
         TransformSpecification = importlib.import_module(f"{mod}.transformspecification").TransformSpecification
@@ -82,6 +83,7 @@ from .config_data_load_step_cradle import (
     CradleDataLoadConfig,
     MdsDataSourceConfig,
     EdxDataSourceConfig,
+    AndesDataSourceConfig,
     DataSourcesSpecificationConfig,
     DataSourceConfig as InnerDataSourceConfig,
     TransformSpecificationConfig,
@@ -126,7 +128,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         In particular:
           - job_type ∈ {'training','validation','testing','calibration'}
           - At least one data source in data_sources_spec
-          - Each MDS/EDX config is present if indicated
+          - Each MDS/EDX/ANDES config is present if indicated
           - start_date and end_date must exactly match 'YYYY-mm-DDTHH:MM:SS'
           - start_date < end_date
         """
@@ -159,6 +161,10 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 # Check EDX manifest
                 if not edx_props.edx_manifest:
                     raise ValueError(f"DataSource #{idx} EDX manifest must be a nonempty string.")
+            elif ds_cfg.data_source_type == "ANDES":
+                andes_props: AndesDataSourceConfig = ds_cfg.andes_data_source_properties  # type: ignore
+                if andes_props is None:
+                    raise ValueError(f"DataSource #{idx} is ANDES but andes_data_source_properties was not provided.")
             else:
                 raise ValueError(f"DataSource #{idx} has invalid type: {ds_cfg.data_source_type}")
 
@@ -232,6 +238,24 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                         data_source_type="EDX",
                         mds_data_source_properties=None,
                         edx_data_source_properties=edx_props,
+                    )
+                )
+            elif ds_cfg.data_source_type == "ANDES":
+                andes_props_cfg: AndesDataSourceConfig = ds_cfg.andes_data_source_properties  # type: ignore
+                if andes_props_cfg.andes3_enabled:
+                    logger.warning(f"ANDES 3.0 is enabled for table {andes_props_cfg.table_name}")
+                andes_props = AndesDataSourceProperties(
+                    provider=andes_props_cfg.provider,
+                    table_name=andes_props_cfg.table_name,
+                    andes3_enabled=andes_props_cfg.andes3_enabled,
+                )
+                data_source_models.append(
+                    DataSource(
+                        data_source_name=ds_cfg.data_source_name,
+                        data_source_type="ANDES",
+                        mds_data_source_properties=None,
+                        edx_data_source_properties=None,
+                        andes_data_source_properties=andes_props,
                     )
                 )
 
