@@ -124,7 +124,7 @@ class AndesDataSourceConfig(BaseModel):
     )
     
     andes3_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Whether the table uses Andes 3.0 with latest version"
     )
 
