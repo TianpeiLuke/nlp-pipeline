@@ -1,6 +1,7 @@
 # File: pipelines/config_cradle_data_load.py
 
 from typing import List, Optional, Dict, Any
+import re
 from datetime import datetime
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -169,21 +170,6 @@ class AndesDataSourceConfig(BaseModel):
             )
             
         return v
-
-    @model_validator(mode='after')
-    def validate_andes_config(self) -> 'AndesDataSourceConfig':
-        """
-        Additional validation for the complete Andes configuration.
-        """
-        # Log warning if Andes 3.0 is enabled
-        if self.andes3_enabled:
-            logger.warning(
-                f"Andes 3.0 is enabled for table '{self.table_name}'. "
-                "Ensure all features are compatible with Andes 3.0."
-            )
-            
-        # Add any cross-field validations here
-        return self
 
     class Config:
         """Pydantic model configuration."""
