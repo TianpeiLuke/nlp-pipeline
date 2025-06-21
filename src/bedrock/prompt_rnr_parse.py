@@ -84,7 +84,7 @@ def extract_evidence_section(response: str, section_name: str) -> List[str]:
         List[str]: List of evidence items extracted from the section
     """
     # Look for section starting with * and ending before the next section
-    pattern = f"\* {section_name}:.*?(?=(?:\n\s*\* |\n\d\.|\Z))"
+    pattern = fr"\* {section_name}:.*?(?=(?:\n\s*\* |\n\d\.|\Z))"
     match = re.search(pattern, response, re.DOTALL)
     if not match:
         return []

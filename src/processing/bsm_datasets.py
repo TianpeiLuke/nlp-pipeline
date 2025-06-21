@@ -10,7 +10,6 @@ from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torch
 
-from .constants import *
 # We no longer import Pipeline; instead we use our Processor and ComposedProcessor classes.
 from .processors import Processor  # Base Processor classes include __rshift__ operator and ComposedProcessor
 
