@@ -10,6 +10,7 @@ A modular pipeline for processing emails, messages, and tabular data, supporting
 - [Processors](#processors)
 - [Pipeline Steps](#pipeline-steps)
 - [Pipeline Examples](#pipeline-examples)
+- [PyTorch Models](#pytorch-models)
 - [Docker Images](#docker-images)
 - [Benefits](#benefits)
 - [Contributing](#contributing)
@@ -67,6 +68,32 @@ Ready-to-use pipeline blueprints for common ML workflows:
 - **PyTorch BSM Pipeline:** [mods_pipeline_bsm_pytorch.md](slipbox/pipeline_examples/mods_pipeline_bsm_pytorch.md)
 
 Each example demonstrates step connections, configuration, and S3 input/output conventions.
+
+---
+
+## PyTorch Models
+
+A collection of modular PyTorch Lightning models for NLP and multimodal tasks, including BERT-based, LSTM, CNN, and advanced fusion architectures. These models are designed for easy integration into the pipeline and support flexible configuration for various tasks.
+
+- See the [slipbox/lightning_models/README.md](slipbox/lightning_models/README.md) for an overview of available models and usage instructions.
+
+### Available PyTorch Model Architectures
+
+- [pl_bert.md](slipbox/lightning_models/pl_bert.md): BERT-based classification model
+- [pl_bert_classification.md](slipbox/lightning_models/pl_bert_classification.md): BERT for multi-class classification
+- [pl_lstm.md](slipbox/lightning_models/pl_lstm.md): LSTM-based sequence model
+- [pl_text_cnn.md](slipbox/lightning_models/pl_text_cnn.md): Text CNN for sentence classification
+- [pl_multimodal_bert.md](slipbox/lightning_models/pl_multimodal_bert.md): Multimodal BERT model
+- [pl_multimodal_cnn.md](slipbox/lightning_models/pl_multimodal_cnn.md): Multimodal CNN model
+- [pl_multimodal_cross_attn.md](slipbox/lightning_models/pl_multimodal_cross_attn.md): Multimodal model with cross-attention
+- [pl_multimodal_gate_fusion.md](slipbox/lightning_models/pl_multimodal_gate_fusion.md): Multimodal model with gated fusion
+- [pl_multimodal_moe.md](slipbox/lightning_models/pl_multimodal_moe.md): Mixture-of-Experts multimodal model
+- [pl_tab_ae.md](slipbox/lightning_models/pl_tab_ae.md): Tabular autoencoder for feature learning
+- [pl_model_plots.md](slipbox/lightning_models/pl_model_plots.md): Model visualization and plotting utilities
+- [pl_train.md](slipbox/lightning_models/pl_train.md): Training utilities and scripts for PyTorch Lightning models
+- [dist_utils.md](slipbox/lightning_models/dist_utils.md): Distributed training utilities
+
+Refer to each markdown file above for architecture details, configuration options, and usage examples.
 
 ---
 
