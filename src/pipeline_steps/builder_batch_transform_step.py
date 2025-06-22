@@ -62,22 +62,10 @@ class BatchTransformStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        return {
-            "model_name": "The name of the SageMaker model (string or Properties)",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"]
-        }
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        return {
-            "transform_output": "S3 location of the batch transform output",
-            "batch_transform_job_name": "Name of the batch transform job"
-        }
+        # Get base input requirements and add additional ones
+        input_reqs = super().get_input_requirements()
+        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        return input_reqs
     
     def create_step(
         self,

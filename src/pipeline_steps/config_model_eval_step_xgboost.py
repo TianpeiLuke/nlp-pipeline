@@ -1,5 +1,5 @@
 from pydantic import Field, model_validator
-from typing import Optional, Dict, ClassVar
+from typing import Optional, Dict
 
 from .config_processing_step_base import ProcessingStepConfigBase
 from .hyperparameters_base import ModelHyperparameters
@@ -16,15 +16,21 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     )
 
     # Input/output names for evaluation with defaults
-    INPUT_CHANNELS: ClassVar[Dict[str, str]] = {
-        "model_input": "Model artifacts input",
-        "eval_data_input": "Evaluation data input"
-    }
-
-    OUTPUT_CHANNELS: ClassVar[Dict[str, str]] = {
-        "eval_output": "Output name for evaluation predictions",
-        "metrics_output": "Output name for evaluation metrics"
-    }
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_input": "Model artifacts input",
+            "eval_data_input": "Evaluation data input"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "eval_output": "Output name for evaluation predictions",
+            "metrics_output": "Output name for evaluation metrics"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
 
     job_type: str = Field(
         default="calibration",
@@ -65,11 +71,6 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
             
         return self
 
-    def get_input_names(self) -> Dict[str, str]:
-        return self.INPUT_CHANNELS
-
-    def get_output_names(self) -> Dict[str, str]:
-        return self.OUTPUT_CHANNELS
 
     def get_script_path(self) -> str:
         return super().get_script_path() or self.processing_entry_point

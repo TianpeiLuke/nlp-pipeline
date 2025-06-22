@@ -376,11 +376,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {
-            "data_output_location": "S3 location of the data output",
-            "metadata_output_location": "S3 location of the metadata output",
-            "signature_output_location": "S3 location of the signature output"
-        }
+        return {k: v for k, v in self.config.output_names.items()}
     
     def get_step_outputs(self, step: CradleDataLoadingStep) -> Dict[str, str]:
         """

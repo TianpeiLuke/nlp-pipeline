@@ -22,6 +22,22 @@ class XGBoostModelCreationConfig(BasePipelineConfig):
         description="XGBoost framework version"
     )
     # source_dir is inherited from BasePipelineConfig
+    
+    # Input/output names for model creation
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_data": "S3 path to model artifacts (.tar.gz file)"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_artifacts_path": "S3 path to model artifacts",
+            "model": "SageMaker model object"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
 
     # Endpoint / Container specific settings
     initial_instance_count: int = Field(

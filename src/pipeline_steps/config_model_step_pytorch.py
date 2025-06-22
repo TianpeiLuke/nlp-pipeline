@@ -13,6 +13,22 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
     inference_entry_point: str = Field(default='inference.py', description="Entry point script for inference.")
     # source_dir is inherited from BasePipelineConfig, assumed to contain inference_entry_point
     # framework_version, py_version are inherited from BasePipelineConfig
+    
+    # Input/output names for model creation
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_data": "S3 path to model artifacts (.tar.gz file)"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_artifacts_path": "S3 path to model artifacts",
+            "model": "SageMaker model object"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
 
     # Endpoint / Container specific settings
     initial_instance_count: int = Field(default=1, ge=1, description="Initial instance count for endpoint (used by EndpointConfig).")

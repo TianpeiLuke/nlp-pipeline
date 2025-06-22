@@ -127,9 +127,9 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        return {
-            "dependencies": self.COMMON_PROPERTIES["dependencies"]
-        }
+        input_reqs = {k: v for k, v in self.config.input_names.items()}
+        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -138,7 +138,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return self.TRAINING_OUTPUT_PROPERTIES
+        return {k: v for k, v in self.config.output_names.items()}
     
     def create_step(self, dependencies: Optional[List[Step]] = None) -> TrainingStep:
         """

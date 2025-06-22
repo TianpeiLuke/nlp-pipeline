@@ -56,22 +56,3 @@ class PackageStepConfig(ProcessingStepConfigBase):
             raise ValueError(f"Missing required output names: {required_outputs - set(self.output_names.keys())}")
             
         return self
-
-    def get_input_names(self) -> Dict[str, str]:
-        """
-        Get the input names, using defaults if not set.
-        """
-        return self.input_names or {
-            "model_input": "Input name for model artifacts",
-            "inference_scripts_input": "Input name for inference scripts"
-        }
-
-    def get_output_names(self) -> Dict[str, str]:
-        """
-        Get the output names, using defaults if not set.
-        """
-        return self.output_names or {
-            "packaged_model_output": "Output name for the packaged model"
-        }
-
-

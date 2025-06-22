@@ -163,9 +163,9 @@ class StepBuilderBase(ABC):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        # Base implementation returns an empty dict
-        # Subclasses should override this to specify their input requirements
-        return {}
+        # Base implementation returns input_names from config
+        # Subclasses can override this to add additional input requirements
+        return {k: v for k, v in self.config.input_names.items()}
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -178,9 +178,9 @@ class StepBuilderBase(ABC):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Base implementation returns an empty dict
-        # Subclasses should override this to specify their output properties
-        return {}
+        # Base implementation returns output_names from config
+        # Subclasses can override this to add additional output properties
+        return {k: v for k, v in self.config.output_names.items()}
     
     @abstractmethod
     def create_step(self, *args, **kwargs) -> Step:

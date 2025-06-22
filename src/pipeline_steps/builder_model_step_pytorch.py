@@ -119,10 +119,9 @@ class PytorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        return {
-            "model_data": "S3 path to model artifacts (.tar.gz file)",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"]
-        }
+        input_reqs = {k: v for k, v in self.config.input_names.items()}
+        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -131,7 +130,7 @@ class PytorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return self.MODEL_OUTPUT_PROPERTIES
+        return {k: v for k, v in self.config.output_names.items()}
     
     def create_step(self, model_data: str, dependencies: Optional[List] = None) -> Step:
         """

@@ -9,8 +9,24 @@ class BatchTransformStepConfig(BasePipelineConfig):
     """
     Configuration for a generic SageMaker BatchTransform step.
     Inherits all the BasePipelineConfig attributes (bucket, region, etc.)
-    and adds just what’s needed to drive a TransformStep.
+    and adds just what's needed to drive a TransformStep.
     """
+    
+    # Input/output names for batch transform
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_name": "The name of the SageMaker model (string or Properties)"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "transform_output": "S3 location of the batch transform output",
+            "batch_transform_job_name": "Name of the batch transform job"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
 
     # 1) Which slice are we scoring?
     job_type: str = Field(

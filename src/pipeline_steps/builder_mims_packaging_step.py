@@ -66,13 +66,10 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                 raise ValueError(f"PackageStepConfig missing required attribute for builder: {attr}")
 
         # Validate input/output names
-        input_names = self.config.get_input_names()
-        output_names = self.config.get_output_names()
-        
-        if "model_input" not in input_names or "inference_scripts_input" not in input_names:
+        if "model_input" not in self.config.input_names or "inference_scripts_input" not in self.config.input_names:
             raise ValueError("Required input names 'model_input' and 'inference_scripts_input' must be defined")
         
-        if "packaged_model_output" not in output_names:
+        if "packaged_model_output" not in self.config.output_names:
             raise ValueError("Required output name 'packaged_model_output' must be defined")
 
         logger.info(f"{self.__class__.__name__} configuration attributes presence check passed.")
@@ -110,18 +107,17 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             List of ProcessingInput objects
         """
         inference_source_dir = self.config.source_dir
-        input_names = self.config.get_input_names()
         
         inputs = [
             ProcessingInput(
                 source=model_artifacts_input_source,
                 destination="/opt/ml/processing/input/model",
-                input_name=input_names["model_input"]
+                input_name=self.config.input_names["model_input"]
             ),
             ProcessingInput(
                 source=inference_source_dir,
                 destination="/opt/ml/processing/input/script",
-                input_name=input_names["inference_scripts_input"]
+                input_name=self.config.input_names["inference_scripts_input"]
             )
         ]
         #logger.info(f"Processing inputs: {[str(i.source) for i in inputs]}")
@@ -142,8 +138,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             List of ProcessingOutput objects
         """
-        output_names = self.config.get_output_names()
-        
         output_s3_destination = os.path.join(
             str(self.config.pipeline_s3_loc).rstrip('/'),
             step_name_for_s3_path,
@@ -152,7 +146,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
 
         outputs = [
             ProcessingOutput(
-                output_name=output_names["packaged_model_output"],
+                output_name=self.config.output_names["packaged_model_output"],
                 source="/opt/ml/processing/output",
                 destination=output_s3_destination
             )
@@ -187,13 +181,11 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        # Get input names from config
-        input_names = self.config.get_input_names()
-        
-        return {
-            "model_artifacts_input_source": "Source location of model artifacts (S3 path or Properties object)",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"]
+        input_reqs = {
+            "model_artifacts_input_source": "Source location of model artifacts (S3 path or Properties object)"
         }
+        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -202,12 +194,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Get output names from config
-        output_names = self.config.get_output_names()
-        
-        return {
-            output_names["packaged_model_output"]: "S3 URI of the packaged model output"
-        }
+        return {k: v for k, v in self.config.output_names.items()}
     
     def create_step(
         self,

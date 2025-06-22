@@ -14,6 +14,26 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     This version is adapted to pass hyperparameters as a single config file
     via an S3 input channel, avoiding character limits.
     """
+    # Input/output names for training
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "train": "Training data input",
+            "val": "Validation data input",
+            "test": "Test data input",
+            "hyperparameters": "Hyperparameters configuration input"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "training_job_name": "Name of the training job",
+            "model_data": "S3 path to the model artifacts",
+            "model_data_url": "S3 URL to the model artifacts"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
+    
     # S3 paths for data inputs and model outputs
     input_path: str = Field(
         description="S3 path for input training data (containing train/val/test channels).",

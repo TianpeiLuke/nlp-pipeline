@@ -155,24 +155,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        return {
-            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"],
-            "payload_s3_key": "S3 key for payload data",
-            "regions": "Optional list of regions for registration"
-        }
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        return {
-            "model_package_arn": "ARN of the registered model package",
-            "registration_status": "Status of the model registration"
-        }
+        # Get base input requirements and add additional ones
+        input_reqs = super().get_input_requirements()
+        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        input_reqs["regions"] = "Optional list of regions for registration"
+        return input_reqs
     
     def create_step(
         self,
