@@ -8,17 +8,17 @@ from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.steps import ProcessingStep, Step
 
-from src.pipelines.utils import load_configs
+from src.pipeline_steps.utils import load_configs
 
 # Config classes
-from src.pipelines.config_base import BasePipelineConfig
-from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
-from src.pipelines.config_processing_step_base import ProcessingStepConfigBase
-from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_base import BasePipelineConfig
+from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
+from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
 
 # Step builders
-from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
-from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 
 # Common parameters
 #from mods_workflow_core.utils.constants import (

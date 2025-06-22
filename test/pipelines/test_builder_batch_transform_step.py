@@ -14,8 +14,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from src.pipelines.builder_batch_transform_step import BatchTransformStepBuilder
-from src.pipelines.config_batch_transform_step import BatchTransformStepConfig
+from src.pipeline_steps.builder_batch_transform_step import BatchTransformStepBuilder
+from src.pipeline_steps.config_batch_transform_step import BatchTransformStepConfig
 
 class TestBatchTransformStepBuilder(unittest.TestCase):
     def setUp(self):

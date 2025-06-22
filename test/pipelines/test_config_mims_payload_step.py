@@ -11,8 +11,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.pipelines.config_mims_payload_step import PayloadConfig
-from src.pipelines.config_mims_registration_step import VariableType
+from src.pipeline_steps.config_mims_payload_step import PayloadConfig
+from src.pipeline_steps.config_mims_registration_step import VariableType
 
 
 class TestPayloadConfig(unittest.TestCase):

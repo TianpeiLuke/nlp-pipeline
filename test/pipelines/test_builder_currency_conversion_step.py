@@ -15,7 +15,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from src.pipelines.builder_currency_conversion_step import CurrencyConversionStepBuilder
+from src.pipeline_steps.builder_currency_conversion_step import CurrencyConversionStepBuilder
 
 class TestCurrencyConversionStepBuilder(unittest.TestCase):
     def setUp(self):

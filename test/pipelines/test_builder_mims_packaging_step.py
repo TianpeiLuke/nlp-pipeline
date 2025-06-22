@@ -14,7 +14,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from src.pipelines.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
 
 class TestMIMSPackagingStepBuilder(unittest.TestCase):
     def setUp(self):

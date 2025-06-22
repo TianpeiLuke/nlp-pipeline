@@ -8,26 +8,26 @@ from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.steps import Step, ProcessingStep, TrainingStep
 from sagemaker.workflow.model_step import ModelStep
 
-from src.pipelines.utils import load_configs
+from src.pipeline_steps.utils import load_configs
 
 # Config classes
-from src.pipelines.config_base import BasePipelineConfig
-from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
-from src.pipelines.config_processing_step_base import ProcessingStepConfigBase
-from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
-from src.pipelines.config_training_step_pytorch import PytorchTrainingConfig
-from src.pipelines.config_model_step_pytorch import PytorchModelCreationConfig
-from src.pipelines.config_mims_packaging_step import PackageStepConfig
-from src.pipelines.config_mims_registration_step import ModelRegistrationConfig
-from src.pipelines.config_mims_payload_step import PayloadConfig
+from src.pipeline_steps.config_base import BasePipelineConfig
+from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
+from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_training_step_pytorch import PytorchTrainingConfig
+from src.pipeline_steps.config_model_step_pytorch import PytorchModelCreationConfig
+from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
+from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
+from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 
 # Step builders
-from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
-from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
-from src.pipelines.builder_training_step_pytorch import PyTorchTrainingStepBuilder
-from src.pipelines.builder_model_step_pytorch import PytorchModelStepBuilder
-from src.pipelines.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from src.pipelines.builder_mims_registration_step import ModelRegistrationStepBuilder
+from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.builder_training_step_pytorch import PyTorchTrainingStepBuilder
+from src.pipeline_steps.builder_model_step_pytorch import PytorchModelStepBuilder
+from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 # Common parameters
 PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="PipelineExecutionTempDir", default_value="/tmp")

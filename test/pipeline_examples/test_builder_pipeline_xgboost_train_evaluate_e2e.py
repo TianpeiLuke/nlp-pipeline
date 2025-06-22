@@ -12,10 +12,10 @@ if project_root not in sys.path:
 
 # Import the builder class to be tested
 from pipeline_examples.xgboost_atoz.builder_pipeline_xgboost_train_evaluate_e2e import XGBoostTrainEvaluateE2EPipelineBuilder
-from src.pipelines.config_base import BasePipelineConfig
-from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig
-from src.pipelines.config_model_step_xgboost import XGBoostModelCreationConfig
-from src.pipelines.config_model_eval_step_xgboost import XGBoostModelEvalConfig
+from src.pipeline_steps.config_base import BasePipelineConfig
+from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
+from src.pipeline_steps.config_model_step_xgboost import XGBoostModelCreationConfig
+from src.pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
 
 class TestXGBoostTrainEvaluateE2EPipelineBuilder(unittest.TestCase):
     def setUp(self):
@@ -164,13 +164,13 @@ class TestXGBoostTrainEvaluateE2EPipelineBuilder(unittest.TestCase):
         self.original_isinstance = isinstance
         
         def patched_isinstance(obj, classinfo):
-            from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
-            from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
-            from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig
-            from src.pipelines.config_model_eval_step_xgboost import XGBoostModelEvalConfig
-            from src.pipelines.config_mims_packaging_step import PackageStepConfig
-            from src.pipelines.config_mims_registration_step import ModelRegistrationConfig
-            from src.pipelines.config_mims_payload_step import PayloadConfig
+            from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
+            from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+            from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
+            from src.pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
+            from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
+            from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
+            from src.pipeline_steps.config_mims_payload_step import PayloadConfig
             
             # Check if obj is one of our mocks and classinfo is the corresponding class
             if obj is self.mock_cradle_train_cfg and classinfo is CradleDataLoadConfig:

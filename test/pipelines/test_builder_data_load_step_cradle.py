@@ -11,7 +11,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the config classes
-from src.pipelines.config_data_load_step_cradle import (
+from src.pipeline_steps.config_data_load_step_cradle import (
     CradleDataLoadConfig,
     MdsDataSourceConfig,
     EdxDataSourceConfig,
@@ -138,7 +138,7 @@ class TestCradleDataLoadConfig(unittest.TestCase):
         )
         
         # Now manually validate the dates using the builder's validation method
-        from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+        from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
         builder = object.__new__(CradleDataLoadingStepBuilder)
         builder.config = config
         
@@ -169,7 +169,7 @@ class TestCradleDataLoadConfig(unittest.TestCase):
         )
         
         # Now manually validate with empty data sources using the builder's validation method
-        from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+        from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
         builder = object.__new__(CradleDataLoadingStepBuilder)
         builder.config = config
         

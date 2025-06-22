@@ -21,21 +21,21 @@ SECURITY_GROUP_ID = ParameterString(name="SecurityGroupId", default_value="")
 VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
 
 
-from src.pipelines.utils import load_configs
+from src.pipeline_steps.utils import load_configs
 
 # Import all Configs
-from src.pipelines.config_base import BasePipelineConfig
-from src.pipelines.config_training_step_pytorch import PytorchTrainingConfig
-from src.pipelines.config_model_step_pytorch import PytorchModelCreationConfig
-from src.pipelines.config_processing_step_base import ProcessingStepConfigBase
-from src.pipelines.config_mims_packaging_step import PackageStepConfig
-from src.pipelines.config_mims_registration_step import ModelRegistrationConfig
-from src.pipelines.config_mims_payload_step import PayloadConfig
+from src.pipeline_steps.config_base import BasePipelineConfig
+from src.pipeline_steps.config_training_step_pytorch import PytorchTrainingConfig
+from src.pipeline_steps.config_model_step_pytorch import PytorchModelCreationConfig
+from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
+from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
+from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
+from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 
 # Import Builders
-from src.pipelines.builder_model_step_pytorch import PytorchModelStepBuilder
-from src.pipelines.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from src.pipelines.builder_mims_registration_step import ModelRegistrationStepBuilder
+from src.pipeline_steps.builder_model_step_pytorch import PytorchModelStepBuilder
+from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 CONFIG_CLASSES = {
         'BasePipelineConfig': BasePipelineConfig,

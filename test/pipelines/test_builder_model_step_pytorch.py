@@ -16,8 +16,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from src.pipelines.builder_model_step_pytorch import PytorchModelStepBuilder
-from src.pipelines.config_model_step_pytorch import PytorchModelCreationConfig
+from src.pipeline_steps.builder_model_step_pytorch import PytorchModelStepBuilder
+from src.pipeline_steps.config_model_step_pytorch import PytorchModelCreationConfig
 
 class TestPytorchModelStepBuilder(unittest.TestCase):
     def setUp(self):

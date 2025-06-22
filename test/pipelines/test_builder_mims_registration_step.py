@@ -11,8 +11,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from src.pipelines.builder_mims_registration_step import ModelRegistrationStepBuilder
-from src.pipelines.config_mims_registration_step import ModelRegistrationConfig, VariableType
+from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
+from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig, VariableType
 
 class TestModelRegistrationStepBuilder(unittest.TestCase):
     def setUp(self):

@@ -16,7 +16,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from src.pipelines.builder_model_step_xgboost import XGBoostModelStepBuilder
+from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
 
 class TestXGBoostModelStepBuilder(unittest.TestCase):
     def setUp(self):

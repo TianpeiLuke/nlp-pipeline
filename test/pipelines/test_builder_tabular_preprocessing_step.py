@@ -14,7 +14,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class
-from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 
 class TestTabularPreprocessingStepBuilder(unittest.TestCase):
     def setUp(self):

@@ -12,10 +12,10 @@ if project_root not in sys.path:
 
 # Import the builder class to be tested
 from pipeline_examples.xgboost_atoz.builder_pipeline_xgboost_dataload_train import XGBoostDataloadTrainPipelineBuilder
-from src.pipelines.config_base import BasePipelineConfig
-from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
-from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
-from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig
+from src.pipeline_steps.config_base import BasePipelineConfig
+from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
 
 class TestXGBoostDataloadTrainPipelineBuilder(unittest.TestCase):
     def setUp(self):
@@ -108,9 +108,9 @@ class TestXGBoostDataloadTrainPipelineBuilder(unittest.TestCase):
         self.original_isinstance = isinstance
         
         def patched_isinstance(obj, classinfo):
-            from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
-            from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
-            from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig
+            from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
+            from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+            from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
             
             # Check if obj is one of our mocks and classinfo is the corresponding class
             if hasattr(self, 'mock_cradle_train_cfg') and obj is self.mock_cradle_train_cfg and classinfo is CradleDataLoadConfig:

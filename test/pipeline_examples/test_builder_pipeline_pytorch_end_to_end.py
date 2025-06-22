@@ -12,14 +12,14 @@ if project_root not in sys.path:
 
 # Import the builder class to be tested
 from pipeline_examples.pytorch_bsm.builder_pipeline_pytorch_end_to_end import PytorchEndToEndPipelineBuilder
-from src.pipelines.config_base import BasePipelineConfig
-from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
-from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
-from src.pipelines.config_training_step_pytorch import PytorchTrainingConfig
-from src.pipelines.config_model_step_pytorch import PytorchModelCreationConfig
-from src.pipelines.config_mims_packaging_step import PackageStepConfig
-from src.pipelines.config_mims_registration_step import ModelRegistrationConfig
-from src.pipelines.config_mims_payload_step import PayloadConfig
+from src.pipeline_steps.config_base import BasePipelineConfig
+from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
+from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_training_step_pytorch import PytorchTrainingConfig
+from src.pipeline_steps.config_model_step_pytorch import PytorchModelCreationConfig
+from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
+from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
+from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 
 class TestPytorchEndToEndPipelineBuilder(unittest.TestCase):
     def setUp(self):
