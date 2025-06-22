@@ -55,6 +55,30 @@ class BatchTransformStepBuilder(StepBuilderBase):
             sagemaker_session=self.session,
         )
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "model_name": "The name of the SageMaker model (string or Properties)",
+            "dependencies": "Optional list of Pipeline Step dependencies"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "transform_output": "S3 location of the batch transform output",
+            "batch_transform_job_name": "Name of the batch transform job"
+        }
+    
     def create_step(
         self,
         model_name: Union[str, Properties],

@@ -139,6 +139,29 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         logger.info(f"Processing outputs configured with destination: {output_path}")
         return outputs
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "data_input": "Input data source (S3 path or Properties object)",
+            "dependencies": "Optional list of dependent steps"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the converted data output"
+        }
+    
     def create_step(
         self,
         data_input: Union[str, Properties],

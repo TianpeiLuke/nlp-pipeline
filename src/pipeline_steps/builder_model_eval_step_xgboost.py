@@ -150,6 +150,32 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             enable_caching=enable_caching,
             expire_after="30d"
         )
+        
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "inputs": "Dictionary containing 'model_input' and 'eval_data_input' S3 paths",
+            "outputs": "Dictionary containing 'eval_output' and 'metrics_output' S3 paths",
+            "dependencies": "Optional list of dependent steps",
+            "enable_caching": "Whether to enable caching for this step (default: True)"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the evaluation output",
+            "properties.ProcessingOutputConfig.Outputs[1].S3Output.S3Uri": "S3 URI of the metrics output"
+        }
 
     def create_step(
         self,

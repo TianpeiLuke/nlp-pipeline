@@ -105,6 +105,30 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             self.config.current_date
         )
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "dependencies": "Optional list of dependent steps"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "training_job_name": "Name of the training job",
+            "model_data": "S3 path to the model artifacts",
+            "model_data_url": "S3 URL to the model artifacts"
+        }
+    
     def create_step(self, dependencies: Optional[List] = None) -> Step:
         """
         Create training step with dataset inputs.

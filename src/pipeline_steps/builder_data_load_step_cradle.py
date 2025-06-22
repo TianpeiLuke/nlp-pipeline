@@ -358,6 +358,30 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         request = self._build_request()
         return coral_utils.convert_coral_to_dict(request)
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "dependencies": "Optional list of dependent steps"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "data_output_location": "S3 location of the main data output",
+            "metadata_output_location": "S3 location of the metadata output",
+            "signature_output_location": "S3 location of the signature output"
+        }
+    
     def get_step_outputs(self, step: CradleDataLoadingStep) -> Dict[str, str]:
         """
         Get the output locations from a created CradleDataLoadingStep.
