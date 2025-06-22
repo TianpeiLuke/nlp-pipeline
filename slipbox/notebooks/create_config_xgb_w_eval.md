@@ -36,7 +36,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `metric_choices`: Evaluation metrics to track
 
 **Related Documentation:**
-- [Base Pipeline Configuration](../pipelines/README.md)
+- [Base Pipeline Configuration](../pipeline_steps/README.md)
 
 ### 3. XGBoost Hyperparameters
 
@@ -49,7 +49,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `min_child_weight`: Minimum sum of instance weight needed in a child
 
 **Related Documentation:**
-- [XGBoost Training Step](../pipelines/training_step_xgboost.md)
+- [XGBoost Training Step](../pipeline_steps/training_step_xgboost.md)
 
 ### 4. Base Pipeline Configuration
 
@@ -69,7 +69,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `source_dir`: Directory containing source code
 
 **Related Documentation:**
-- [Base Pipeline Configuration](../pipelines/README.md)
+- [Base Pipeline Configuration](../pipeline_steps/README.md)
 
 ### 5. Cradle Data Loading Configuration
 
@@ -87,7 +87,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `cradle_account`: Cradle account name
 
 **Related Documentation:**
-- [Cradle Data Load Step](../pipelines/data_load_step_cradle.md)
+- [Cradle Data Load Step](../pipeline_steps/data_load_step_cradle.md)
 
 ### 6. Tabular Preprocessing Configuration
 
@@ -101,7 +101,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `test_val_ratio`: Ratio of test to validation data
 
 **Related Documentation:**
-- [Tabular Preprocessing Step](../pipelines/tabular_preprocessing_step.md)
+- [Tabular Preprocessing Step](../pipeline_steps/tabular_preprocessing_step.md)
 
 ### 7. XGBoost Training Configuration
 
@@ -114,7 +114,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `training_entry_point`: Entry point script for training
 
 **Related Documentation:**
-- [XGBoost Training Step](../pipelines/training_step_xgboost.md)
+- [XGBoost Training Step](../pipeline_steps/training_step_xgboost.md)
 
 ### 8. Model Evaluation Configuration
 
@@ -124,7 +124,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `job_type`: Type of evaluation job
 
 **Related Documentation:**
-- [XGBoost Model Evaluation Step](../pipelines/model_eval_step_xgboost.md)
+- [XGBoost Model Evaluation Step](../pipeline_steps/model_eval_step_xgboost.md)
 
 ### 9. Model Creation Configuration
 
@@ -140,7 +140,7 @@ The notebook guides users through creating a comprehensive configuration for an 
     - `max_payload_size`: Maximum payload size
 
 **Related Documentation:**
-- [XGBoost Model Step](../pipelines/model_step_xgboost.md)
+- [XGBoost Model Step](../pipeline_steps/model_step_xgboost.md)
 
 ### 10. MIMS Packaging Configuration
 
@@ -150,7 +150,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `processing_source_dir`: Source directory for packaging scripts
 
 **Related Documentation:**
-- [MIMS Packaging Step](../pipelines/mims_packaging_step.md)
+- [MIMS Packaging Step](../pipeline_steps/mims_packaging_step.md)
 
 ### 11. MIMS Registration Configuration
 
@@ -165,7 +165,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `source_model_inference_output_variable_list`: Output variables for inference
 
 **Related Documentation:**
-- [MIMS Registration Step](../pipelines/mims_registration_step.md)
+- [MIMS Registration Step](../pipeline_steps/mims_registration_step.md)
 
 ### 12. Batch Transform Configuration
 
@@ -176,7 +176,7 @@ The notebook guides users through creating a comprehensive configuration for an 
   - `transform_instance_count`: Number of instances for transform
 
 **Related Documentation:**
-- [Batch Transform Step](../pipelines/batch_transform_step.md)
+- [Batch Transform Step](../pipeline_steps/batch_transform_step.md)
 
 ## Pipeline Flow
 

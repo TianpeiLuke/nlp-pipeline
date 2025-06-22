@@ -89,12 +89,12 @@ The Cradle Data Load Step loads data from various sources (MDS, EDX, or ANDES) u
 
 ## Usage Example
 ```python
-from src.pipelines.config_data_load_step_cradle import (
+from src.pipeline_steps.config_data_load_step_cradle import (
     CradleDataLoadConfig, DataSourcesSpecificationConfig, DataSourceConfig,
     MdsDataSourceConfig, TransformSpecificationConfig, JobSplitOptionsConfig,
     OutputSpecificationConfig, CradleJobSpecificationConfig
 )
-from src.pipelines.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 
 # Create MDS data source config
 mds_config = MdsDataSourceConfig(

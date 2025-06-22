@@ -44,8 +44,8 @@ The MIMS Packaging Step prepares a trained model for deployment in the Model Inv
 
 ## Usage Example
 ```python
-from src.pipelines.config_mims_packaging_step import PackageStepConfig
-from src.pipelines.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
+from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
 
 # Create configuration
 config = PackageStepConfig(

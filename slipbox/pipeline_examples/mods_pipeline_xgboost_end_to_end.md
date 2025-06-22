@@ -6,35 +6,35 @@ The XGBoost End-to-End Pipeline builds a complete machine learning workflow that
 ## Steps Involved
 
 1. **Data Loading (Training)**
-   - Uses [Cradle Data Load Step](../pipelines/data_load_step_cradle.md)
+   - Uses [Cradle Data Load Step](../pipeline_steps/data_load_step_cradle.md)
    - Loads training data from source systems (MDS, EDX, or ANDES)
 
 2. **Tabular Preprocessing (Training)**
-   - Uses [Tabular Preprocessing Step](../pipelines/tabular_preprocessing_step.md)
+   - Uses [Tabular Preprocessing Step](../pipeline_steps/tabular_preprocessing_step.md)
    - Prepares training data for model training
 
 3. **XGBoost Model Training**
-   - Uses [XGBoost Training Step](../pipelines/training_step_xgboost.md)
+   - Uses [XGBoost Training Step](../pipeline_steps/training_step_xgboost.md)
    - Trains an XGBoost model on the preprocessed data
 
 4. **XGBoost Model Creation**
-   - Uses [XGBoost Model Step](../pipelines/model_step_xgboost.md)
+   - Uses [XGBoost Model Step](../pipeline_steps/model_step_xgboost.md)
    - Creates a SageMaker model artifact from the trained model
 
 5. **MIMS Packaging**
-   - Uses [MIMS Packaging Step](../pipelines/mims_packaging_step.md)
+   - Uses [MIMS Packaging Step](../pipeline_steps/mims_packaging_step.md)
    - Packages the model for deployment in MIMS
 
 6. **Model Registration**
-   - Uses [MIMS Registration Step](../pipelines/mims_registration_step.md)
+   - Uses [MIMS Registration Step](../pipeline_steps/mims_registration_step.md)
    - Registers the model with MIMS
 
 7. **Data Loading (Calibration)**
-   - Uses [Cradle Data Load Step](../pipelines/data_load_step_cradle.md)
+   - Uses [Cradle Data Load Step](../pipeline_steps/data_load_step_cradle.md)
    - Loads calibration data from source systems
 
 8. **Tabular Preprocessing (Calibration)**
-   - Uses [Tabular Preprocessing Step](../pipelines/tabular_preprocessing_step.md)
+   - Uses [Tabular Preprocessing Step](../pipeline_steps/tabular_preprocessing_step.md)
    - Prepares calibration data for model evaluation
 
 ## Step Connections (Adjacency List)

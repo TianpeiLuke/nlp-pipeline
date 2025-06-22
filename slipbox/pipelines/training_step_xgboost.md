@@ -52,9 +52,9 @@ The training step sets the following environment variables for the training job:
 
 ## Usage Example
 ```python
-from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig
-from src.pipelines.builder_training_step_xgboost import XGBoostTrainingStepBuilder
-from src.pipelines.hyperparameters_xgboost import XGBoostModelHyperparameters
+from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
+from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
+from src.pipeline_steps.hyperparameters_xgboost import XGBoostModelHyperparameters
 
 # Create hyperparameters
 hyperparams = XGBoostModelHyperparameters(

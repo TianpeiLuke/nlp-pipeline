@@ -50,9 +50,9 @@ The preprocessing step sets the following environment variables for the processi
 
 ## Usage Example
 ```python
-from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
-from src.pipelines.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
-from src.pipelines.hyperparameters_base import ModelHyperparameters
+from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.hyperparameters_base import ModelHyperparameters
 
 # Create hyperparameters
 hyperparams = ModelHyperparameters(

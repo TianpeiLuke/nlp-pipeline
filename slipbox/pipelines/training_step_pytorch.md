@@ -61,9 +61,9 @@ The training step sets the following environment variables for the training job:
 
 ## Usage Example
 ```python
-from src.pipelines.config_training_step_pytorch import PytorchTrainingConfig
-from src.pipelines.builder_training_step_pytorch import PyTorchTrainingStepBuilder
-from src.pipelines.hyperparameters_base import ModelHyperparameters
+from src.pipeline_steps.config_training_step_pytorch import PytorchTrainingConfig
+from src.pipeline_steps.builder_training_step_pytorch import PyTorchTrainingStepBuilder
+from src.pipeline_steps.hyperparameters_base import ModelHyperparameters
 
 # Create hyperparameters
 hyperparams = ModelHyperparameters(

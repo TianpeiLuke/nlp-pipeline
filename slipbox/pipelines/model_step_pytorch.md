@@ -60,8 +60,8 @@ The model step sets the following environment variables for the model container:
 
 ## Usage Example
 ```python
-from src.pipelines.config_model_step_pytorch import PytorchModelCreationConfig
-from src.pipelines.builder_model_step_pytorch import PytorchModelStepBuilder
+from src.pipeline_steps.config_model_step_pytorch import PytorchModelCreationConfig
+from src.pipeline_steps.builder_model_step_pytorch import PytorchModelStepBuilder
 
 # Create configuration
 config = PytorchModelCreationConfig(

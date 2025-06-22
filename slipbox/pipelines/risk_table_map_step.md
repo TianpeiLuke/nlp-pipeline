@@ -47,8 +47,8 @@ The Risk Table Mapping Step processes raw data and applies risk table mappings t
 
 ## Usage Example
 ```python
-from src.pipelines.config_risk_table_map_step import RiskTableMappingStepConfig
-from src.pipelines.builder_risk_table_map_step import RiskTableMappingStepBuilder
+from src.pipeline_steps.config_risk_table_map_step import RiskTableMappingStepConfig
+from src.pipeline_steps.builder_risk_table_map_step import RiskTableMappingStepBuilder
 
 # Create configuration
 config = RiskTableMappingStepConfig(

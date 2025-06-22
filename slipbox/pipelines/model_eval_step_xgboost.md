@@ -45,9 +45,9 @@ The XGBoost Model Evaluation Step evaluates a trained XGBoost model on a specifi
 
 ## Usage Example
 ```python
-from src.pipelines.config_model_eval_step_xgboost import XGBoostModelEvalConfig
-from src.pipelines.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
-from src.pipelines.hyperparameters_xgboost import XGBoostHyperparameters
+from src.pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
+from src.pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
+from src.pipeline_steps.hyperparameters_xgboost import XGBoostHyperparameters
 
 # Create hyperparameters
 hyperparams = XGBoostHyperparameters(

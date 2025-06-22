@@ -44,8 +44,8 @@ The Batch Transform Step creates a SageMaker Batch Transform job to generate pre
 
 ## Usage Example
 ```python
-from src.pipelines.config_batch_transform_step import BatchTransformStepConfig
-from src.pipelines.builder_batch_transform_step import BatchTransformStepBuilder
+from src.pipeline_steps.config_batch_transform_step import BatchTransformStepConfig
+from src.pipeline_steps.builder_batch_transform_step import BatchTransformStepBuilder
 
 # Create configuration
 config = BatchTransformStepConfig(

@@ -6,15 +6,15 @@ The PyTorch BSM Pipeline is a model deployment pipeline that takes a pre-trained
 ## Steps Involved
 
 1. **PyTorch Model Step**
-   - Uses [PyTorch Model Step](../pipelines/model_step_pytorch.md)
+   - Uses [PyTorch Model Step](../pipeline_steps/model_step_pytorch.md)
    - Creates a SageMaker model artifact from a pre-trained PyTorch model
 
 2. **MIMS Packaging Step**
-   - Uses [MIMS Packaging Step](../pipelines/mims_packaging_step.md)
+   - Uses [MIMS Packaging Step](../pipeline_steps/mims_packaging_step.md)
    - Packages the model for deployment in MIMS
 
 3. **MIMS Registration Step**
-   - Uses [MIMS Registration Step](../pipelines/mims_registration_step.md)
+   - Uses [MIMS Registration Step](../pipeline_steps/mims_registration_step.md)
    - Registers the model with MIMS
 
 ## Step Connections (Adjacency List)

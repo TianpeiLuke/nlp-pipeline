@@ -1,4 +1,4 @@
-# src/pipelines/config_batch_transform_step.py
+# src/pipeline_steps/config_batch_transform_step.py
 
 from pydantic import BaseModel, Field, model_validator, field_validator
 from typing import Optional, Dict, Any

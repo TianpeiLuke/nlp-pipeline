@@ -27,12 +27,12 @@ All pipelines follow a consistent design pattern:
 
 Most pipelines include some combination of these components:
 
-- **Data Loading**: Using the [Cradle Data Load Step](../pipelines/data_load_step_cradle.md)
-- **Data Preprocessing**: Using the [Tabular Preprocessing Step](../pipelines/tabular_preprocessing_step.md)
-- **Model Training**: Using either [XGBoost Training Step](../pipelines/training_step_xgboost.md) or [PyTorch Training Step](../pipelines/training_step_pytorch.md)
-- **Model Creation**: Using either [XGBoost Model Step](../pipelines/model_step_xgboost.md) or [PyTorch Model Step](../pipelines/model_step_pytorch.md)
-- **Model Packaging**: Using the [MIMS Packaging Step](../pipelines/mims_packaging_step.md)
-- **Model Registration**: Using the [MIMS Registration Step](../pipelines/mims_registration_step.md)
+- **Data Loading**: Using the [Cradle Data Load Step](../pipeline_steps/data_load_step_cradle.md)
+- **Data Preprocessing**: Using the [Tabular Preprocessing Step](../pipeline_steps/tabular_preprocessing_step.md)
+- **Model Training**: Using either [XGBoost Training Step](../pipeline_steps/training_step_xgboost.md) or [PyTorch Training Step](../pipeline_steps/training_step_pytorch.md)
+- **Model Creation**: Using either [XGBoost Model Step](../pipeline_steps/model_step_xgboost.md) or [PyTorch Model Step](../pipeline_steps/model_step_pytorch.md)
+- **Model Packaging**: Using the [MIMS Packaging Step](../pipeline_steps/mims_packaging_step.md)
+- **Model Registration**: Using the [MIMS Registration Step](../pipeline_steps/mims_registration_step.md)
 
 ## Pipeline Flow Patterns
 

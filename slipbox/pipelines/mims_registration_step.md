@@ -46,8 +46,8 @@ The MIMS Registration Step registers a packaged model with the Model Inventory M
 
 ## Usage Example
 ```python
-from src.pipelines.config_mims_registration_step import ModelRegistrationConfig, VariableType
-from src.pipelines.builder_mims_registration_step import ModelRegistrationStepBuilder
+from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig, VariableType
+from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 # Create configuration
 config = ModelRegistrationConfig(

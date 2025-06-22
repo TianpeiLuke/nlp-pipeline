@@ -53,8 +53,8 @@ The Currency Conversion Step performs currency normalization on monetary values 
 
 ## Usage Example
 ```python
-from src.pipelines.config_currency_conversion_step import CurrencyConversionConfig
-from src.pipelines.builder_currency_conversion_step import CurrencyConversionStepBuilder
+from src.pipeline_steps.config_currency_conversion_step import CurrencyConversionConfig
+from src.pipeline_steps.builder_currency_conversion_step import CurrencyConversionStepBuilder
 
 # Create configuration
 config = CurrencyConversionConfig(

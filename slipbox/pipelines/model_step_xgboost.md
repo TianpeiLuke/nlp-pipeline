@@ -59,8 +59,8 @@ The model step sets the following environment variables for the model container:
 
 ## Usage Example
 ```python
-from src.pipelines.config_model_step_xgboost import XGBoostModelCreationConfig
-from src.pipelines.builder_model_step_xgboost import XGBoostModelStepBuilder
+from src.pipeline_steps.config_model_step_xgboost import XGBoostModelCreationConfig
+from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
 
 # Create configuration
 config = XGBoostModelCreationConfig(

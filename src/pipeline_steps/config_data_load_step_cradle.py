@@ -1,4 +1,4 @@
-# File: pipelines/config_cradle_data_load.py
+# File: pipeline_steps/config_cradle_data_load.py
 
 from typing import List, Optional, Dict, Any
 import re
