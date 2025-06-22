@@ -6,7 +6,7 @@ __pycache__/
 
 # Environment and dependency folders
 .env
-pipelines/.env
+pipeline_steps/.env
 .venv/
 env/
 venv/

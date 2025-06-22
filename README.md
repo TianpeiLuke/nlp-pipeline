@@ -45,17 +45,17 @@ See [slipbox/processing/README.md](slipbox/processing/README.md) for a full list
 
 Each pipeline step encapsulates a specific stage of the ML workflow, with configuration-driven design and strong validation.
 
-- **Data Loading:** [Cradle Data Load Step](slipbox/pipelines/data_load_step_cradle.md)
-- **Tabular Preprocessing:** [Tabular Preprocessing Step](slipbox/pipelines/tabular_preprocessing_step.md)
-- **Risk Table Mapping:** [Risk Table Mapping Step](slipbox/pipelines/risk_table_map_step.md)
-- **Model Training:** [XGBoost Training Step](slipbox/pipelines/training_step_xgboost.md), [PyTorch Training Step](slipbox/pipelines/training_step_pytorch.md)
-- **Model Creation:** [XGBoost Model Step](slipbox/pipelines/model_step_xgboost.md), [PyTorch Model Step](slipbox/pipelines/model_step_pytorch.md)
-- **Model Evaluation:** [XGBoost Model Evaluation Step](slipbox/pipelines/model_eval_step_xgboost.md)
-- **Packaging:** [MIMS Packaging Step](slipbox/pipelines/mims_packaging_step.md)
-- **Registration:** [MIMS Registration Step](slipbox/pipelines/mims_registration_step.md)
-- **Batch Transform:** [Batch Transform Step](slipbox/pipelines/batch_transform_step.md)
+- **Data Loading:** [Cradle Data Load Step](slipbox/pipeline_steps/data_load_step_cradle.md)
+- **Tabular Preprocessing:** [Tabular Preprocessing Step](slipbox/pipeline_steps/tabular_preprocessing_step.md)
+- **Risk Table Mapping:** [Risk Table Mapping Step](slipbox/pipeline_steps/risk_table_map_step.md)
+- **Model Training:** [XGBoost Training Step](slipbox/pipeline_steps/training_step_xgboost.md), [PyTorch Training Step](slipbox/pipeline_steps/training_step_pytorch.md)
+- **Model Creation:** [XGBoost Model Step](slipbox/pipeline_steps/model_step_xgboost.md), [PyTorch Model Step](slipbox/pipeline_steps/model_step_pytorch.md)
+- **Model Evaluation:** [XGBoost Model Evaluation Step](slipbox/pipeline_steps/model_eval_step_xgboost.md)
+- **Packaging:** [MIMS Packaging Step](slipbox/pipeline_steps/mims_packaging_step.md)
+- **Registration:** [MIMS Registration Step](slipbox/pipeline_steps/mims_registration_step.md)
+- **Batch Transform:** [Batch Transform Step](slipbox/pipeline_steps/batch_transform_step.md)
 
-See [slipbox/pipelines/README.md](slipbox/pipelines/README.md) for a complete overview and usage pattern.
+See [slipbox/pipeline_steps/README.md](slipbox/pipeline_steps/README.md) for a complete overview and usage pattern.
 
 ---
 
