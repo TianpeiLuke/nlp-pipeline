@@ -148,6 +148,32 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 f"Must be one of: {', '.join(self.config.REGION_MAPPING.keys())}"
             )
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
+            "dependencies": "Optional list of step dependencies",
+            "payload_s3_key": "Optional S3 key for payload data",
+            "regions": "Optional list of regions for registration"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "model_package_arn": "ARN of the registered model package",
+            "registration_status": "Status of the model registration"
+        }
+    
     def create_step(
         self,
         packaging_step_output: Union[str, Properties],
@@ -182,6 +208,13 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                     processing_input=registration_inputs,
                     depends_on=dependencies or [],
                 )
+                
+                # Add output properties for downstream steps
+                if hasattr(step, 'properties'):
+                    # These are placeholder properties that might be available in the actual implementation
+                    # The actual implementation would need to expose these properties
+                    pass
+                
                 registration_steps[region] = step
                 logger.info(f"Created registration step for {region}")
             except Exception as e:

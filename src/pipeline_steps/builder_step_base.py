@@ -133,6 +133,36 @@ class StepBuilderBase(ABC):
         """
         pass
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        This method should return a dictionary mapping input parameter names to
+        descriptions of what they represent. This helps the pipeline builder
+        understand what inputs this step expects.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        # Base implementation returns an empty dict
+        # Subclasses should override this to specify their input requirements
+        return {}
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        This method should return a dictionary mapping output property names to
+        descriptions of what they represent. This helps the pipeline builder
+        understand what outputs this step provides to downstream steps.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        # Base implementation returns an empty dict
+        # Subclasses should override this to specify their output properties
+        return {}
+    
     @abstractmethod
     def create_step(self, *args, **kwargs) -> Step:
         """

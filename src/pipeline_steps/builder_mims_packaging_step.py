@@ -180,6 +180,29 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             expire_after=expire_after
         )
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "model_artifacts_input_source": "Source location of model artifacts (S3 path or Properties object)",
+            "dependencies": "Optional list of step dependencies"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the packaged model output"
+        }
+    
     def create_step(
         self,
         model_artifacts_input_source: Union[str, Properties],

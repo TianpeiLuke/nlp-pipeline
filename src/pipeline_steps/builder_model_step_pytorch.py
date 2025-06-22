@@ -112,6 +112,30 @@ class PytorchModelStepBuilder(StepBuilderBase):
             image_uri=self._get_image_uri()
         )
 
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
+        
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        return {
+            "model_data": "S3 path to model artifacts (.tar.gz file)",
+            "dependencies": "List of dependent steps (optional)"
+        }
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        return {
+            "model_artifacts_path": "S3 path to model artifacts",
+            "model": "SageMaker model object"
+        }
+    
     def create_step(self, model_data: str, dependencies: Optional[List] = None) -> Step:
         """
         Create model step for deployment.
@@ -146,6 +170,7 @@ class PytorchModelStepBuilder(StepBuilderBase):
         
         # Store model data path for subsequent steps
         model_step.model_artifacts_path = model_data
+        model_step.model = model
         
         return model_step
 
