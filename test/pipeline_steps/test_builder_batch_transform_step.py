@@ -61,7 +61,7 @@ class TestBatchTransformStepBuilder(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.builder.validate_configuration()
 
-    @patch('src.pipelines.builder_batch_transform_step.Transformer')
+    @patch('src.pipeline_steps.builder_batch_transform_step.Transformer')
     def test_create_transformer(self, mock_transformer_cls):
         """Test that the transformer is created with the correct parameters."""
         # Setup mock transformer
@@ -85,7 +85,7 @@ class TestBatchTransformStepBuilder(unittest.TestCase):
         # Verify the returned transformer is our mock
         self.assertEqual(transformer, mock_transformer)
 
-    @patch('src.pipelines.builder_batch_transform_step.Transformer')
+    @patch('src.pipeline_steps.builder_batch_transform_step.Transformer')
     def test_create_step(self, mock_transformer_cls):
         """Test that the transform step is created with the correct parameters."""
         # Setup mock transformer
@@ -113,7 +113,7 @@ class TestBatchTransformStepBuilder(unittest.TestCase):
         # Verify dependencies
         self.assertEqual(step.depends_on, [])
         
-    @patch('src.pipelines.builder_batch_transform_step.Transformer')
+    @patch('src.pipeline_steps.builder_batch_transform_step.Transformer')
     def test_create_step_with_dependencies(self, mock_transformer_cls):
         """Test that the transform step is created with dependencies."""
         # Setup mock transformer

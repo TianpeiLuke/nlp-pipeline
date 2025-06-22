@@ -72,8 +72,8 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         uri = self.builder._get_checkpoint_uri()
         self.assertEqual(uri, f"{self.config.output_path}/checkpoints/{self.config.current_date}")
 
-    @patch('src.pipelines.builder_training_step_pytorch.PyTorch')
-    @patch('src.pipelines.builder_training_step_pytorch.TrainingInput')
+    @patch('src.pipeline_steps.builder_training_step_pytorch.PyTorch')
+    @patch('src.pipeline_steps.builder_training_step_pytorch.TrainingInput')
     def test_create_step_without_checkpoint(self, mock_training_input_cls, mock_pytorch_cls):
         # Simulate no existing checkpoint
         self.config.has_checkpoint = lambda: False
@@ -100,8 +100,8 @@ class TestPyTorchTrainingStepBuilder(unittest.TestCase):
         expected_name = self.builder._get_step_name('PytorchTraining')
         self.assertEqual(step.name, expected_name)
 
-    @patch('src.pipelines.builder_training_step_pytorch.PyTorch')
-    @patch('src.pipelines.builder_training_step_pytorch.TrainingInput')
+    @patch('src.pipeline_steps.builder_training_step_pytorch.PyTorch')
+    @patch('src.pipeline_steps.builder_training_step_pytorch.TrainingInput')
     def test_create_step_with_checkpoint(self, mock_training_input_cls, mock_pytorch_cls):
         # Simulate existing checkpoint
         self.config.has_checkpoint = lambda: True

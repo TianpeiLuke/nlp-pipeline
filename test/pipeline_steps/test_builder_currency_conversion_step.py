@@ -119,7 +119,7 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         self.config.skip_invalid_currencies = True
         self.builder.validate_configuration()  # Should not raise
 
-    @patch('src.pipelines.builder_currency_conversion_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_currency_conversion_step.SKLearnProcessor')
     def test_create_processor(self, mock_processor_cls):
         """Test that the processor is created with the correct parameters."""
         # Setup mock processor
@@ -164,8 +164,8 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         self.assertEqual(outputs[0].destination, 's3://bucket/pipeline/currency_conversion')
         self.assertEqual(outputs[0].output_name, 'ConvertedCurrencyData')
 
-    @patch('src.pipelines.builder_currency_conversion_step.SKLearnProcessor')
-    @patch('src.pipelines.builder_currency_conversion_step.ProcessingStep')
+    @patch('src.pipeline_steps.builder_currency_conversion_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_currency_conversion_step.ProcessingStep')
     def test_create_step(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with the correct parameters."""
         # Setup mock processor
@@ -191,8 +191,8 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
         
-    @patch('src.pipelines.builder_currency_conversion_step.SKLearnProcessor')
-    @patch('src.pipelines.builder_currency_conversion_step.ProcessingStep')
+    @patch('src.pipeline_steps.builder_currency_conversion_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_currency_conversion_step.ProcessingStep')
     def test_create_step_with_dependencies(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with dependencies."""
         # Setup mock processor

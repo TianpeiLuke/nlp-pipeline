@@ -240,7 +240,7 @@ class TestPayloadConfig(unittest.TestCase):
         config = PayloadConfig(**self.valid_config_data)
         
         # Mock the generate_sample_payloads method to test the unsupported content type case
-        with patch('src.pipelines.config_mims_payload_step.PayloadConfig.generate_sample_payloads') as mock_method:
+        with patch('src.pipeline_steps.config_mims_payload_step.PayloadConfig.generate_sample_payloads') as mock_method:
             # Set up the mock to raise ValueError when called
             mock_method.side_effect = ValueError("Unsupported content type: application/unsupported")
             

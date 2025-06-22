@@ -101,7 +101,7 @@ class TestTabularPreprocessingStepBuilder(unittest.TestCase):
         args = self.builder._get_job_arguments()
         self.assertEqual(args, ['--job_type', 'training'])
 
-    @patch('src.pipelines.builder_tabular_preprocessing_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_tabular_preprocessing_step.SKLearnProcessor')
     def test_create_step(self, mock_processor_cls):
         # Stub processor instance
         dummy_processor = MagicMock()

@@ -42,7 +42,7 @@ class TestXGBoostModelStepBuilder(unittest.TestCase):
         self.builder.aws_region = 'us-east-1'
         self.builder._get_step_name = MagicMock(return_value='XGBoostModelStep')
 
-    @patch('src.pipelines.builder_model_step_xgboost.image_uris.retrieve')
+    @patch('src.pipeline_steps.builder_model_step_xgboost.image_uris.retrieve')
     def test_get_image_uri(self, mock_image_uris_retrieve):
         """Test that the correct image URI is retrieved."""
         mock_image_uris_retrieve.return_value = '123456789012.dkr.ecr.us-east-1.amazonaws.com/xgboost:1.7-1'
@@ -63,7 +63,7 @@ class TestXGBoostModelStepBuilder(unittest.TestCase):
         self.assertEqual(env_config['SAGEMAKER_CONTAINER_MEMORY_LIMIT'], str(self.config.container_memory_limit))
         self.assertEqual(env_config['AWS_REGION'], self.builder.aws_region)
 
-    @patch('src.pipelines.builder_model_step_xgboost.XGBoostModel')
+    @patch('src.pipeline_steps.builder_model_step_xgboost.XGBoostModel')
     def test_create_xgboost_model(self, mock_xgboost_model_cls):
         """Test that the XGBoost model is created with the correct parameters."""
         mock_model_instance = MagicMock()

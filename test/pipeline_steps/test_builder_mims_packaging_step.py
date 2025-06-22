@@ -105,7 +105,7 @@ class TestMIMSPackagingStepBuilder(unittest.TestCase):
         self.config.input_names = original_input_names
         self.config.get_input_names = MagicMock(return_value=self.config.input_names)
 
-    @patch('src.pipelines.builder_mims_packaging_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_mims_packaging_step.SKLearnProcessor')
     def test_create_processor(self, mock_processor_cls):
         """Test that the processor is created with the correct parameters."""
         # Setup mock processor
@@ -163,8 +163,8 @@ class TestMIMSPackagingStepBuilder(unittest.TestCase):
         self.assertEqual(outputs[0].destination, 's3://bucket/pipeline/MIMS_Packaging/packaged_model_artifacts')
         self.assertEqual(outputs[0].output_name, 'packaged_model_output')
 
-    @patch('src.pipelines.builder_mims_packaging_step.SKLearnProcessor')
-    @patch('src.pipelines.builder_mims_packaging_step.ProcessingStep')
+    @patch('src.pipeline_steps.builder_mims_packaging_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_mims_packaging_step.ProcessingStep')
     def test_create_step(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with the correct parameters."""
         # Setup mock processor
@@ -191,8 +191,8 @@ class TestMIMSPackagingStepBuilder(unittest.TestCase):
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
         
-    @patch('src.pipelines.builder_mims_packaging_step.SKLearnProcessor')
-    @patch('src.pipelines.builder_mims_packaging_step.ProcessingStep')
+    @patch('src.pipeline_steps.builder_mims_packaging_step.SKLearnProcessor')
+    @patch('src.pipeline_steps.builder_mims_packaging_step.ProcessingStep')
     def test_create_step_with_dependencies(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with dependencies."""
         # Setup mock processor

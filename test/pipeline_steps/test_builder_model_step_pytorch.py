@@ -81,7 +81,7 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
         # Restore original value
         self.config.inference_entry_point = original_value
 
-    @patch('src.pipelines.builder_model_step_pytorch.image_uris')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
     def test_get_image_uri(self, mock_image_uris):
         """Test that the image URI is retrieved correctly."""
         # Setup mock
@@ -133,8 +133,8 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
         # Restore original value
         self.config.inference_entry_point = original_value
 
-    @patch('src.pipelines.builder_model_step_pytorch.PyTorchModel')
-    @patch('src.pipelines.builder_model_step_pytorch.image_uris')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
     def test_create_pytorch_model(self, mock_image_uris, mock_pytorch_model_cls):
         """Test that the PyTorch model is created with the correct parameters."""
         # Setup mocks
@@ -173,10 +173,10 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
         # Verify the returned model is our mock
         self.assertEqual(model, mock_model)
 
-    @patch('src.pipelines.builder_model_step_pytorch.PyTorchModel')
-    @patch('src.pipelines.builder_model_step_pytorch.ModelStep')
-    @patch('src.pipelines.builder_model_step_pytorch.Parameter')
-    @patch('src.pipelines.builder_model_step_pytorch.image_uris')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.ModelStep')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.Parameter')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
     def test_create_step(self, mock_image_uris, mock_parameter_cls, mock_model_step_cls, mock_pytorch_model_cls):
         """Test that the model step is created with the correct parameters."""
         # Setup mocks
@@ -223,10 +223,10 @@ class TestPytorchModelStepBuilder(unittest.TestCase):
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
 
-    @patch('src.pipelines.builder_model_step_pytorch.PyTorchModel')
-    @patch('src.pipelines.builder_model_step_pytorch.ModelStep')
-    @patch('src.pipelines.builder_model_step_pytorch.Parameter')
-    @patch('src.pipelines.builder_model_step_pytorch.image_uris')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.ModelStep')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.Parameter')
+    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
     def test_create_step_with_dependencies(self, mock_image_uris, mock_parameter_cls, mock_model_step_cls, mock_pytorch_model_cls):
         """Test that the model step is created with dependencies."""
         # Setup mocks

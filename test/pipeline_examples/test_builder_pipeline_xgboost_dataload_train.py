@@ -25,7 +25,7 @@ class TestXGBoostDataloadTrainPipelineBuilder(unittest.TestCase):
         self.mock_load_configs = self.load_configs_patch.start()
         
         # Mock BasePipelineConfig.get_step_name to return the class name directly
-        self.get_step_name_patch = patch('src.pipelines.config_base.BasePipelineConfig.get_step_name')
+        self.get_step_name_patch = patch('src.pipeline_steps.config_base.BasePipelineConfig.get_step_name')
         self.mock_get_step_name = self.get_step_name_patch.start()
         self.mock_get_step_name.side_effect = lambda x: x  # Return the input directly
         

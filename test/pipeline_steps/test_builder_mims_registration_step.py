@@ -55,7 +55,7 @@ class TestModelRegistrationStepBuilder(unittest.TestCase):
         # Mock the MimsModelRegistrationProcessingStep
         self.mock_registration_step = MagicMock()
         self.mock_registration_step_patcher = patch(
-            'src.pipelines.builder_mims_registration_step.MimsModelRegistrationProcessingStep',
+            'src.pipeline_steps.builder_mims_registration_step.MimsModelRegistrationProcessingStep',
             return_value=self.mock_registration_step
         )
         self.mock_registration_step_class = self.mock_registration_step_patcher.start()

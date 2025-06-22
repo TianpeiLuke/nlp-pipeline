@@ -134,7 +134,7 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         self.assertEqual(env_vars["ID_FIELD"], "id")
         self.assertEqual(env_vars["LABEL_FIELD"], "label")
 
-    @patch('src.pipelines.builder_model_eval_step_xgboost.XGBoostProcessor')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.XGBoostProcessor')
     def test_create_processor(self, mock_processor_cls):
         """Test that the processor is created with the correct parameters."""
         # Setup mock processor
@@ -252,8 +252,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         cache_config = self.builder._get_cache_config(False)
         self.assertIsNone(cache_config)
 
-    @patch('src.pipelines.builder_model_eval_step_xgboost.XGBoostProcessor')
-    @patch('src.pipelines.builder_model_eval_step_xgboost.ProcessingStep')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.XGBoostProcessor')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.ProcessingStep')
     def test_create_step(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with the correct parameters."""
         # Setup mock processor
@@ -300,8 +300,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
         
-    @patch('src.pipelines.builder_model_eval_step_xgboost.XGBoostProcessor')
-    @patch('src.pipelines.builder_model_eval_step_xgboost.ProcessingStep')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.XGBoostProcessor')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.ProcessingStep')
     def test_create_step_with_dependencies(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with dependencies."""
         # Setup mock processor
@@ -342,8 +342,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
         
-    @patch('src.pipelines.builder_model_eval_step_xgboost.XGBoostProcessor')
-    @patch('src.pipelines.builder_model_eval_step_xgboost.ProcessingStep')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.XGBoostProcessor')
+    @patch('src.pipeline_steps.builder_model_eval_step_xgboost.ProcessingStep')
     def test_create_step_with_caching_disabled(self, mock_processing_step_cls, mock_processor_cls):
         """Test that the processing step is created with caching disabled."""
         # Setup mock processor

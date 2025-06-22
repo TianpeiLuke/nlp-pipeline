@@ -61,11 +61,11 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing required attributes"):
             self.builder.validate_configuration()
 
-    @patch('src.pipelines.builder_training_step_xgboost.shutil.rmtree')
-    @patch('src.pipelines.builder_training_step_xgboost.tempfile.mkdtemp')
-    @patch('src.pipelines.builder_training_step_xgboost.Path.write_text')
-    @patch('src.pipelines.builder_training_step_xgboost.S3Uploader.upload')
-    @patch('src.pipelines.builder_training_step_xgboost.json.dumps')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.shutil.rmtree')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.tempfile.mkdtemp')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.Path.write_text')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.S3Uploader.upload')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.json.dumps')
     def test_prepare_hyperparameters_file_with_existing_file(self, mock_json_dumps, mock_s3_upload, mock_write_text, mock_mkdtemp, mock_rmtree):
         """
         Test _prepare_hyperparameters_file when an existing file needs to be deleted.
@@ -86,10 +86,10 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         mock_rmtree.assert_called_once_with(Path('/tmp/dummy_dir'))
         self.assertEqual(s3_uri, expected_s3_uri)
 
-    @patch('src.pipelines.builder_training_step_xgboost.shutil.rmtree')
-    @patch('src.pipelines.builder_training_step_xgboost.tempfile.mkdtemp')
-    @patch('src.pipelines.builder_training_step_xgboost.Path.write_text')
-    @patch('src.pipelines.builder_training_step_xgboost.S3Uploader.upload')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.shutil.rmtree')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.tempfile.mkdtemp')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.Path.write_text')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.S3Uploader.upload')
     def test_prepare_hyperparameters_no_existing_file(self, mock_s3_upload, mock_write_text, mock_mkdtemp, mock_rmtree):
         """
         Test _prepare_hyperparameters_file when no existing file is found (404 error).
@@ -106,7 +106,7 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         mock_s3_upload.assert_called_once()
         mock_rmtree.assert_called_once()
 
-    @patch('src.pipelines.builder_training_step_xgboost.XGBoost')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.XGBoost')
     def test_create_xgboost_estimator(self, mock_xgboost_cls):
         """Test that the XGBoost estimator is created with the correct parameters."""
         self.builder._create_xgboost_estimator()
@@ -118,8 +118,8 @@ class TestXGBoostTrainingStepBuilder(unittest.TestCase):
         self.assertEqual(kwargs.get('hyperparameters'), {})
         self.assertIn('CA_REPOSITORY_ARN', kwargs.get('environment', {}))
 
-    @patch('src.pipelines.builder_training_step_xgboost.XGBoostTrainingStepBuilder._create_xgboost_estimator')
-    @patch('src.pipelines.builder_training_step_xgboost.XGBoostTrainingStepBuilder._prepare_hyperparameters_file')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.XGBoostTrainingStepBuilder._create_xgboost_estimator')
+    @patch('src.pipeline_steps.builder_training_step_xgboost.XGBoostTrainingStepBuilder._prepare_hyperparameters_file')
     def test_create_step(self, mock_prepare_hp_file, mock_create_estimator):
         """Test the end-to-end creation of the TrainingStep."""
         mock_prepare_hp_file.return_value = 's3://bucket/config/hyperparameters.json'
