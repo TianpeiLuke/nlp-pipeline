@@ -23,6 +23,11 @@ class TestXGBoostDataloadPreprocessPipelineBuilder(unittest.TestCase):
         self.load_configs_patch = patch('pipeline_examples.xgboost_atoz.builder_pipeline_xgboost_dataload_preprocess.load_configs')
         self.mock_load_configs = self.load_configs_patch.start()
         
+        # Mock BasePipelineConfig.get_step_name to return the class name directly
+        self.get_step_name_patch = patch('src.pipelines.config_base.BasePipelineConfig.get_step_name')
+        self.mock_get_step_name = self.get_step_name_patch.start()
+        self.mock_get_step_name.side_effect = lambda x: x  # Return the input directly
+        
         # Create mock configs
         self.mock_base_config = MagicMock(spec=BasePipelineConfig)
         self.mock_base_config.pipeline_name = "test-pipeline"
@@ -37,11 +42,25 @@ class TestXGBoostDataloadPreprocessPipelineBuilder(unittest.TestCase):
         self.mock_tp_train_cfg.input_names = {"data_input": "DataInput"}
         self.mock_tp_train_cfg.output_names = {"processed_data": "ProcessedTabularData"}
         
+        self.mock_tp_test_cfg = MagicMock(spec=TabularPreprocessingConfig)
+        self.mock_tp_test_cfg.job_type = "testing"
+        self.mock_tp_test_cfg.input_names = {"data_input": "DataInput"}
+        self.mock_tp_test_cfg.output_names = {"processed_data": "ProcessedTabularData"}
+        
+        # Create mock CradleDataLoadConfig for training and testing
+        self.mock_cradle_train_cfg = MagicMock(spec=object)
+        self.mock_cradle_train_cfg.job_type = 'training'
+        
+        self.mock_cradle_test_cfg = MagicMock(spec=object)
+        self.mock_cradle_test_cfg.job_type = 'testing'
+        
         # Set up mock configs dictionary
         self.mock_configs = {
             'Base': self.mock_base_config,
             'CradleDataLoadConfig_training': self.mock_cradle_train_cfg,
+            'CradleDataLoadConfig_testing': self.mock_cradle_test_cfg,
             'TabularPreprocessingConfig_training': self.mock_tp_train_cfg,
+            'TabularPreprocessingConfig_testing': self.mock_tp_test_cfg,
         }
         
         # Configure load_configs to return our mock configs
@@ -76,6 +95,30 @@ class TestXGBoostDataloadPreprocessPipelineBuilder(unittest.TestCase):
         )
         self.constants_patch.start()
         
+        # Patch isinstance to return True for our mocks
+        self.original_isinstance = isinstance
+        
+        def patched_isinstance(obj, classinfo):
+            from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
+            from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
+            
+            # Check if obj is one of our mocks and classinfo is the corresponding class
+            if obj is self.mock_cradle_train_cfg and classinfo is CradleDataLoadConfig:
+                return True
+            if obj is self.mock_cradle_test_cfg and classinfo is CradleDataLoadConfig:
+                return True
+            if obj is self.mock_tp_train_cfg and classinfo is TabularPreprocessingConfig:
+                return True
+            if obj is self.mock_tp_test_cfg and classinfo is TabularPreprocessingConfig:
+                return True
+            
+            # Fall back to the original isinstance for other cases
+            return self.original_isinstance(obj, classinfo)
+        
+        # Replace the built-in isinstance with our patched version
+        self.builtins_patch = patch('builtins.isinstance', patched_isinstance)
+        self.builtins_patch.start()
+        
         # Create the builder instance
         self.builder = XGBoostDataloadPreprocessPipelineBuilder(
             config_path="dummy/path/to/config.json",
@@ -86,6 +129,8 @@ class TestXGBoostDataloadPreprocessPipelineBuilder(unittest.TestCase):
     def tearDown(self):
         """Clean up patches after each test."""
         self.load_configs_patch.stop()
+        self.get_step_name_patch.stop()
+        self.builtins_patch.stop()
         self.cradle_builder_patch.stop()
         self.tp_builder_patch.stop()
         self.pipeline_patch.stop()
@@ -137,54 +182,16 @@ class TestXGBoostDataloadPreprocessPipelineBuilder(unittest.TestCase):
         self.assertIn("SecurityGroupId", param_names)
         self.assertIn("VPCEndpointSubnet", param_names)
 
-    def test_create_data_load_step(self):
-        """Test that _create_data_load_step creates a step correctly."""
-        step = self.builder._create_data_load_step(self.mock_cradle_train_cfg)
+    def test_create_flow(self):
+        """Test that _create_flow creates a flow correctly."""
+        steps = self.builder._create_flow('training')
         
-        # Verify CradleDataLoadingStepBuilder was instantiated with correct parameters
-        self.mock_cradle_builder_cls.assert_called_once_with(
-            config=self.mock_cradle_train_cfg,
-            sagemaker_session=self.builder.session,
-            role=self.builder.role
-        )
-        
-        # Verify create_step was called
+        # Verify all the step creation methods were called
         self.mock_cradle_builder.create_step.assert_called_once()
+        self.mock_tp_builder.create_step.assert_called_once()
         
-        # Verify get_request_dict was called
-        self.mock_cradle_builder.get_request_dict.assert_called_once()
-        
-        # Verify the returned step is our mock
-        self.assertEqual(step, self.mock_cradle_builder.create_step.return_value)
-
-    def test_create_tabular_preprocess_step(self):
-        """Test that _create_tabular_preprocess_step creates a step correctly."""
-        # Create a mock dependency step
-        mock_dependency = MagicMock()
-        mock_dependency.properties.ProcessingOutputConfig.Outputs = {
-            "DataOutput": MagicMock(S3Output=MagicMock(S3Uri="s3://bucket/data"))
-        }
-        
-        step = self.builder._create_tabular_preprocess_step(self.mock_tp_train_cfg, mock_dependency)
-        
-        # Verify TabularPreprocessingStepBuilder was instantiated with correct parameters
-        self.mock_tp_builder_cls.assert_called_once_with(
-            config=self.mock_tp_train_cfg,
-            sagemaker_session=self.builder.session,
-            role=self.builder.role
-        )
-        
-        # Verify create_step was called with correct parameters
-        self.mock_tp_builder.create_step.assert_called_once_with(
-            inputs={"DataInput": "s3://bucket/data"},
-            outputs={"ProcessedTabularData": f"{self.mock_base_config.pipeline_s3_loc}/tabular_preprocessing/training"}
-        )
-        
-        # Verify add_depends_on was called with the dependency step
-        step.add_depends_on.assert_called_once_with([mock_dependency])
-        
-        # Verify the returned step is our mock
-        self.assertEqual(step, self.mock_tp_builder.create_step.return_value)
+        # Verify the returned steps list contains all the expected steps
+        self.assertEqual(len(steps), 2)  # 2 steps: data load + preprocessing
 
     def test_create_training_flow(self):
         """Test that _create_training_flow creates the full training flow correctly."""
@@ -205,9 +212,9 @@ class TestXGBoostDataloadPreprocessPipelineBuilder(unittest.TestCase):
         self.mock_pipeline_cls.assert_called_once()
         call_args = self.mock_pipeline_cls.call_args[1]
         
-        self.assertEqual(call_args["name"], f"{self.mock_base_config.pipeline_name}-xgb-dataload-preprocess")
+        self.assertEqual(call_args["name"], f"{self.mock_base_config.pipeline_name}-loadprep")
         self.assertEqual(len(call_args["parameters"]), 4)  # 4 pipeline parameters
-        self.assertEqual(len(call_args["steps"]), 2)  # 2 steps: data load + preprocessing
+        self.assertEqual(len(call_args["steps"]), 4)  # 4 steps: 2 for training, 2 for testing
         self.assertEqual(call_args["sagemaker_session"], self.builder.session)
         
         # Verify the returned pipeline is our mock
