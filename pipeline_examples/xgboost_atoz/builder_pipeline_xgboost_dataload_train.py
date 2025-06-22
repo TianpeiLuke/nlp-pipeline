@@ -72,7 +72,7 @@ else:
 
 
 # ────────────────────────────────────────────────────────────────────────────────
-class MDSXGBoostPipelineBuilder:
+class XGBoostDataloadTrainPipelineBuilder:
     """
     Builds a pipeline that performs:
     1) Data Loading (for training set)

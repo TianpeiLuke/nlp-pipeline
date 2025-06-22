@@ -97,7 +97,7 @@ CONFIG_CLASSES = {
 
 
 # ────────────────────────────────────────────────────────────────────────────────
-class MDSXGBoostPipelineBuilder:
+class XGBoostEndToEndPipelineBuilder:
     """
     Builds a pipeline that performs:
     1) Data Loading (for training set)
@@ -461,4 +461,3 @@ class MDSXGBoostPipelineBuilder:
             steps=all_steps,
             sagemaker_session=self.session
         )
-

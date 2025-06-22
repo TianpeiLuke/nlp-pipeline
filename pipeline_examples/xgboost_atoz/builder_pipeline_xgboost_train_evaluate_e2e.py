@@ -77,7 +77,7 @@ CONFIG_CLASSES = {
 
 
 # ────────────────────────────────────────────────────────────────────────────────
-class XGBoostTrainEvaluatePipelineBuilder:
+class XGBoostTrainEvaluateE2EPipelineBuilder:
     """
     Builds a pipeline that performs:
     1) Data Loading (for training set)

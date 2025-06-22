@@ -11,7 +11,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the builder class to be tested
-from pipeline_examples.xgboost_atoz.builder_pipeline_xgboost_end_to_end import MDSXGBoostPipelineBuilder
+from pipeline_examples.xgboost_atoz.builder_pipeline_xgboost_end_to_end import XGBoostEndToEndPipelineBuilder
 from src.pipelines.config_base import BasePipelineConfig
 from src.pipelines.config_data_load_step_cradle import CradleDataLoadConfig
 from src.pipelines.config_tabular_preprocessing_step import TabularPreprocessingConfig
@@ -154,7 +154,7 @@ class TestXGBoostEndToEndPipelineBuilder(unittest.TestCase):
         self.constants_patch.start()
         
         # Create the builder instance
-        self.builder = MDSXGBoostPipelineBuilder(
+        self.builder = XGBoostEndToEndPipelineBuilder(
             config_path="dummy/path/to/config.json",
             sagemaker_session=MagicMock(),
             role="arn:aws:iam::123456789012:role/SageMakerRole",

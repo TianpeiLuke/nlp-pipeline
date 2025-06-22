@@ -1,7 +1,7 @@
 import sys
 import logging
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Any, Dict
 
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
@@ -66,7 +66,7 @@ else:
 
 
 # ────────────────────────────────────────────────────────────────────────────────
-class DataLoadPreprocessPipelineBuilder:
+class XGBoostDataloadPreprocessPipelineBuilder:
     """
     1) CradleDataLoading (training)
     2) TabularPreprocessing (training)
