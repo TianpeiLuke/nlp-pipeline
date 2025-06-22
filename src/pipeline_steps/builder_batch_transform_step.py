@@ -1,4 +1,4 @@
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict
 from pathlib import Path
 import logging
 
@@ -64,7 +64,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
         """
         return {
             "model_name": "The name of the SageMaker model (string or Properties)",
-            "dependencies": "Optional list of Pipeline Step dependencies"
+            "dependencies": self.COMMON_PROPERTIES["dependencies"]
         }
     
     def get_output_properties(self) -> Dict[str, str]:

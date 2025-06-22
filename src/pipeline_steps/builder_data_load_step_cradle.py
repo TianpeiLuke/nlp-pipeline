@@ -366,7 +366,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             Dictionary mapping input parameter names to descriptions
         """
         return {
-            "dependencies": "Optional list of dependent steps"
+            "dependencies": self.COMMON_PROPERTIES["dependencies"]
         }
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -377,7 +377,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         return {
-            "data_output_location": "S3 location of the main data output",
+            "data_output_location": "S3 location of the data output",
             "metadata_output_location": "S3 location of the metadata output",
             "signature_output_location": "S3 location of the signature output"
         }

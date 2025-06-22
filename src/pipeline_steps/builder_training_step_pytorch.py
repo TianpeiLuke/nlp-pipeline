@@ -113,7 +113,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             Dictionary mapping input parameter names to descriptions
         """
         return {
-            "dependencies": "Optional list of dependent steps"
+            "dependencies": self.COMMON_PROPERTIES["dependencies"]
         }
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -123,11 +123,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {
-            "training_job_name": "Name of the training job",
-            "model_data": "S3 path to the model artifacts",
-            "model_data_url": "S3 URL to the model artifacts"
-        }
+        return self.TRAINING_OUTPUT_PROPERTIES
     
     def create_step(self, dependencies: Optional[List] = None) -> Step:
         """

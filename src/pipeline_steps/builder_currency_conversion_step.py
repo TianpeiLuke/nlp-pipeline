@@ -148,7 +148,7 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         """
         return {
             "data_input": "Input data source (S3 path or Properties object)",
-            "dependencies": "Optional list of dependent steps"
+            "dependencies": self.COMMON_PROPERTIES["dependencies"]
         }
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -159,7 +159,7 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         return {
-            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the converted data output"
+            "processed_data_output": "S3 URI of the processed data output"
         }
     
     def create_step(

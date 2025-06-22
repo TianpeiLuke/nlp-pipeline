@@ -157,8 +157,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         return {
             "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-            "dependencies": "Optional list of step dependencies",
-            "payload_s3_key": "Optional S3 key for payload data",
+            "dependencies": self.COMMON_PROPERTIES["dependencies"],
+            "payload_s3_key": "S3 key for payload data",
             "regions": "Optional list of regions for registration"
         }
     

@@ -158,12 +158,14 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        return {
-            "inputs": "Dictionary containing 'model_input' and 'eval_data_input' S3 paths",
-            "outputs": "Dictionary containing 'eval_output' and 'metrics_output' S3 paths",
-            "dependencies": "Optional list of dependent steps",
-            "enable_caching": "Whether to enable caching for this step (default: True)"
+        # Get input requirements from config's INPUT_CHANNELS
+        input_reqs = {
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.INPUT_CHANNELS.keys()])} S3 paths",
+            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.OUTPUT_CHANNELS.keys()])} S3 paths",
+            "dependencies": self.COMMON_PROPERTIES["dependencies"],
+            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
+        return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -172,10 +174,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {
-            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the evaluation output",
-            "properties.ProcessingOutputConfig.Outputs[1].S3Output.S3Uri": "S3 URI of the metrics output"
-        }
+        # Get output properties from config's OUTPUT_CHANNELS
+        return {k: v for k, v in self.config.OUTPUT_CHANNELS.items()}
 
     def create_step(
         self,

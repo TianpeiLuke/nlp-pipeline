@@ -186,11 +186,13 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        return {
-            "inputs": "Dictionary containing 'data_input' S3 path",
-            "outputs": "Dictionary containing 'processed_data' S3 path",
-            "enable_caching": "Whether to enable caching for this step (default: True)"
+        # Get input requirements from config's input_names
+        input_reqs = {
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.input_names.keys()])} S3 paths",
+            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.output_names.keys()])} S3 paths",
+            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
+        return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -199,9 +201,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {
-            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the processed data output"
-        }
+        # Get output properties from config's output_names
+        return {k: v for k, v in self.config.output_names.items()}
 
     def create_step(
         self,

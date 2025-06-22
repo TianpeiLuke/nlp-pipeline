@@ -187,9 +187,12 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
+        # Get input names from config
+        input_names = self.config.get_input_names()
+        
         return {
             "model_artifacts_input_source": "Source location of model artifacts (S3 path or Properties object)",
-            "dependencies": "Optional list of step dependencies"
+            "dependencies": self.COMMON_PROPERTIES["dependencies"]
         }
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -199,8 +202,11 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
+        # Get output names from config
+        output_names = self.config.get_output_names()
+        
         return {
-            "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri": "S3 URI of the packaged model output"
+            output_names["packaged_model_output"]: "S3 URI of the packaged model output"
         }
     
     def create_step(

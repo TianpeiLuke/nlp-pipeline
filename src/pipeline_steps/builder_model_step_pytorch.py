@@ -121,7 +121,7 @@ class PytorchModelStepBuilder(StepBuilderBase):
         """
         return {
             "model_data": "S3 path to model artifacts (.tar.gz file)",
-            "dependencies": "List of dependent steps (optional)"
+            "dependencies": self.COMMON_PROPERTIES["dependencies"]
         }
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -131,10 +131,7 @@ class PytorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {
-            "model_artifacts_path": "S3 path to model artifacts",
-            "model": "SageMaker model object"
-        }
+        return self.MODEL_OUTPUT_PROPERTIES
     
     def create_step(self, model_data: str, dependencies: Optional[List] = None) -> Step:
         """
