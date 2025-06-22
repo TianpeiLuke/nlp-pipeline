@@ -15,7 +15,7 @@ from pipeline_examples.xgboost_atoz.builder_pipeline_xgboost_train_evaluate_e2e 
 from src.pipelines.config_base import BasePipelineConfig
 from src.pipelines.config_training_step_xgboost import XGBoostTrainingConfig
 from src.pipelines.config_model_step_xgboost import XGBoostModelCreationConfig
-from src.pipelines.config_model_eval_step_xgboost import XGBoostModelEvaluationConfig
+from src.pipelines.config_model_eval_step_xgboost import XGBoostModelEvalConfig
 
 class TestXGBoostTrainEvaluateE2EPipelineBuilder(unittest.TestCase):
     def setUp(self):
