@@ -1,10 +1,11 @@
-from typing import Dict, List, Any, Optional, Type
+from typing import Dict, List, Any, Optional, Type, Set, Tuple
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.steps import Step
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
 from pathlib import Path
 import logging
+from collections import defaultdict
 
 from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.builder_step_base import StepBuilderBase
@@ -84,7 +85,135 @@ class PipelineBuilderTemplate:
 
         self.step_instances: Dict[str, Step] = {}
         self.step_builders: Dict[str, StepBuilderBase] = {}
+        
+        # Message passing data structures
+        self.step_input_requirements: Dict[str, Dict[str, str]] = {}
+        self.step_output_properties: Dict[str, Dict[str, str]] = {}
+        self.step_messages: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
+    def _collect_step_io_requirements(self) -> None:
+        """
+        Collect input and output requirements from all steps.
+        
+        This method initializes the step builders for all steps in the DAG
+        and collects their input requirements and output properties.
+        """
+        logger.info("Collecting input and output requirements for all steps")
+        
+        for step_name in self.dag.nodes:
+            config = self.config_map[step_name]
+            step_type = BasePipelineConfig.get_step_name(type(config).__name__)
+            builder_cls = self.step_builder_map[step_type]
+            
+            # Initialize the builder
+            builder = builder_cls(
+                config=config,
+                sagemaker_session=self.sagemaker_session,
+                role=self.role,
+                notebook_root=self.notebook_root,
+            )
+            self.step_builders[step_name] = builder
+            
+            # Collect input requirements
+            try:
+                input_requirements = builder.get_input_requirements()
+                self.step_input_requirements[step_name] = input_requirements
+                logger.info(f"Step {step_name} requires inputs: {list(input_requirements.keys())}")
+            except Exception as e:
+                logger.warning(f"Error getting input requirements for {step_name}: {e}")
+                self.step_input_requirements[step_name] = {}
+            
+            # Collect output properties
+            try:
+                output_properties = builder.get_output_properties()
+                self.step_output_properties[step_name] = output_properties
+                logger.info(f"Step {step_name} provides outputs: {list(output_properties.keys())}")
+            except Exception as e:
+                logger.warning(f"Error getting output properties for {step_name}: {e}")
+                self.step_output_properties[step_name] = {}
+    
+    def _propagate_messages(self) -> None:
+        """
+        Propagate messages between steps based on the DAG topology.
+        
+        This method implements a message passing algorithm where each step:
+        1. Collects messages from its dependencies (previous steps)
+        2. Verifies that its input requirements can be satisfied
+        3. Prepares its own output messages for downstream steps
+        """
+        logger.info("Starting message propagation between steps")
+        
+        # Process steps in topological order
+        for step_name in self.dag.topological_sort():
+            # Get dependencies
+            dependencies = self.dag.get_dependencies(step_name)
+            
+            # Skip if no dependencies
+            if not dependencies:
+                logger.info(f"Step {step_name} has no dependencies, skipping message verification")
+                continue
+            
+            # Get input requirements for this step
+            input_requirements = self.step_input_requirements[step_name]
+            if not input_requirements:
+                logger.info(f"Step {step_name} has no declared input requirements")
+                continue
+            
+            # Check each input requirement
+            for input_name in input_requirements:
+                # Try to find a matching output from dependencies
+                found_match = False
+                
+                for dep_name in dependencies:
+                    # Check if dependency provides this output
+                    dep_outputs = self.step_output_properties[dep_name]
+                    
+                    # Direct match by name
+                    if input_name in dep_outputs:
+                        self.step_messages[step_name][input_name] = {
+                            "source_step": dep_name,
+                            "source_output": input_name
+                        }
+                        found_match = True
+                        logger.info(f"Matched input {input_name} for {step_name} to output from {dep_name}")
+                        break
+                
+                # If no direct match, try pattern matching
+                if not found_match:
+                    # Common patterns for matching inputs to outputs
+                    common_patterns = {
+                        "model": ["model", "model_data", "model_artifacts", "model_path"],
+                        "data": ["data", "dataset", "input_data", "training_data"],
+                        "output": ["output", "result", "artifacts", "s3_uri"]
+                    }
+                    
+                    # Try to find a pattern match
+                    for dep_name in dependencies:
+                        dep_outputs = self.step_output_properties[dep_name]
+                        
+                        for pattern_type, keywords in common_patterns.items():
+                            if any(kw in input_name.lower() for kw in keywords):
+                                # Find outputs that match the same pattern
+                                for output_name in dep_outputs:
+                                    if any(kw in output_name.lower() for kw in keywords):
+                                        self.step_messages[step_name][input_name] = {
+                                            "source_step": dep_name,
+                                            "source_output": output_name,
+                                            "pattern_match": True
+                                        }
+                                        found_match = True
+                                        logger.info(f"Pattern-matched input {input_name} for {step_name} to output {output_name} from {dep_name}")
+                                        break
+                            
+                            if found_match:
+                                break
+                        
+                        if found_match:
+                            break
+                
+                if not found_match:
+                    logger.warning(f"Could not find a matching output for input {input_name} required by {step_name}")
+    
     def _instantiate_step(self, step_name: str) -> Step:
         """
         Instantiate a pipeline step with appropriate inputs from dependencies.
@@ -102,14 +231,7 @@ class PipelineBuilderTemplate:
         """
         config = self.config_map[step_name]
         step_type = BasePipelineConfig.get_step_name(type(config).__name__)
-        builder_cls = self.step_builder_map[step_type]
-        builder = builder_cls(
-            config=config,
-            sagemaker_session=self.sagemaker_session,
-            role=self.role,
-            notebook_root=self.notebook_root,
-        )
-        self.step_builders[step_name] = builder
+        builder = self.step_builders[step_name]
 
         # Gather dependencies
         dependency_steps = [self.step_instances[parent] for parent in self.dag.get_dependencies(step_name)]
@@ -121,9 +243,9 @@ class PipelineBuilderTemplate:
         # This allows steps to get inputs directly from their config
         self._add_config_inputs(kwargs, config)
         
-        # Extract inputs from dependency steps if there are any
+        # Extract inputs from dependency steps using message passing results
         if dependency_steps:
-            self._extract_inputs_from_dependencies(kwargs, step_type, dependency_steps)
+            self._extract_inputs_from_dependencies(kwargs, step_name, dependency_steps)
         
         # Create the step with extracted inputs
         try:
@@ -159,57 +281,56 @@ class PipelineBuilderTemplate:
             if hasattr(config, input_param) and getattr(config, input_param) is not None:
                 kwargs[input_param] = getattr(config, input_param)
     
-    def _extract_inputs_from_dependencies(self, kwargs: dict, step_type: str, dependency_steps: List[Step]) -> None:
+    def _extract_inputs_from_dependencies(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
         """
-        Extract inputs from dependency steps based on step type and available outputs.
+        Extract inputs from dependency steps based on message passing results.
         
-        This method dynamically determines what outputs from previous steps should be
-        passed as inputs to the current step.
+        This method uses the messages collected during the message propagation phase
+        to determine what outputs from previous steps should be passed as inputs to
+        the current step.
         
         Args:
             kwargs: Dictionary to add extracted inputs to
-            step_type: Type of the current step
+            step_name: Name of the current step
             dependency_steps: List of dependency steps
         """
-        # Get the current step builder to check its input requirements
-        current_builder = self.step_builders.get(step_type)
-        input_requirements = {}
+        # Get messages for this step
+        step_messages = self.step_messages.get(step_name, {})
         
-        # If we have the current builder, get its input requirements
-        if current_builder and hasattr(current_builder, 'get_input_requirements'):
-            try:
-                input_requirements = current_builder.get_input_requirements()
-                logger.info(f"Step {step_type} requires inputs: {list(input_requirements.keys())}")
-            except Exception as e:
-                logger.warning(f"Error getting input requirements for {step_type}: {e}")
-        
-        # Process each dependency step
-        for prev_step in dependency_steps:
-            prev_step_name = getattr(prev_step, 'name', 'unknown')
-            logger.info(f"Processing dependency: {prev_step_name}")
+        # If we have messages, use them to extract inputs
+        if step_messages:
+            logger.info(f"Using message passing results for step {step_name}")
             
-            # Try to get the builder for this dependency
-            prev_builder = None
-            for builder_name, builder in self.step_builders.items():
-                if builder_name in prev_step_name:
-                    prev_builder = builder
-                    break
+            # Process each message
+            for input_name, message in step_messages.items():
+                source_step_name = message["source_step"]
+                source_output = message["source_output"]
+                
+                # Find the corresponding dependency step instance
+                for dep_step in dependency_steps:
+                    dep_step_name = getattr(dep_step, 'name', 'unknown')
+                    
+                    # Check if this is the source step
+                    if source_step_name in dep_step_name:
+                        # Try to get the output property from the step
+                        if hasattr(dep_step, source_output):
+                            kwargs[input_name] = getattr(dep_step, source_output)
+                            logger.info(f"Set input {input_name} from {dep_step_name}.{source_output}")
+                        else:
+                            # Fallback to common output patterns
+                            logger.info(f"Output {source_output} not found on step {dep_step_name}, trying common patterns")
+                            self._extract_common_outputs(kwargs, dep_step, step_name)
+        else:
+            # Fallback to the original extraction methods
+            logger.info(f"No message passing results for step {step_name}, using fallback extraction")
             
-            # Get output properties if available
-            output_properties = {}
-            if prev_builder and hasattr(prev_builder, 'get_output_properties'):
-                try:
-                    output_properties = prev_builder.get_output_properties()
-                    logger.info(f"Step {prev_step_name} provides outputs: {list(output_properties.keys())}")
-                except Exception as e:
-                    logger.warning(f"Error getting output properties for {prev_step_name}: {e}")
-            
-            # Check for common output patterns in the previous step
-            self._extract_common_outputs(kwargs, prev_step, step_type)
-            
-            # Try to match input requirements with output properties
-            if input_requirements and output_properties:
-                self._match_inputs_to_outputs(kwargs, input_requirements, output_properties, prev_step)
+            # Check for common output patterns in each dependency step
+            for prev_step in dependency_steps:
+                prev_step_name = getattr(prev_step, 'name', 'unknown')
+                logger.info(f"Processing dependency: {prev_step_name}")
+                
+                # Extract common outputs
+                self._extract_common_outputs(kwargs, prev_step, step_name)
     
     def _extract_common_outputs(self, kwargs: dict, prev_step: Step, step_type: str) -> None:
         """
@@ -300,8 +421,17 @@ class PipelineBuilderTemplate:
         Build and return a SageMaker Pipeline object.
         """
         logger.info(f"Generating pipeline: {pipeline_name}")
+        
+        # First, collect input/output requirements from all steps
+        self._collect_step_io_requirements()
+        
+        # Then, propagate messages between steps
+        self._propagate_messages()
+        
         # Topological sort to determine build order
         build_order = self.dag.topological_sort()
+        
+        # Instantiate steps in topological order
         for step_name in build_order:
             step = self._instantiate_step(step_name)
             self.step_instances[step_name] = step
