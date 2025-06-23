@@ -6,58 +6,7 @@ This document provides an overview of the example pipelines built using the [Pip
 
 ## Available Examples
 
-### 1. XGBoost Train-Evaluate E2E Pipeline
-
-**Source**: `src/pipeline_builder/template_pipeline_xgboost_train_evaluate_e2e.py`
-
-**Example Usage**: `pipeline_examples/xgboost_atoz/builder_pipeline_xgboost_train_evaluate_e2e_template.py`
-
-**Description**: This pipeline performs:
-1. Data Loading (for training set)
-2. Tabular Preprocessing (for training set)
-3. XGBoost Model Training
-4. Packaging
-5. MIMS Registration
-6. Data Loading (for calibration set)
-7. Tabular Preprocessing (for calibration set)
-8. Model Evaluation (on calibration set)
-
-**Key Features**:
-- Uses the template's message passing algorithm to automatically connect outputs from one step to inputs of subsequent steps
-- Demonstrates how to handle complex dependencies between steps
-- Shows how to integrate model evaluation into the pipeline
-
-### 2. XGBoost End-to-End Pipeline
-
-**Source**: `src/pipeline_builder/template_pipeline_xgboost_end_to_end.py`
-
-**Description**: This pipeline performs:
-1. Data Loading (for training set)
-2. Tabular Preprocessing (for training set)
-3. XGBoost Model Training
-4. Model Creation
-5. Packaging
-6. Registration
-7. Data Loading (for calibration set)
-8. Tabular Preprocessing (for calibration set)
-
-**Key Features**:
-- Demonstrates a complete end-to-end ML workflow
-- Shows how to create and register a model
-
-### 3. XGBoost Data Load and Preprocess Pipeline
-
-**Source**: `src/pipeline_builder/template_pipeline_xgboost_dataload_preprocess.py`
-
-**Description**: This pipeline focuses on the data preparation steps:
-1. Data Loading
-2. Tabular Preprocessing
-
-**Key Features**:
-- Demonstrates a simpler pipeline focused on data preparation
-- Shows how to use the template for specific parts of the ML workflow
-
-### 4. PyTorch End-to-End Pipeline
+### 1. PyTorch End-to-End Pipeline
 
 **Source**: `src/pipeline_builder/template_pipeline_pytorch_end_to_end.py`
 
@@ -67,25 +16,63 @@ This document provides an overview of the example pipelines built using the [Pip
 3. PyTorch Model Training
 4. Model Creation
 5. Packaging
-6. Registration
-7. Data Loading (for calibration set)
-8. Tabular Preprocessing (for calibration set)
+6. Payload Generation
+7. Registration
+8. Data Loading (for calibration set)
+9. Tabular Preprocessing (for calibration set)
 
 **Key Features**:
-- Demonstrates how to use the template with PyTorch models
-- Shows the flexibility of the template system to work with different ML frameworks
+- Uses a function-based approach with the template
+- Demonstrates a complete end-to-end ML workflow for PyTorch models
+- Shows how to use the template's message passing algorithm to automatically connect outputs from one step to inputs of subsequent steps
+- Includes helper functions for finding configurations by type and attributes
 
-### 5. PyTorch Model Registration Pipeline
+### 2. PyTorch Model Registration Pipeline
 
 **Source**: `src/pipeline_builder/template_pipeline_pytorch_model_registration.py`
 
 **Description**: This pipeline focuses on the model registration steps:
-1. Model Creation
+1. PyTorch Model Creation (using an existing model artifact)
 2. Packaging
-3. Registration
+3. Payload Generation
+4. Registration
 
 **Key Features**:
-- Demonstrates a pipeline focused on model registration
+- Uses a class-based approach with the template
+- Demonstrates a pipeline focused on model registration without training
+- Shows how to validate and prepare model configurations
+- Includes error handling and validation for model paths
+
+### 3. XGBoost End-to-End Pipeline
+
+**Source**: `src/pipeline_builder/template_pipeline_xgboost_end_to_end.py`
+
+**Description**: This pipeline performs:
+1. Data Loading (for training set)
+2. Tabular Preprocessing (for training set)
+3. XGBoost Model Training
+4. Model Creation
+5. Packaging
+6. Payload Generation
+7. Registration
+8. Data Loading (for calibration set)
+9. Tabular Preprocessing (for calibration set)
+
+**Key Features**:
+- Uses a function-based approach with the template
+- Demonstrates a complete end-to-end ML workflow for XGBoost models
+- Shows how to create and register a model
+
+### 4. XGBoost Data Load and Preprocess Pipeline
+
+**Source**: `src/pipeline_builder/template_pipeline_xgboost_dataload_preprocess.py`
+
+**Description**: This pipeline focuses on the data preparation steps:
+1. Data Loading
+2. Tabular Preprocessing
+
+**Key Features**:
+- Demonstrates a simpler pipeline focused on data preparation
 - Shows how to use the template for specific parts of the ML workflow
 
 ## Common Patterns
@@ -152,8 +139,14 @@ template = PipelineBuilderTemplate(
     step_builder_map=step_builder_map,
     sagemaker_session=sagemaker_session,
     role=role,
+    pipeline_parameters=pipeline_parameters,
+    notebook_root=notebook_root
 )
 ```
+
+Additional parameters include:
+- `pipeline_parameters`: List of SageMaker pipeline parameters
+- `notebook_root`: Root directory of the notebook (for resolving relative paths)
 
 ### Pipeline Generation
 

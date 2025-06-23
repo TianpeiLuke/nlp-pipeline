@@ -1,10 +1,10 @@
 # Template-Based Pipeline Implementation
 
-This document explains the template-based implementation of the XGBoost Train-Evaluate E2E pipeline and how it handles placeholder variables.
+This document explains the template-based implementation of pipelines in the NLP Pipeline framework and how they handle placeholder variables and step connections.
 
 ## Overview
 
-The original implementation in `src/pipeline_builder/template_pipeline_xgboost_train_evaluate_e2e.py` directly creates and connects pipeline steps, explicitly passing outputs from one step as inputs to subsequent steps. The template-based implementation uses the `PipelineBuilderTemplate` class to automatically handle these connections.
+The template-based implementations in `src/pipeline_builder/` (such as `template_pipeline_pytorch_end_to_end.py`, `template_pipeline_pytorch_model_registration.py`, and `template_pipeline_xgboost_end_to_end.py`) use the `PipelineBuilderTemplate` class to automatically handle connections between pipeline steps. This is in contrast to traditional implementations that directly create and connect pipeline steps, explicitly passing outputs from one step as inputs to subsequent steps.
 
 ## Handling Placeholder Variables
 
@@ -97,22 +97,40 @@ common_patterns = {
 
 ## Example Usage
 
-To use the template-based implementation:
+The template-based implementations follow two main patterns:
+
+### 1. Function-Based Implementation
+
+Used in pipelines like `template_pipeline_pytorch_end_to_end.py` and `template_pipeline_xgboost_end_to_end.py`:
+
+```python
+# Create the pipeline using the template function
+pipeline = create_pipeline_from_template(
+    config_path="path/to/config.json",
+    sagemaker_session=pipeline_session,
+    role="arn:aws:iam::123456789012:role/SageMakerRole",
+    notebook_root=Path.cwd()
+)
+```
+
+### 2. Class-Based Implementation
+
+Used in pipelines like `template_pipeline_pytorch_model_registration.py`:
 
 ```python
 # Create the pipeline builder
-builder = XGBoostTrainEvaluateE2ETemplateBuilder(
-    config_path=config_path,
+builder = TemplatePytorchPipelineBuilder(
+    config_path="path/to/config.json",
     sagemaker_session=pipeline_session,
-    role=role,
-    notebook_root=Path.cwd(),
+    role="arn:aws:iam::123456789012:role/SageMakerRole",
+    notebook_root=Path.cwd()
 )
 
-# Generate the pipeline
-pipeline = builder.generate_pipeline()
+# Generate the pipeline with a model path
+pipeline = builder.generate_pipeline("s3://bucket/path/to/model.tar.gz")
 ```
 
-See `pipeline_examples/xgboost_atoz/builder_pipeline_xgboost_train_evaluate_e2e_template.py` for a complete example.
+See the individual template implementations in `src/pipeline_builder/` for complete examples.
 
 ## Related
 
