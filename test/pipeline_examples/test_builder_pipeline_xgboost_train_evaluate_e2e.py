@@ -39,14 +39,22 @@ class TestXGBoostTrainEvaluateE2EPipelineBuilder(unittest.TestCase):
         self.mock_xgb_model_cfg = MagicMock(spec=XGBoostModelCreationConfig)
         self.mock_xgb_eval_cfg = MagicMock(spec=XGBoostModelEvalConfig)
         self.mock_xgb_eval_cfg.processing_entry_point = 'evaluate.py'
-        self.mock_xgb_eval_cfg.get_input_names.return_value = {
+        
+        # Set up both the method and attribute for input_names
+        input_names = {
             'model_input': 'model_input',
             'eval_data_input': 'eval_data_input'
         }
-        self.mock_xgb_eval_cfg.get_output_names.return_value = {
+        self.mock_xgb_eval_cfg.get_input_names = MagicMock(return_value=input_names)
+        self.mock_xgb_eval_cfg.input_names = input_names
+        
+        # Set up both the method and attribute for output_names
+        output_names = {
             'eval_output': 'eval_output',
             'metrics_output': 'metrics_output'
         }
+        self.mock_xgb_eval_cfg.get_output_names = MagicMock(return_value=output_names)
+        self.mock_xgb_eval_cfg.output_names = output_names
         
         # Create mock CradleDataLoadConfig for training and calibration
         self.mock_cradle_train_cfg = MagicMock(spec=object)
