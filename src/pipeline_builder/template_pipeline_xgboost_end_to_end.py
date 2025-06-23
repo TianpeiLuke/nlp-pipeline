@@ -30,6 +30,7 @@ from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreproc
 from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
 from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
 from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 # Set up logging
@@ -49,6 +50,7 @@ BUILDER_MAP = {
     "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
     "CreateXGBoostModelStep": XGBoostModelStepBuilder,
     "PackagingStep": MIMSPackagingStepBuilder,
+    "PayloadStep": MIMSPayloadStepBuilder,
     "RegistrationStep": ModelRegistrationStepBuilder,
 }
 
@@ -105,6 +107,9 @@ def create_pipeline_from_template(
     # Find registration config
     registration_config = _find_config_by_type(configs, ModelRegistrationConfig)
     
+    # Find payload config
+    payload_config = _find_config_by_type(configs, PayloadConfig)
+    
     # Create config map
     config_map = {
         "CradleDataLoadingStep_Training": configs[cradle_train_key],
@@ -112,6 +117,7 @@ def create_pipeline_from_template(
         "XGBoostTrainingStep": xgb_train_config,
         "CreateXGBoostModelStep": xgb_model_config,
         "PackagingStep": package_config,
+        "PayloadStep": payload_config,
         "RegistrationStep": registration_config,
         "CradleDataLoadingStep_Calibration": configs[cradle_test_key],
         "TabularPreprocessingStep_Calibration": configs[tp_test_key],
@@ -124,6 +130,7 @@ def create_pipeline_from_template(
         "XGBoostTrainingStep",
         "CreateXGBoostModelStep",
         "PackagingStep",
+        "PayloadStep",
         "RegistrationStep",
         "CradleDataLoadingStep_Calibration",
         "TabularPreprocessingStep_Calibration",
@@ -134,7 +141,8 @@ def create_pipeline_from_template(
         ("TabularPreprocessingStep_Training", "XGBoostTrainingStep"),
         ("XGBoostTrainingStep", "CreateXGBoostModelStep"),
         ("CreateXGBoostModelStep", "PackagingStep"),
-        ("PackagingStep", "RegistrationStep"),
+        ("PackagingStep", "PayloadStep"),
+        ("PayloadStep", "RegistrationStep"),
         ("CradleDataLoadingStep_Calibration", "TabularPreprocessingStep_Calibration"),
     ]
     

@@ -28,6 +28,7 @@ from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 # Import Builders
 from src.pipeline_steps.builder_model_step_pytorch import PytorchModelStepBuilder
 from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
 from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 CONFIG_CLASSES = {
@@ -132,10 +133,11 @@ class TemplatePytorchPipelineBuilder:
         
         try:
             # Define the DAG structure
-            nodes = ["CreatePytorchModelStep", "PackagingStep", "RegistrationStep"]
+            nodes = ["CreatePytorchModelStep", "PackagingStep", "PayloadStep", "RegistrationStep"]
             edges = [
                 ("CreatePytorchModelStep", "PackagingStep"),
-                ("PackagingStep", "RegistrationStep")
+                ("PackagingStep", "PayloadStep"),
+                ("PayloadStep", "RegistrationStep")
             ]
             
             dag = PipelineDAG(nodes=nodes, edges=edges)
@@ -144,6 +146,7 @@ class TemplatePytorchPipelineBuilder:
             config_map = {
                 "CreatePytorchModelStep": self._prepare_model_config(model_s3_path),
                 "PackagingStep": self.package_config,
+                "PayloadStep": self.payload_config,
                 "RegistrationStep": self.registration_config
             }
             
@@ -151,6 +154,7 @@ class TemplatePytorchPipelineBuilder:
             step_builder_map = {
                 "CreatePytorchModelStep": PytorchModelStepBuilder,
                 "PackagingStep": MIMSPackagingStepBuilder,
+                "PayloadStep": MIMSPayloadStepBuilder,
                 "RegistrationStep": ModelRegistrationStepBuilder
             }
             
