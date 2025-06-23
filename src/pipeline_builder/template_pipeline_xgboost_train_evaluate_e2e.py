@@ -294,8 +294,8 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         dag.add_edge("train_data_load", "train_preprocess")
         dag.add_edge("train_preprocess", "xgboost_train")
         dag.add_edge("xgboost_train", "model_packaging")
-        dag.add_edge("model_packaging", "model_registration")
         dag.add_edge("model_packaging", "payload_test")
+        dag.add_edge("payload_test", "model_registration")
         
         # Add edges for calibration flow
         dag.add_edge("calib_data_load", "calib_preprocess")
