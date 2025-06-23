@@ -47,22 +47,21 @@ The XGBoost Model Evaluation Step evaluates a trained XGBoost model on a specifi
 ```python
 from src.pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
 from src.pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
-from src.pipeline_steps.hyperparameters_xgboost import XGBoostHyperparameters
-
-# Create hyperparameters
-hyperparams = XGBoostHyperparameters(
-    id_name="customer_id",
-    label_name="target",
-    feature_names=["feature1", "feature2", "feature3"]
-)
 
 # Create configuration
 config = XGBoostModelEvalConfig(
-    processing_entry_point="model_evaluation_xgboost.py",
+    processing_entry_point="model_evaluation_xgb.py",
     processing_source_dir="s3://my-bucket/scripts/",
-    job_type="validation",
-    hyperparameters=hyperparams,
-    eval_metric_choices=["auc", "precision", "recall", "f1_score"]
+    job_type="calibration",
+    input_names={
+        "model_input": "ModelArtifacts",
+        "data_input": "CalibrationData",
+        "metadata_input": "CalibrationMetadata"
+    },
+    output_names={
+        "metrics_output": "EvaluationMetrics",
+        "plots_output": "EvaluationPlots"
+    }
 )
 
 # Create builder
@@ -70,25 +69,94 @@ builder = XGBoostModelEvalStepBuilder(config=config)
 
 # Define input and output locations
 inputs = {
-    "model_input": training_step.properties.ModelArtifacts.S3ModelArtifacts,
-    "eval_data_input": "s3://my-bucket/validation-data/"
+    "model_input": "s3://my-bucket/model-artifacts/",
+    "data_input": "s3://my-bucket/calibration-data/",
+    "metadata_input": "s3://my-bucket/calibration-metadata/"
 }
 
 outputs = {
-    "eval_output": "s3://my-bucket/evaluation-results/predictions/",
-    "metrics_output": "s3://my-bucket/evaluation-results/metrics/"
+    "metrics_output": "s3://my-bucket/evaluation-metrics/",
+    "plots_output": "s3://my-bucket/evaluation-plots/"
 }
 
 # Create step
 eval_step = builder.create_step(
     inputs=inputs,
     outputs=outputs,
-    dependencies=[training_step]
+    dependencies=[training_step, calibration_data_step]
 )
 
 # Add to pipeline
 pipeline.add_step(eval_step)
 ```
+
+## Integration with Pipeline Builder Template
+
+### Input Arguments
+
+The `XGBoostModelEvalStepBuilder` defines the following input arguments that can be automatically connected by the Pipeline Builder Template:
+
+| Argument | Description | Required | Source |
+|----------|-------------|----------|--------|
+| model_input | Model artifacts location | Yes | Previous step's model_artifacts output |
+| data_input | Calibration data location | Yes | Previous step's processed_data output |
+| metadata_input | Metadata input location | No | Previous step's metadata output |
+
+### Output Properties
+
+The `XGBoostModelEvalStepBuilder` provides the following output properties that can be used by subsequent steps:
+
+| Property | Description | Access Pattern |
+|----------|-------------|---------------|
+| metrics_output | Evaluation metrics location | `step.properties.ProcessingOutputConfig.Outputs["metrics_output"].S3Output.S3Uri` |
+| plots_output | Evaluation plots location | `step.properties.ProcessingOutputConfig.Outputs["plots_output"].S3Output.S3Uri` |
+
+### Usage with Pipeline Builder Template
+
+When using the Pipeline Builder Template, the inputs and outputs are automatically connected based on the DAG structure:
+
+```python
+# Create the DAG
+dag = PipelineDAG()
+dag.add_node("data_load")
+dag.add_node("preprocess")
+dag.add_node("train")
+dag.add_node("eval")
+dag.add_edge("data_load", "preprocess")
+dag.add_edge("preprocess", "train")
+dag.add_edge("train", "eval")
+dag.add_edge("preprocess", "eval")  # For calibration data
+
+# Create the config map
+config_map = {
+    "data_load": data_load_config,
+    "preprocess": preprocess_config,
+    "train": train_config,
+    "eval": eval_config,
+}
+
+# Create the step builder map
+step_builder_map = {
+    "CradleDataLoadStep": CradleDataLoadingStepBuilder,
+    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
+    "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
+    "XGBoostModelEvalStep": XGBoostModelEvalStepBuilder,
+}
+
+# Create the template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+For more details on how the Pipeline Builder Template handles connections between steps, see the [Pipeline Builder documentation](../pipeline_builder/README.md).
 
 ## Environment Variables
 The evaluation step sets the following environment variables for the processing job:

@@ -104,3 +104,62 @@ pipeline.add_step(preprocessing_step)
 ### Processing Outputs
 - **processed_data**: Processed data output (source: /opt/ml/processing/output)
 - **full_data**: Full data output before splitting
+
+## Integration with Pipeline Builder Template
+
+### Input Arguments
+
+The `TabularPreprocessingStepBuilder` defines the following input arguments that can be automatically connected by the Pipeline Builder Template:
+
+| Argument | Description | Required | Source |
+|----------|-------------|----------|--------|
+| data_input | Raw data input location | Yes | Previous step's data output |
+| metadata_input | Metadata input location | No | Previous step's metadata output |
+| signature_input | Signature input location | No | Previous step's signature output |
+
+### Output Properties
+
+The `TabularPreprocessingStepBuilder` provides the following output properties that can be used by subsequent steps:
+
+| Property | Description | Access Pattern |
+|----------|-------------|---------------|
+| processed_data | Processed data location | `step.properties.ProcessingOutputConfig.Outputs["processed_data"].S3Output.S3Uri` |
+| full_data | Full data location | `step.properties.ProcessingOutputConfig.Outputs["full_data"].S3Output.S3Uri` |
+
+### Usage with Pipeline Builder Template
+
+When using the Pipeline Builder Template, the inputs and outputs are automatically connected based on the DAG structure:
+
+```python
+# Create the DAG
+dag = PipelineDAG()
+dag.add_node("data_load")
+dag.add_node("preprocess")
+dag.add_edge("data_load", "preprocess")
+
+# Create the config map
+config_map = {
+    "data_load": data_load_config,
+    "preprocess": preprocess_config,
+}
+
+# Create the step builder map
+step_builder_map = {
+    "CradleDataLoadStep": CradleDataLoadingStepBuilder,
+    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
+}
+
+# Create the template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+For more details on how the Pipeline Builder Template handles connections between steps, see the [Pipeline Builder documentation](../pipeline_builder/README.md).
