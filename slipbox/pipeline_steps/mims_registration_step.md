@@ -8,6 +8,8 @@ The MIMS Registration Step registers a packaged model with the Model Inventory M
 3. Optionally registers the model in multiple AWS regions
 4. Creates a model package group in SageMaker Model Registry
 
+This step is typically used in conjunction with the [MIMS Payload Step](mims_payload_step.md) which generates test payloads for the model.
+
 ## Input and Output Format
 
 ### Input

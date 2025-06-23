@@ -8,6 +8,8 @@ The MIMS Packaging Step prepares a trained model for deployment in the Model Inv
 3. Outputs the packaged model to an S3 location
 4. Prepares the model for subsequent registration with MIMS
 
+This step is typically used in conjunction with the [MIMS Payload Step](mims_payload_step.md) and [MIMS Registration Step](mims_registration_step.md) to complete the model registration process.
+
 ## Input and Output Format
 
 ### Input
