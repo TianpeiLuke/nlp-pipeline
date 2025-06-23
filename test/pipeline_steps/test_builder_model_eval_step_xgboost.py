@@ -55,6 +55,10 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
             "metrics_output": "Output name for evaluation metrics"
         }
         
+        # Add input_names and output_names attributes for compatibility with the builder
+        self.config.input_names = self.config.INPUT_CHANNELS
+        self.config.output_names = self.config.OUTPUT_CHANNELS
+        
         # Methods
         self.config.get_input_names = MagicMock(return_value=self.config.INPUT_CHANNELS)
         self.config.get_output_names = MagicMock(return_value=self.config.OUTPUT_CHANNELS)
@@ -101,6 +105,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         original_input_names = self.config.INPUT_CHANNELS
         # Set input_names to a dict missing required keys
         self.config.INPUT_CHANNELS = {"wrong_name": "description"}
+        # Also update the input_names attribute
+        self.config.input_names = self.config.INPUT_CHANNELS
         # Mock get_input_names to return the modified input_names
         self.config.get_input_names = MagicMock(return_value=self.config.INPUT_CHANNELS)
         
@@ -109,6 +115,7 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
             
         # Restore original input_names and mock
         self.config.INPUT_CHANNELS = original_input_names
+        self.config.input_names = original_input_names
         self.config.get_input_names = MagicMock(return_value=self.config.INPUT_CHANNELS)
 
     def test_validate_configuration_missing_output_names(self):
@@ -117,6 +124,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         original_output_names = self.config.OUTPUT_CHANNELS
         # Set output_names to a dict missing required keys
         self.config.OUTPUT_CHANNELS = {"wrong_name": "description"}
+        # Also update the output_names attribute
+        self.config.output_names = self.config.OUTPUT_CHANNELS
         # Mock get_output_names to return the modified output_names
         self.config.get_output_names = MagicMock(return_value=self.config.OUTPUT_CHANNELS)
         
@@ -125,6 +134,7 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
             
         # Restore original output_names and mock
         self.config.OUTPUT_CHANNELS = original_output_names
+        self.config.output_names = original_output_names
         self.config.get_output_names = MagicMock(return_value=self.config.OUTPUT_CHANNELS)
 
     def test_get_environment_variables(self):

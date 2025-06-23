@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from typing import Dict
 
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
