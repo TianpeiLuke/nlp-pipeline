@@ -471,20 +471,7 @@ class CradleDataLoadConfig(BasePipelineConfig):
       - cradle_job_spec: CradleJobSpecificationConfig
       - (optional) s3_input_override
     """
-    # Input/output names for data loading
-    input_names: Dict[str, str] = Field(
-        default_factory=lambda: {},
-        description="Mapping of input channel names to their descriptions."
-    )
-    
-    output_names: Dict[str, str] = Field(
-        default_factory=lambda: {
-            "data_output_location": "S3 location of the data output",
-            "metadata_output_location": "S3 location of the metadata output",
-            "signature_output_location": "S3 location of the signature output"
-        },
-        description="Mapping of output channel names to their descriptions."
-    )
+
     job_type: str = Field(
         ...,
         description="One of ['training','validation','testing','calibration'] to indicate which dataset this job is pulling"
@@ -508,6 +495,21 @@ class CradleDataLoadConfig(BasePipelineConfig):
     s3_input_override: Optional[str] = Field(
         default=None,
         description="If set, skip Cradle data pull and use this S3 prefix directly"
+    )
+    
+    # Input/output names for data loading
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {},
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "data_output_location": "S3 location of the data output",
+            "metadata_output_location": "S3 location of the metadata output",
+            "signature_output_location": "S3 location of the signature output"
+        },
+        description="Mapping of output channel names to their descriptions."
     )
 
     @field_validator("job_type")

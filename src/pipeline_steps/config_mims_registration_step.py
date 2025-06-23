@@ -26,24 +26,7 @@ class VariableType(str, Enum):
     
 class ModelRegistrationConfig(BasePipelineConfig):
     """Configuration for model registration step."""
-    
-    # Input/output names for registration
-    input_names: Dict[str, str] = Field(
-        default_factory=lambda: {
-            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-            "payload_s3_key": "S3 key for payload data"
-        },
-        description="Mapping of input channel names to their descriptions."
-    )
-    
-    output_names: Dict[str, str] = Field(
-        default_factory=lambda: {
-            "model_package_arn": "ARN of the registered model package",
-            "registration_status": "Status of the model registration"
-        },
-        description="Mapping of output channel names to their descriptions."
-    )
-    
+   
     # Framework related fields
     framework: str = Field(
         default="xgboost",
@@ -98,7 +81,24 @@ class ModelRegistrationConfig(BasePipelineConfig):
                    "1. Dictionary: {'var1': 'NUMERIC', 'var2': 'TEXT'}\n"
                    "2. List of pairs: [['var1', 'NUMERIC'], ['var2', 'TEXT']]"
     )
-
+    
+    # Input/output names for registration
+    input_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
+            "payload_s3_key": "S3 key for payload data"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "model_package_arn": "ARN of the registered model package",
+            "registration_status": "Status of the model registration"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
+ 
     class Config(BasePipelineConfig.Config):
         arbitrary_types_allowed = True
         validate_assignment = True
