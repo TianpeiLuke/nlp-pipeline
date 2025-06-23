@@ -161,6 +161,23 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         input_reqs["regions"] = "Optional list of regions for registration"
         return input_reqs
     
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        # Define the output properties for model registration
+        output_props = {
+            "model_package_arn": "ARN of the registered model package",
+            "model_name": "Name of the registered model"
+        }
+        # Add any output names from config if they exist
+        if hasattr(self.config, "output_names"):
+            output_props.update({k: v for k, v in self.config.output_names.items()})
+        return output_props
+    
     def create_step(
         self,
         packaging_step_output: Union[str, Properties],

@@ -258,6 +258,10 @@ class PipelineBuilderTemplate:
         # Get messages for this step
         step_messages = self.step_messages.get(step_name, {})
         
+        # Get the step type from the config
+        config = self.config_map[step_name]
+        step_type = BasePipelineConfig.get_step_name(type(config).__name__)
+        
         # If we have messages, use them to extract inputs
         if step_messages:
             logger.info(f"Using message passing results for step {step_name}")
@@ -280,7 +284,7 @@ class PipelineBuilderTemplate:
                         else:
                             # Fallback to common output patterns
                             logger.info(f"Output {source_output} not found on step {dep_step_name}, trying common patterns")
-                            self._extract_common_outputs(kwargs, dep_step, step_name)
+                            self._extract_common_outputs(kwargs, dep_step, step_name, step_type)
         else:
             # Fallback to the original extraction methods
             logger.info(f"No message passing results for step {step_name}, using fallback extraction")
@@ -291,15 +295,28 @@ class PipelineBuilderTemplate:
                 logger.info(f"Processing dependency: {prev_step_name}")
                 
                 # Extract common outputs
-                self._extract_common_outputs(kwargs, prev_step, step_name)
+                self._extract_common_outputs(kwargs, prev_step, step_name, step_type)
+                
+        # Special handling for specific step types
+        if step_type == "TabularPreprocessingStep":
+            self._handle_tabular_preprocessing_step(kwargs, step_name, dependency_steps)
+        elif step_type == "PytorchTrainingStep" or step_type == "XGBoostTrainingStep":
+            self._handle_training_step(kwargs, step_name, dependency_steps, step_type)
+        elif step_type == "CreatePytorchModelStep" or step_type == "CreateXGBoostModelStep":
+            self._handle_model_creation_step(kwargs, step_name, dependency_steps)
+        elif step_type == "PackagingStep":
+            self._handle_packaging_step(kwargs, step_name, dependency_steps)
+        elif step_type == "RegistrationStep":
+            self._handle_registration_step(kwargs, step_name, dependency_steps)
     
-    def _extract_common_outputs(self, kwargs: dict, prev_step: Step, step_type: str) -> None:
+    def _extract_common_outputs(self, kwargs: dict, prev_step: Step, step_name: str, step_type: str) -> None:
         """
         Extract common outputs from a step based on known patterns.
         
         Args:
             kwargs: Dictionary to add extracted inputs to
             prev_step: The dependency step to extract outputs from
+            step_name: Name of the current step
             step_type: Type of the current step
         """
         # Check for model artifacts path (common in model steps)
@@ -318,14 +335,39 @@ class PipelineBuilderTemplate:
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
             # Extract the S3 URI from the processing step's output
             try:
-                s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
-                
-                # Different step types might use different parameter names
-                if step_type == "RegistrationStep":
-                    kwargs["packaging_step_output"] = s3_uri
-                else:
-                    # Use a generic name if no specific mapping exists
-                    kwargs["processing_output"] = s3_uri
+                # Try to get the first output
+                if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                    # If it's a list or dictionary-like object
+                    try:
+                        # Try numeric index first (list-like)
+                        s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
+                        
+                        # Different step types might use different parameter names
+                        if step_type == "RegistrationStep":
+                            kwargs["packaging_step_output"] = s3_uri
+                        elif step_type == "TabularPreprocessingStep":
+                            # For tabular preprocessing, we need to check the input_names
+                            config = self.config_map[step_name]
+                            if hasattr(config, "input_names") and "data_input" in config.input_names:
+                                kwargs["inputs"] = {config.input_names["data_input"]: s3_uri}
+                        else:
+                            # Use a generic name if no specific mapping exists
+                            kwargs["processing_output"] = s3_uri
+                    except (IndexError, TypeError):
+                        # Try string keys (dict-like)
+                        for key in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                s3_uri = output.S3Output.S3Uri
+                                
+                                # For tabular preprocessing, we need to check if this is the data output
+                                if key == "ProcessedTabularData" and (step_type == "PytorchTrainingStep" or step_type == "XGBoostTrainingStep"):
+                                    kwargs["input_path"] = s3_uri
+                                elif step_type == "RegistrationStep" and key == "packaged_model_output":
+                                    kwargs["packaging_step_output"] = s3_uri
+                                else:
+                                    # Use the output key as the input key
+                                    kwargs[key.lower()] = s3_uri
             except (AttributeError, IndexError) as e:
                 logger.warning(f"Could not extract processing output from step: {e}")
         
@@ -336,6 +378,188 @@ class PipelineBuilderTemplate:
                 kwargs["transform_output"] = s3_uri
             except AttributeError as e:
                 logger.warning(f"Could not extract transform output from step: {e}")
+    
+    def _handle_tabular_preprocessing_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
+        """
+        Special handling for TabularPreprocessingStep.
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            step_name: Name of the current step
+            dependency_steps: List of dependency steps
+        """
+        config = self.config_map[step_name]
+        
+        # If inputs are not already set, try to set them
+        if "inputs" not in kwargs and hasattr(config, "input_names"):
+            inputs = {}
+            
+            # Look for data_input in the dependency steps
+            for prev_step in dependency_steps:
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                    try:
+                        # Try to get the data output
+                        if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                            # If it's a list or dictionary-like object
+                            try:
+                                # Try numeric index first (list-like)
+                                s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
+                                if "data_input" in config.input_names:
+                                    inputs[config.input_names["data_input"]] = s3_uri
+                            except (IndexError, TypeError):
+                                # Try string keys (dict-like)
+                                for key in prev_step.properties.ProcessingOutputConfig.Outputs:
+                                    if key == "DATA" or key == "ProcessedData":
+                                        output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
+                                        if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                            s3_uri = output.S3Output.S3Uri
+                                            if "data_input" in config.input_names:
+                                                inputs[config.input_names["data_input"]] = s3_uri
+                    except (AttributeError, IndexError) as e:
+                        logger.warning(f"Could not extract data output from step: {e}")
+            
+            # If we found inputs, add them to kwargs
+            if inputs:
+                kwargs["inputs"] = inputs
+        
+        # If outputs are not already set, try to set them
+        if "outputs" not in kwargs and hasattr(config, "output_names"):
+            outputs = {}
+            
+            # Set the output path based on the config
+            if hasattr(config, "pipeline_s3_loc") and hasattr(config, "job_type"):
+                output_path = f"{config.pipeline_s3_loc}/tabular_preprocessing/{config.job_type}"
+                if "processed_data" in config.output_names:
+                    outputs[config.output_names["processed_data"]] = output_path
+            
+            # If we found outputs, add them to kwargs
+            if outputs:
+                kwargs["outputs"] = outputs
+    
+    def _handle_training_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step], step_type: str) -> None:
+        """
+        Special handling for training steps (PyTorch and XGBoost).
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            step_name: Name of the current step
+            dependency_steps: List of dependency steps
+            step_type: Type of the current step
+        """
+        config = self.config_map[step_name]
+        
+        # If input_path is not already set, try to set it
+        if "input_path" not in kwargs:
+            # Look for processed data in the dependency steps
+            for prev_step in dependency_steps:
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                    try:
+                        # Try to get the processed data output
+                        if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                            # If it's a list or dictionary-like object
+                            try:
+                                # Try string keys (dict-like)
+                                if "ProcessedTabularData" in prev_step.properties.ProcessingOutputConfig.Outputs:
+                                    output = prev_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"]
+                                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                        kwargs["input_path"] = output.S3Output.S3Uri
+                                        break
+                            except (AttributeError, TypeError):
+                                # Try numeric index (list-like)
+                                try:
+                                    s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
+                                    kwargs["input_path"] = s3_uri
+                                    break
+                                except (IndexError, AttributeError):
+                                    pass
+                    except (AttributeError, IndexError) as e:
+                        logger.warning(f"Could not extract processed data output from step: {e}")
+        
+        # If output_path is not already set, try to set it
+        if "output_path" not in kwargs and hasattr(config, "pipeline_s3_loc"):
+            # Set the output path based on the config and step type
+            if step_type == "PytorchTrainingStep":
+                kwargs["output_path"] = f"{config.pipeline_s3_loc}/pytorch_model_artifacts"
+            elif step_type == "XGBoostTrainingStep":
+                kwargs["output_path"] = f"{config.pipeline_s3_loc}/xgboost_model_artifacts"
+    
+    def _handle_model_creation_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
+        """
+        Special handling for model creation steps.
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            step_name: Name of the current step
+            dependency_steps: List of dependency steps
+        """
+        # If model_data is not already set, try to set it
+        if "model_data" not in kwargs:
+            # Look for model artifacts in the dependency steps
+            for prev_step in dependency_steps:
+                # Check for training step output
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+                    try:
+                        kwargs["model_data"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                        break
+                    except AttributeError as e:
+                        logger.warning(f"Could not extract model artifacts from step: {e}")
+    
+    def _handle_packaging_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
+        """
+        Special handling for packaging steps.
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            step_name: Name of the current step
+            dependency_steps: List of dependency steps
+        """
+        # If model_artifacts_input_source is not already set, try to set it
+        if "model_artifacts_input_source" not in kwargs:
+            # Look for model artifacts in the dependency steps
+            for prev_step in dependency_steps:
+                # Check for model step output
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+                    try:
+                        kwargs["model_artifacts_input_source"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                        break
+                    except AttributeError as e:
+                        logger.warning(f"Could not extract model artifacts from step: {e}")
+    
+    def _handle_registration_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
+        """
+        Special handling for registration steps.
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            step_name: Name of the current step
+            dependency_steps: List of dependency steps
+        """
+        # If packaging_step_output is not already set, try to set it
+        if "packaging_step_output" not in kwargs:
+            # Look for packaging step output in the dependency steps
+            for prev_step in dependency_steps:
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                    try:
+                        # Try to get the packaged model output
+                        if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                            # If it's a list or dictionary-like object
+                            try:
+                                # Try string keys (dict-like)
+                                if "packaged_model_output" in prev_step.properties.ProcessingOutputConfig.Outputs:
+                                    output = prev_step.properties.ProcessingOutputConfig.Outputs["packaged_model_output"]
+                                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                        kwargs["packaging_step_output"] = output.S3Output.S3Uri
+                                        break
+                            except (AttributeError, TypeError):
+                                # Try numeric index (list-like)
+                                try:
+                                    s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
+                                    kwargs["packaging_step_output"] = s3_uri
+                                    break
+                                except (IndexError, AttributeError):
+                                    pass
+                    except (AttributeError, IndexError) as e:
+                        logger.warning(f"Could not extract packaged model output from step: {e}")
     
     def _match_inputs_to_outputs(
         self, 

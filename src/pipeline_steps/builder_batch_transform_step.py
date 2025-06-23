@@ -65,7 +65,24 @@ class BatchTransformStepBuilder(StepBuilderBase):
         # Get base input requirements and add additional ones
         input_reqs = super().get_input_requirements()
         input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        input_reqs["model_name"] = "Name of the SageMaker model to use for batch transform"
         return input_reqs
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        # Define the output properties for batch transform
+        output_props = {
+            "transform_output": "S3 location of the batch transform output"
+        }
+        # Add any output names from config if they exist
+        if hasattr(self.config, "output_names"):
+            output_props.update({k: v for k, v in self.config.output_names.items()})
+        return output_props
     
     def create_step(
         self,
