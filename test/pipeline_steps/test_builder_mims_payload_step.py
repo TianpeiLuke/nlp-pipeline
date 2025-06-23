@@ -32,7 +32,7 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
             "model_owner": "test-team",
             "model_registration_domain": "BuyerSellerMessaging",
             "model_registration_objective": "TestObjective",
-            "source_model_inference_content_types": ["text/csv", "application/json"],
+            "source_model_inference_content_types": ["text/csv"],
             "source_model_inference_response_types": ["application/json"],
             "source_model_inference_output_variable_list": {"score": VariableType.NUMERIC},
             "source_model_inference_input_variable_list": {
@@ -42,11 +42,13 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
             "payload_script_path": None  # Optional
         }
         
-        # Create a real PayloadConfig instance but mock its methods
-        with patch('src.pipeline_steps.config_mims_payload_step.PayloadConfig.generate_and_upload_payloads') as mock_gen_upload:
-            mock_gen_upload.return_value = 's3://test-bucket/mods/payload/payload_test-pipeline_1.0.0_TestObjective.tar.gz'
-            self.config = PayloadConfig(**self.valid_config_data)
-            self.config.generate_and_upload_payloads = mock_gen_upload
+        # Create a real PayloadConfig instance
+        self.config = PayloadConfig(**self.valid_config_data)
+        
+        # Mock the generate_and_upload_payloads method at the module level
+        self.patcher = patch('src.pipeline_steps.config_mims_payload_step.PayloadConfig.generate_and_upload_payloads')
+        self.mock_gen_upload = self.patcher.start()
+        self.mock_gen_upload.return_value = 's3://test-bucket/mods/payload/payload_test-pipeline_1.0.0_TestObjective.tar.gz'
         
         # Instantiate builder with the mocked config
         self.builder = MIMSPayloadStepBuilder(
@@ -145,10 +147,9 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         step_call_kwargs = mock_lambda_step_cls.call_args.kwargs
         self.assertEqual(step_call_kwargs['depends_on'], dependencies)
 
-    @patch('src.pipeline_steps.config_mims_payload_step.PayloadConfig.construct_payload_path')
     @patch('src.pipeline_steps.builder_mims_payload_step.Lambda')
     @patch('src.pipeline_steps.builder_mims_payload_step.LambdaStep')
-    def test_create_step_constructs_s3_key_if_none(self, mock_lambda_step_cls, mock_lambda_cls, mock_construct_path):
+    def test_create_step_constructs_s3_key_if_none(self, mock_lambda_step_cls, mock_lambda_cls):
         """Test that the step constructs S3 key if not provided."""
         # Set sample_payload_s3_key to None
         self.config.sample_payload_s3_key = None
@@ -156,8 +157,9 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         # Create step
         self.builder.create_step()
         
-        # Verify construct_payload_path was called
-        mock_construct_path.assert_called_once()
+        # Verify sample_payload_s3_key is no longer None
+        self.assertIsNotNone(self.config.sample_payload_s3_key)
+        self.assertTrue(self.config.sample_payload_s3_key.startswith('mods/payload/'))
 
     @patch('src.pipeline_steps.builder_mims_payload_step.MIMSPayloadStepBuilder.create_step')
     def test_create_payload_step_calls_create_step(self, mock_create_step):
@@ -196,8 +198,8 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
     def test_integration_with_config_methods(self, mock_lambda_step_cls, mock_lambda_cls, 
                                             mock_upload, mock_save, mock_temp_dir):
         """Test integration with config methods for generate_and_upload_payloads."""
-        # Restore the original generate_and_upload_payloads method
-        self.config.generate_and_upload_payloads = PayloadConfig.generate_and_upload_payloads.__get__(self.config)
+        # Stop the patcher to restore the original method
+        self.patcher.stop()
         
         # Mock temporary directory
         mock_temp_dir_instance = MagicMock()
@@ -228,6 +230,12 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         mock_lambda_step_cls.assert_called_once()
         step_call_kwargs = mock_lambda_step_cls.call_args.kwargs
         self.assertEqual(step_call_kwargs['inputs']['payload_s3_uri'], expected_s3_uri)
+
+    def tearDown(self):
+        """Clean up after each test."""
+        # Stop the patcher if it's active
+        if hasattr(self, 'patcher'):
+            self.patcher.stop()
 
 if __name__ == '__main__':
     unittest.main()

@@ -63,7 +63,7 @@ class TestPayloadConfig(unittest.TestCase):
         """Test that missing required fields raise ValidationError."""
         # Remove a required field
         invalid_config = self.valid_config_data.copy()
-        invalid_config.pop("payload_script_path")
+        invalid_config.pop("model_registration_objective")
         
         # Should raise ValidationError
         with self.assertRaises(Exception):
