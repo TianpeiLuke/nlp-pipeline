@@ -84,3 +84,71 @@ model_step = builder.create_step(
 # Add to pipeline
 pipeline.add_step(model_step)
 ```
+
+## Integration with Pipeline Builder Template
+
+### Input Arguments
+
+The `XGBoostModelStepBuilder` defines the following input arguments that can be automatically connected by the Pipeline Builder Template:
+
+| Argument | Description | Required | Source |
+|----------|-------------|----------|--------|
+| model_data | Model artifacts location | Yes | Previous step's model_artifacts output |
+
+### Output Properties
+
+The `XGBoostModelStepBuilder` provides the following output properties that can be used by subsequent steps:
+
+| Property | Description | Access Pattern |
+|----------|-------------|---------------|
+| model_name | Model name | `step.properties.ModelName` |
+
+### Usage with Pipeline Builder Template
+
+When using the Pipeline Builder Template, the inputs and outputs are automatically connected based on the DAG structure:
+
+```python
+# Create the DAG
+dag = PipelineDAG()
+dag.add_node("data_load")
+dag.add_node("preprocess")
+dag.add_node("train")
+dag.add_node("model")
+dag.add_node("transform")
+dag.add_edge("data_load", "preprocess")
+dag.add_edge("preprocess", "train")
+dag.add_edge("train", "model")
+dag.add_edge("model", "transform")
+
+# Create the config map
+config_map = {
+    "data_load": data_load_config,
+    "preprocess": preprocess_config,
+    "train": train_config,
+    "model": model_config,
+    "transform": transform_config,
+}
+
+# Create the step builder map
+step_builder_map = {
+    "CradleDataLoadStep": CradleDataLoadingStepBuilder,
+    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
+    "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
+    "XGBoostModelStep": XGBoostModelStepBuilder,
+    "BatchTransformStep": BatchTransformStepBuilder,
+}
+
+# Create the template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+For more details on how the Pipeline Builder Template handles connections between steps, see the [Pipeline Builder documentation](../pipeline_builder/README.md).

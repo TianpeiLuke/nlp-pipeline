@@ -102,3 +102,69 @@ The training step configures the following input channels for the PyTorch estima
 - **train**: Training data from {input_path}/train/train.parquet
 - **val**: Validation data from {input_path}/val/val.parquet
 - **test**: Test data from {input_path}/test/test.parquet
+
+## Integration with Pipeline Builder Template
+
+### Input Arguments
+
+The `PyTorchTrainingStepBuilder` defines the following input arguments that can be automatically connected by the Pipeline Builder Template:
+
+| Argument | Description | Required | Source |
+|----------|-------------|----------|--------|
+| train_data | Training data location | Yes | Previous step's processed_data output |
+| validation_data | Validation data location | No | Previous step's processed_data output |
+| test_data | Test data location | No | Previous step's processed_data output |
+
+### Output Properties
+
+The `PyTorchTrainingStepBuilder` provides the following output properties that can be used by subsequent steps:
+
+| Property | Description | Access Pattern |
+|----------|-------------|---------------|
+| model_artifacts | Trained model artifacts | `step.properties.ModelArtifacts.S3ModelArtifacts` |
+
+### Usage with Pipeline Builder Template
+
+When using the Pipeline Builder Template, the inputs and outputs are automatically connected based on the DAG structure:
+
+```python
+# Create the DAG
+dag = PipelineDAG()
+dag.add_node("data_load")
+dag.add_node("preprocess")
+dag.add_node("train")
+dag.add_node("model")
+dag.add_edge("data_load", "preprocess")
+dag.add_edge("preprocess", "train")
+dag.add_edge("train", "model")
+
+# Create the config map
+config_map = {
+    "data_load": data_load_config,
+    "preprocess": preprocess_config,
+    "train": train_config,
+    "model": model_config,
+}
+
+# Create the step builder map
+step_builder_map = {
+    "CradleDataLoadStep": CradleDataLoadingStepBuilder,
+    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
+    "PyTorchTrainingStep": PyTorchTrainingStepBuilder,
+    "PytorchModelStep": PytorchModelStepBuilder,
+}
+
+# Create the template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+For more details on how the Pipeline Builder Template handles connections between steps, see the [Pipeline Builder documentation](../pipeline_builder/README.md).
