@@ -123,6 +123,14 @@ class PayloadConfig(ModelRegistrationConfig):
                 payload_file_name += f'_{self.model_registration_objective}'
             self.sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
         return self
+        
+    def ensure_payload_path(self) -> None:
+        """Ensure S3 key for payload is set. This is a regular method that can be called directly."""
+        if not self.sample_payload_s3_key:
+            payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
+            if self.model_registration_objective:
+                payload_file_name += f'_{self.model_registration_objective}'
+            self.sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
 
     @model_validator(mode='after')
     def validate_special_fields(self) -> 'PayloadConfig':
@@ -358,7 +366,7 @@ class PayloadConfig(ModelRegistrationConfig):
         """
         # Ensure S3 path is constructed
         if not self.sample_payload_s3_key:
-            self.construct_payload_path()
+            self.ensure_payload_path()
             logger.info(f"Constructed S3 key: {self.sample_payload_s3_key}")
             
         try:

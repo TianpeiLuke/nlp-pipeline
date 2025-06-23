@@ -150,7 +150,7 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
     @patch('src.pipeline_steps.builder_mims_payload_step.Lambda')
     @patch('src.pipeline_steps.builder_mims_payload_step.LambdaStep')
     def test_create_step_constructs_s3_key_if_none(self, mock_lambda_step_cls, mock_lambda_cls):
-        """Test that the step constructs S3 key if not provided."""
+        """Test that the step sets sample_payload_s3_key if it's None."""
         # Set sample_payload_s3_key to None
         self.config.sample_payload_s3_key = None
         

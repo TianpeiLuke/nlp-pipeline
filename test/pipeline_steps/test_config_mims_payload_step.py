@@ -70,10 +70,30 @@ class TestPayloadConfig(unittest.TestCase):
             PayloadConfig(**invalid_config)
             
     def test_construct_payload_path(self):
-        """Test that sample_payload_s3_key is constructed if not provided."""
-        config = PayloadConfig(**self.valid_config_data)
+        """Test that sample_payload_s3_key is constructed if not provided during initialization."""
+        # Create a config with sample_payload_s3_key explicitly set to None
+        config_data = self.valid_config_data.copy()
+        config_data["sample_payload_s3_key"] = None
+        config = PayloadConfig(**config_data)
         
-        # Verify that sample_payload_s3_key was constructed
+        # Verify that sample_payload_s3_key was constructed by the model_validator
+        expected_key = f"mods/payload/payload_{config.pipeline_name}_{config.pipeline_version}_{config.model_registration_objective}.tar.gz"
+        self.assertEqual(config.sample_payload_s3_key, expected_key)
+        
+    def test_ensure_payload_path(self):
+        """Test the ensure_payload_path method."""
+        # Create a config with sample_payload_s3_key explicitly set to None
+        config_data = self.valid_config_data.copy()
+        config_data["sample_payload_s3_key"] = None
+        config = PayloadConfig(**config_data)
+        
+        # Reset sample_payload_s3_key to None (since the model_validator would have set it)
+        config.sample_payload_s3_key = None
+        
+        # Call ensure_payload_path
+        config.ensure_payload_path()
+        
+        # Verify that sample_payload_s3_key was set correctly
         expected_key = f"mods/payload/payload_{config.pipeline_name}_{config.pipeline_version}_{config.model_registration_objective}.tar.gz"
         self.assertEqual(config.sample_payload_s3_key, expected_key)
         

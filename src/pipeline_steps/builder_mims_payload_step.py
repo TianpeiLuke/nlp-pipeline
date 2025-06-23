@@ -108,7 +108,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
 
         # Ensure S3 key is constructed
         if not self.config.sample_payload_s3_key:
-            self.config.construct_payload_path()
+            self.config.ensure_payload_path()
             logger.info(f"Constructed S3 key: {self.config.sample_payload_s3_key}")
 
         # Check if we have a script path or if we should use the embedded methods
