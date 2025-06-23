@@ -23,6 +23,7 @@ This directory contains documentation for each step in the MODS_BSM pipeline. Ea
 ### Model Packaging and Registration
 - [XGBoost Model Step](model_step_xgboost.md): Creates a SageMaker model artifact from a trained XGBoost model
 - [MIMS Packaging Step](mims_packaging_step.md): Prepares a trained model for deployment in MIMS
+- [MIMS Payload Step](mims_payload_step.md): Generates and uploads test payloads for model testing
 - [MIMS Registration Step](mims_registration_step.md): Registers a packaged model with MIMS
 
 ## Pipeline Architecture
