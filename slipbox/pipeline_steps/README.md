@@ -2,6 +2,8 @@
 
 This directory contains documentation for each step in the MODS_BSM pipeline. Each markdown file provides a detailed description of a specific pipeline step, including its purpose, inputs, outputs, configuration parameters, and usage examples.
 
+> **New Feature**: These pipeline steps can now be used with the [Pipeline Builder Template](../pipeline_builder/README.md) system, which provides a declarative approach to defining pipeline structure and automatically handles the connections between steps.
+
 ## Available Pipeline Steps
 
 ### Data Loading and Preprocessing
@@ -36,9 +38,11 @@ Each step in the pipeline follows a consistent pattern:
 - **ModelHyperparameters**: Base class for model hyperparameters
 - **XGBoostModelHyperparameters**: XGBoost-specific hyperparameters
 
-## Usage Pattern
+## Usage Patterns
 
-The typical usage pattern for these steps is:
+### Traditional Pattern
+
+The traditional usage pattern for these steps is:
 
 1. Create a configuration object with the required parameters
 2. Create a builder object with the configuration
@@ -62,3 +66,49 @@ step = builder.create_step(
 # Add to pipeline
 pipeline.add_step(step)
 ```
+
+### Template-Based Pattern
+
+With the new [Pipeline Builder Template](../pipeline_builder/README.md) system, you can use a more declarative approach:
+
+1. Define the pipeline structure as a DAG
+2. Create a config map that maps step names to configuration instances
+3. Create a step builder map that maps step types to step builder classes
+4. Use the template to generate the pipeline
+
+Example:
+```python
+# Create the DAG
+dag = PipelineDAG()
+dag.add_node("data_load")
+dag.add_node("preprocess")
+dag.add_edge("data_load", "preprocess")
+
+# Create the config map
+config_map = {
+    "data_load": data_load_config,
+    "preprocess": preprocess_config,
+}
+
+# Create the step builder map
+step_builder_map = {
+    "DataLoadStep": DataLoadStepBuilder,
+    "PreprocessStep": PreprocessStepBuilder,
+}
+
+# Create the template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+This template-based approach automatically handles the connections between steps, eliminating the need for manual wiring of inputs and outputs. It's particularly valuable for handling placeholder variables like `dependency_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri`.
+
+See the [Pipeline Builder](../pipeline_builder/README.md) documentation for more details.

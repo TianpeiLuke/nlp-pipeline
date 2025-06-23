@@ -10,6 +10,7 @@ A modular pipeline for processing emails, messages, and tabular data, supporting
 - [Processors](#processors)
 - [Pipeline Steps](#pipeline-steps)
 - [Pipeline Examples](#pipeline-examples)
+- [Pipeline Builder Template](#pipeline-builder-template)
 - [PyTorch Models](#pytorch-models)
 - [Docker Images](#docker-images)
 - [Benefits](#benefits)
@@ -68,6 +69,27 @@ Ready-to-use pipeline blueprints for common ML workflows:
 - **PyTorch BSM Pipeline:** [mods_pipeline_bsm_pytorch.md](slipbox/pipeline_examples/mods_pipeline_bsm_pytorch.md)
 
 Each example demonstrates step connections, configuration, and S3 input/output conventions.
+
+---
+
+## Pipeline Builder Template
+
+A new template-based approach for building SageMaker pipelines that simplifies the creation of complex pipelines and automatically handles the connections between steps.
+
+### Key Features
+
+- **Declarative Pipeline Definition:** Define pipeline structure as a Directed Acyclic Graph (DAG)
+- **Automatic Connection:** Steps are automatically connected based on the DAG structure
+- **Message Passing Algorithm:** Propagates information between steps to eliminate manual wiring
+- **Placeholder Handling:** Automatically handles placeholder variables like `dependency_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri`
+
+### Components
+
+- **Pipeline DAG:** Represents the structure of a pipeline as a directed acyclic graph
+- **Pipeline Builder Template:** Core component that uses the DAG to generate a SageMaker pipeline
+- **Template Implementation:** Explains how the template handles placeholder variables
+
+See [slipbox/pipeline_builder/README.md](slipbox/pipeline_builder/README.md) for a complete overview of the template-based approach.
 
 ---
 

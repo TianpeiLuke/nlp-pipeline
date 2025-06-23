@@ -2,6 +2,8 @@
 
 This directory contains documentation for the various pipeline examples in the MODS_BSM system. Each markdown file provides a detailed description of a specific pipeline, including its steps, connections between steps, and input/output relationships.
 
+> **New Feature**: A new template-based approach for building pipelines is now available. See the [Pipeline Builder](../pipeline_builder/README.md) documentation for details on how to use the template system to simplify pipeline creation and automatically handle connections between steps.
+
 ## Available Pipelines
 
 ### XGBoost Pipelines
@@ -16,12 +18,25 @@ This directory contains documentation for the various pipeline examples in the M
 
 ## Pipeline Architecture
 
-All pipelines follow a consistent design pattern:
+### Traditional Approach
+
+The traditional pipelines follow a consistent design pattern:
 
 1. **Configuration-Driven**: Pipelines extract their settings from JSON configuration files
 2. **Builder Pattern**: Each pipeline uses a builder class to construct the pipeline
 3. **Step-Based**: Pipelines are composed of individual steps that are connected together
 4. **Execution Document Support**: Pipelines provide methods to fill execution documents with step configurations
+
+### Template-Based Approach
+
+The new template-based pipelines use a more declarative approach:
+
+1. **DAG-Based Structure**: Pipeline structure is defined as a Directed Acyclic Graph (DAG)
+2. **Automatic Connection**: Steps are automatically connected based on the DAG structure
+3. **Message Passing**: A message passing algorithm propagates information between steps
+4. **Placeholder Handling**: Placeholder variables are automatically handled by the template
+
+See the [Pipeline Builder](../pipeline_builder/README.md) documentation for more details on the template-based approach.
 
 ## Common Pipeline Components
 
@@ -42,9 +57,11 @@ The pipelines demonstrate several common flow patterns:
 2. **Calibration Flow**: Data Loading → Preprocessing
 3. **Deployment Flow**: Model Creation → Packaging → Registration
 
-## Usage Pattern
+## Usage Patterns
 
-The typical usage pattern for these pipelines is:
+### Traditional Pattern
+
+The typical usage pattern for traditional pipelines is:
 
 1. Create a pipeline builder with a configuration file
 2. Generate the pipeline
@@ -65,3 +82,53 @@ execution = pipeline.start()
 # Fill execution document
 execution_doc = builder.fill_execution_document(execution.describe())
 ```
+
+### Template-Based Pattern
+
+The usage pattern for template-based pipelines is:
+
+1. Define the pipeline structure as a DAG
+2. Create a config map that maps step names to configuration instances
+3. Create a step builder map that maps step types to step builder classes
+4. Use the template to generate the pipeline
+
+Example:
+```python
+# Create the DAG
+dag = PipelineDAG()
+dag.add_node("data_load")
+dag.add_node("preprocess")
+dag.add_node("train")
+dag.add_edge("data_load", "preprocess")
+dag.add_edge("preprocess", "train")
+
+# Create the config map
+config_map = {
+    "data_load": data_load_config,
+    "preprocess": preprocess_config,
+    "train": train_config,
+}
+
+# Create the step builder map
+step_builder_map = {
+    "DataLoadStep": DataLoadStepBuilder,
+    "PreprocessStep": PreprocessStepBuilder,
+    "TrainStep": TrainStepBuilder,
+}
+
+# Create the template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+This template-based approach automatically handles the connections between steps, eliminating the need for manual wiring of inputs and outputs. It's particularly valuable for handling placeholder variables like `dependency_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri`.
+
+See the [Pipeline Builder](../pipeline_builder/README.md) documentation for more details.
