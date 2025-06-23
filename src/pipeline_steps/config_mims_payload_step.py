@@ -60,13 +60,14 @@ class PayloadConfig(ModelRegistrationConfig):
         description="Optional dictionary of special TEXT fields and their template values"
     )
     
-    # Script path configuration
-    payload_script_path: str = Field(
-        description="Path to the payload generation script (relative to notebook_root or S3 URI)"
+    # Script path configuration (optional)
+    payload_script_path: Optional[str] = Field(
+        default=None,
+        description="Optional path to a custom payload generation script (relative to notebook_root or S3 URI)"
     )
     payload_script_arguments: Optional[List[str]] = Field(
         default=None,
-        description="Optional arguments for the payload generation script"
+        description="Optional arguments for the custom payload generation script"
     )
 
     class Config:
