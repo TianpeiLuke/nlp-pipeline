@@ -27,6 +27,7 @@ from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreproc
 from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from src.pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
 from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from src.pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
 from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 
 # Pipeline parameters
@@ -229,6 +230,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
             "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
             "PackagingStep": MIMSPackagingStepBuilder,
+            "PayloadStep": MIMSPayloadStepBuilder,
             "RegistrationStep": ModelRegistrationStepBuilder,
             "ModelEvalStep": XGBoostModelEvalStepBuilder,
         }
@@ -249,6 +251,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             
         config_map["xgboost_train"] = self.xgb_train_cfg
         config_map["model_packaging"] = self.package_cfg
+        config_map["payload_test"] = self.payload_cfg
         config_map["model_registration"] = self.registration_cfg
         
         # Add calibration flow steps
@@ -282,6 +285,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         dag.add_node("xgboost_train")
         dag.add_node("model_packaging")
         dag.add_node("model_registration")
+        dag.add_node("payload_test")
         dag.add_node("calib_data_load")
         dag.add_node("calib_preprocess")
         dag.add_node("model_evaluation")
@@ -291,6 +295,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         dag.add_edge("train_preprocess", "xgboost_train")
         dag.add_edge("xgboost_train", "model_packaging")
         dag.add_edge("model_packaging", "model_registration")
+        dag.add_edge("model_packaging", "payload_test")
         
         # Add edges for calibration flow
         dag.add_edge("calib_data_load", "calib_preprocess")

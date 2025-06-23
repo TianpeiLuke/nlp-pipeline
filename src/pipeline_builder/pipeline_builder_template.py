@@ -560,6 +560,19 @@ class PipelineBuilderTemplate:
                                     pass
                     except (AttributeError, IndexError) as e:
                         logger.warning(f"Could not extract packaged model output from step: {e}")
+        
+        # If payload_s3_key is not already set, try to set it from the payload step
+        if "payload_s3_key" not in kwargs:
+            # Look for payload step in the dependency steps
+            for prev_step in dependency_steps:
+                # Check if this is a payload step
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "payload_s3_key"):
+                    try:
+                        kwargs["payload_s3_key"] = prev_step.properties.payload_s3_key
+                        logger.info(f"Found payload_s3_key from payload step: {prev_step.name}")
+                        break
+                    except AttributeError as e:
+                        logger.warning(f"Could not extract payload_s3_key from step: {e}")
     
     def _match_inputs_to_outputs(
         self, 
