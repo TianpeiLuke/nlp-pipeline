@@ -331,9 +331,15 @@ class XGBoostTrainEvaluateE2EPipelineBuilder:
 
         logger.info(f"Found evaluation script at: {eval_script_path}")
 
-        # Get input and output channel names from config class constants
+        # Get input and output channel names from config
+        # Use both the get_input_names() method and the input_names attribute for compatibility
         input_channels = self.xgb_eval_cfg.get_input_names()
+        if not hasattr(self.xgb_eval_cfg, 'input_names'):
+            self.xgb_eval_cfg.input_names = input_channels
+            
         output_channels = self.xgb_eval_cfg.get_output_names()
+        if not hasattr(self.xgb_eval_cfg, 'output_names'):
+            self.xgb_eval_cfg.output_names = output_channels
     
         # Create inputs dictionary using fixed channel names
         inputs = {

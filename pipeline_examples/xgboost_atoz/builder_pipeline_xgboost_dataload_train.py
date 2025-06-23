@@ -185,8 +185,16 @@ class XGBoostDataloadTrainPipelineBuilder:
             config=self.tp_train_cfg, sagemaker_session=self.session, role=self.role
         )
         cradle_outputs = loader.get_step_outputs(load_step)
+        # Ensure tp_cfg has both the input_names attribute and get_input_names method for compatibility
+        if not hasattr(self.tp_train_cfg, 'input_names'):
+            self.tp_train_cfg.input_names = self.tp_train_cfg.get_input_names()
+            
         inputs = { self.tp_train_cfg.input_names["data_input"]: cradle_outputs[OUTPUT_TYPE_DATA] }
         
+        # Ensure tp_cfg has both the output_names attribute and get_output_names method for compatibility
+        if not hasattr(self.tp_train_cfg, 'output_names'):
+            self.tp_train_cfg.output_names = self.tp_train_cfg.get_output_names()
+            
         # Define the single output channel for the preprocessed data directory
         prep_output_name = self.tp_train_cfg.output_names["processed_data"]
         prefix = f"{self.base_config.pipeline_s3_loc}/tabular_preprocessing/{job_type}"
@@ -239,10 +247,18 @@ class XGBoostDataloadTrainPipelineBuilder:
         
         prep = TabularPreprocessingStepBuilder(config=tp_cfg, sagemaker_session=self.session, role=self.role)
         cradle_outputs = loader.get_step_outputs(load_step)
+        # Ensure tp_cfg has both the input_names attribute and get_input_names method for compatibility
+        if not hasattr(tp_cfg, 'input_names'):
+            tp_cfg.input_names = tp_cfg.get_input_names()
+            
         inputs = {tp_cfg.input_names["data_input"]: cradle_outputs[OUTPUT_TYPE_DATA]}
         
         prefix = f"{self.base_config.pipeline_s3_loc}/tabular_preprocessing/{job_type}"
         
+        # Ensure tp_cfg has both the output_names attribute and get_output_names method for compatibility
+        if not hasattr(tp_cfg, 'output_names'):
+            tp_cfg.output_names = tp_cfg.get_output_names()
+            
         # FIX: Define only the single required output.
         outputs = {
             tp_cfg.output_names["processed_data"]: prefix

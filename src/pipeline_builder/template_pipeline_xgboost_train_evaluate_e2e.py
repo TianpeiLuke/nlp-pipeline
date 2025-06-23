@@ -240,6 +240,13 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         # Add training flow steps
         config_map["train_data_load"] = self.cradle_train_cfg
         config_map["train_preprocess"] = self.tp_train_cfg
+        
+        # Ensure tp_train_cfg has both input_names and output_names attributes
+        if not hasattr(self.tp_train_cfg, 'input_names'):
+            self.tp_train_cfg.input_names = self.tp_train_cfg.get_input_names()
+        if not hasattr(self.tp_train_cfg, 'output_names'):
+            self.tp_train_cfg.output_names = self.tp_train_cfg.get_output_names()
+            
         config_map["xgboost_train"] = self.xgb_train_cfg
         config_map["model_packaging"] = self.package_cfg
         config_map["model_registration"] = self.registration_cfg
@@ -248,8 +255,20 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         config_map["calib_data_load"] = self.cradle_calib_cfg
         config_map["calib_preprocess"] = self.tp_calib_cfg
         
+        # Ensure tp_calib_cfg has both input_names and output_names attributes
+        if not hasattr(self.tp_calib_cfg, 'input_names'):
+            self.tp_calib_cfg.input_names = self.tp_calib_cfg.get_input_names()
+        if not hasattr(self.tp_calib_cfg, 'output_names'):
+            self.tp_calib_cfg.output_names = self.tp_calib_cfg.get_output_names()
+        
         # Add model evaluation step
         config_map["model_evaluation"] = self.xgb_eval_cfg
+        
+        # Ensure xgb_eval_cfg has both input_names and output_names attributes
+        if not hasattr(self.xgb_eval_cfg, 'input_names'):
+            self.xgb_eval_cfg.input_names = self.xgb_eval_cfg.get_input_names()
+        if not hasattr(self.xgb_eval_cfg, 'output_names'):
+            self.xgb_eval_cfg.output_names = self.xgb_eval_cfg.get_output_names()
         
         return config_map
 

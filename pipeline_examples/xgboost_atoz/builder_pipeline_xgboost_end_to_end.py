@@ -273,7 +273,15 @@ class XGBoostEndToEndPipelineBuilder:
         prep_builder = TabularPreprocessingStepBuilder(config=tp_config, sagemaker_session=self.session, role=self.role)
         cradle_outputs = dependency_step.properties.ProcessingOutputConfig.Outputs
         
+        # Ensure tp_config has both the input_names attribute and get_input_names method for compatibility
+        if not hasattr(tp_config, 'input_names'):
+            tp_config.input_names = tp_config.get_input_names()
+            
         inputs = {tp_config.input_names["data_input"]: cradle_outputs[OUTPUT_TYPE_DATA].S3Output.S3Uri}
+        # Ensure tp_config has both the output_names attribute and get_output_names method for compatibility
+        if not hasattr(tp_config, 'output_names'):
+            tp_config.output_names = tp_config.get_output_names()
+            
         outputs = {tp_config.output_names["processed_data"]: f"{self.base_config.pipeline_s3_loc}/tabular_preprocessing/{tp_config.job_type}"}
         
         prep_step = prep_builder.create_step(inputs=inputs, outputs=outputs)
