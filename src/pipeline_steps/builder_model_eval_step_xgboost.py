@@ -1,13 +1,10 @@
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
 import logging
 
-from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.xgboost import XGBoostProcessor
 from sagemaker.workflow.steps import ProcessingStep, Step
-from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.workflow.properties import Properties
-from sagemaker.workflow.steps import CacheConfig
+from sagemaker.processing import ProcessingInput, ProcessingOutput
+from sagemaker.sklearn import SKLearnProcessor
 
 from .config_model_eval_step_xgboost import XGBoostModelEvalConfig
 from .builder_step_base import StepBuilderBase
@@ -17,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 class XGBoostModelEvalStepBuilder(StepBuilderBase):
     """
-    Builder for XGBoost model evaluation ProcessingStep.
+    Builder for an XGBoost Model Evaluation ProcessingStep.
+    This class is responsible for configuring and creating a SageMaker ProcessingStep
+    that evaluates an XGBoost model on a validation dataset.
     """
 
     def __init__(
@@ -27,8 +26,20 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
     ):
+        """
+        Initializes the builder with a specific configuration for the model evaluation step.
+
+        Args:
+            config: A XGBoostModelEvalConfig instance containing all necessary settings.
+            sagemaker_session: The SageMaker session object to manage interactions with AWS.
+            role: The IAM role ARN to be used by the SageMaker Processing Job.
+            notebook_root: The root directory of the notebook environment, used for resolving
+                         local paths if necessary.
+        """
         if not isinstance(config, XGBoostModelEvalConfig):
-            raise ValueError("XGBoostModelEvalStepBuilder requires a XGBoostModelEvalConfig instance.")
+            raise ValueError(
+                "XGBoostModelEvalStepBuilder requires a XGBoostModelEvalConfig instance."
+            )
         super().__init__(
             config=config,
             sagemaker_session=sagemaker_session,
@@ -38,115 +49,175 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         self.config: XGBoostModelEvalConfig = config
 
     def validate_configuration(self) -> None:
-        logger.info(f"Running {self.__class__.__name__} specific configuration validation.")
+        """
+        Validates the provided configuration to ensure all required fields for this
+        specific step are present and valid before attempting to build the step.
+
+        Raises:
+            ValueError: If any required configuration is missing or invalid.
+        """
+        logger.info("Validating XGBoostModelEvalConfig...")
         
+        # Validate required attributes
         required_attrs = [
-            'processing_entry_point',
-            'processing_source_dir',
-            'processing_instance_count', 
+            'processing_instance_type',
+            'processing_instance_count',
             'processing_volume_size',
-            'pipeline_name',
-            'job_type',
-            'hyperparameters',
-            'xgboost_framework_version'
+            'processing_entry_point',
+            'processing_source_dir'
         ]
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"XGBoostModelEvalConfig missing required attribute: {attr}")
-
-        required_inputs = {"model_input", "eval_data_input"}
-        required_outputs = {"eval_output", "metrics_output"}
         
-        if not all(name in (self.config.input_names or {}) for name in required_inputs):
-            raise ValueError(f"Required input names {required_inputs} must be defined")
+        # Validate input and output names
+        if "model_input" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'model_input'")
         
-        if not all(name in (self.config.output_names or {}) for name in required_outputs):
-            raise ValueError(f"Required output names {required_outputs} must be defined")
-
-        logger.info(f"{self.__class__.__name__} configuration validation passed.")
+        if "validation_data" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'validation_data'")
         
-    def _get_environment_variables(self) -> Dict[str, str]:
-        env_vars = {
-            "ID_FIELD": str(self.config.hyperparameters.id_name),
-            "LABEL_FIELD": str(self.config.hyperparameters.label_name),
-        }
-        logger.info(f"Evaluation environment variables: {env_vars}")
-        return env_vars
-
-    def _create_processor(self) -> XGBoostProcessor:
-        """Create XGBoost processor for model evaluation."""
-        instance_type = self.config.get_instance_type(
-            'large' if self.config.use_large_processing_instance else 'small'
-        )
-        logger.info(f"Using processing instance type for evaluation: {instance_type}")
-
-        base_job_name_prefix = self._sanitize_name_for_sagemaker(self.config.pipeline_name, 30)
+        if "evaluation_output" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'evaluation_output'")
         
-        # Create a command that will run the entry point from within the package
-        # Construct the command to run the entry point script from the source directory
+        logger.info("XGBoostModelEvalConfig validation succeeded.")
 
-        return XGBoostProcessor(
-            framework_version=self.config.xgboost_framework_version,
+    def _create_processor(self) -> SKLearnProcessor:
+        """
+        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
+        This defines the execution environment for the script, including the instance
+        type, framework version, and environment variables.
+
+        Returns:
+            An instance of sagemaker.sklearn.SKLearnProcessor.
+        """
+        return SKLearnProcessor(
+            framework_version=self.config.processing_framework_version,
             role=self.role,
-            instance_type=instance_type,
+            instance_type=self.config.processing_instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
+            base_job_name=self._sanitize_name_for_sagemaker(
+                f"{self._get_step_name('XGBoostModelEval')}"
+            ),
             sagemaker_session=self.session,
-            base_job_name=f"{base_job_name_prefix}-xgb-eval",
             env=self._get_environment_variables(),
         )
 
-    def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
-        required_inputs = (self.config.input_names or {}).keys()
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Constructs a dictionary of environment variables to be passed to the processing job.
+        These variables are used to control the behavior of the evaluation script
+        without needing to pass them as command-line arguments.
+
+        Returns:
+            A dictionary of environment variables.
+        """
+        env_vars = {}
         
-        if not inputs or not all(k in inputs for k in required_inputs):
-            raise ValueError(f"Must supply S3 URIs for all required inputs: {required_inputs}")
+        # Add optional environment variables if they exist
+        if hasattr(self.config, "target_column") and self.config.target_column:
+            env_vars["TARGET_COLUMN"] = self.config.target_column
+            
+        if hasattr(self.config, "problem_type") and self.config.problem_type:
+            env_vars["PROBLEM_TYPE"] = self.config.problem_type
+            
+        if hasattr(self.config, "eval_metrics") and self.config.eval_metrics:
+            env_vars["EVAL_METRICS"] = ",".join(self.config.eval_metrics)
+            
+        logger.info(f"Processing environment variables: {env_vars}")
+        return env_vars
 
-        input_destinations = {
-            "model_input": "/opt/ml/processing/input/model",
-            "eval_data_input": "/opt/ml/processing/input/eval_data",
-        }
+    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """
+        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
+        This defines the data channels for the processing job, mapping S3 locations
+        to local directories inside the container.
 
-        return [
+        Args:
+            inputs: A dictionary mapping logical input channel names (e.g., 'model_input', 'validation_data')
+                    to their S3 URIs or dynamic Step properties.
+
+        Returns:
+            A list of sagemaker.processing.ProcessingInput objects.
+        """
+        # Get the input keys from config
+        model_key = self.config.input_names["model_input"]
+        validation_key = self.config.input_names["validation_data"]
+        
+        # Check if inputs is empty or doesn't contain the required keys
+        if not inputs:
+            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_key}' and '{validation_key}'")
+        
+        if model_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{model_key}' in 'inputs'")
+        
+        if validation_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{validation_key}' in 'inputs'")
+
+        # Define the input channels
+        processing_inputs = [
             ProcessingInput(
-                input_name=channel_name,
-                source=inputs[channel_name],
-                destination=input_destinations[channel_name]
+                input_name=model_key,
+                source=inputs[model_key],
+                destination="/opt/ml/processing/input/model"
+            ),
+            ProcessingInput(
+                input_name=validation_key,
+                source=inputs[validation_key],
+                destination="/opt/ml/processing/input/validation"
             )
-            for channel_name in required_inputs
         ]
-
-    def _get_processing_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        required_outputs = (self.config.output_names or {}).keys()
         
-        if not outputs or not all(k in outputs for k in required_outputs):
-            raise ValueError(f"Must supply S3 URIs for all required outputs: {required_outputs}")
-
-        output_sources = {
-            "eval_output": "/opt/ml/processing/output/eval",
-            "metrics_output": "/opt/ml/processing/output/metrics"
-        }
-
-        return [
-            ProcessingOutput(
-                output_name=channel_name,
-                source=output_sources[channel_name],
-                destination=outputs[channel_name]
+        # Add optional hyperparameters input if available
+        if "hyperparameters_input" in self.config.input_names and "hyperparameters_input" in inputs:
+            processing_inputs.append(
+                ProcessingInput(
+                    input_name=self.config.input_names["hyperparameters_input"],
+                    source=inputs[self.config.input_names["hyperparameters_input"]],
+                    destination="/opt/ml/processing/input/hyperparameters"
+                )
             )
-            for channel_name in required_outputs
+        
+        return processing_inputs
+
+    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+        """
+        Constructs the ProcessingOutput objects needed for this step.
+        This defines the S3 location where the results of the processing job will be stored.
+
+        Args:
+            outputs: A dictionary mapping the logical output channel name ('evaluation_output')
+                     to its S3 destination URI.
+
+        Returns:
+            A list containing sagemaker.processing.ProcessingOutput objects.
+        """
+        key_out = self.config.output_names["evaluation_output"]
+        if not outputs or key_out not in outputs:
+            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        
+        # Define the output for the evaluation
+        processing_outputs = [
+            ProcessingOutput(
+                output_name=key_out,
+                source="/opt/ml/processing/output",
+                destination=outputs[key_out]
+            )
         ]
+        
+        return processing_outputs
 
     def _get_job_arguments(self) -> List[str]:
-        return ["--job_type", self.config.job_type]
-    
-    def _get_cache_config(self, enable_caching: bool = True) -> Optional[CacheConfig]:
-        if not enable_caching:
-            return None
-        return CacheConfig(
-            enable_caching=enable_caching,
-            expire_after="30d"
-        )
+        """
+        Constructs the list of command-line arguments to be passed to the processing script.
+        This allows for parameterizing the script's execution at runtime.
+
+        Returns:
+            A list of strings representing the command-line arguments.
+        """
+        return []  # No command-line arguments needed, using environment variables instead
         
     def get_input_requirements(self) -> Dict[str, str]:
         """
@@ -155,11 +226,10 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        # Get base input requirements and add additional ones
+        # Get input requirements from config's input_names
         input_reqs = {
             "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
             "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"],
             "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
         return input_reqs
@@ -174,127 +244,123 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         # Get output properties from config's output_names
         return {k: v for k, v in (self.config.output_names or {}).items()}
         
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
         """
-        Extract inputs from dependency steps.
-        
-        This method extracts the inputs required by the XGBoostModelEvalStep from the dependency steps.
-        Specifically, it looks for:
-        1. model_input from a ModelStep
-        2. eval_data_input from a TabularPreprocessingStep
+        Match custom properties specific to XGBoostModelEval step.
         
         Args:
-            dependency_steps: List of dependency steps
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
             
         Returns:
-            Dictionary of inputs extracted from dependency steps
+            Set of input names that were successfully matched
         """
-        inputs = {}
-        outputs = {}
+        matched_inputs = set()
         
-        # Look for model_input from a ModelStep
-        for prev_step in dependency_steps:
-            # Check for model step output
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
-                try:
-                    if "model_input" in self.config.input_names:
-                        input_key = self.config.input_names["model_input"]
-                        if "inputs" not in inputs:
-                            inputs = {"inputs": {}}
-                        inputs["inputs"][input_key] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                        logger.info(f"Found model_input from ModelStep: {prev_step.name}")
-                except AttributeError as e:
-                    logger.warning(f"Could not extract model artifacts from step: {e}")
-            
-            # Look for eval_data_input from a TabularPreprocessingStep
-            elif hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
-                try:
-                    # Try to get the processed data output
-                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
-                        # Try string keys (dict-like)
-                        for key in prev_step.properties.ProcessingOutputConfig.Outputs:
-                            output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
-                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                # If this is a processed data output, use it as eval_data_input
-                                if key == "ProcessedTabularData":
-                                    if "eval_data_input" in self.config.input_names:
-                                        input_key = self.config.input_names["eval_data_input"]
-                                        if "inputs" not in inputs:
-                                            inputs = {"inputs": {}}
-                                        inputs["inputs"][input_key] = output.S3Output.S3Uri
-                                        logger.info(f"Found eval_data_input from step: {prev_step.name}")
-                except (AttributeError, IndexError) as e:
-                    logger.warning(f"Could not extract processed data output from step: {e}")
-        
-        # Set up outputs if not already set
-        if not outputs and hasattr(self.config, "pipeline_s3_loc") and hasattr(self.config, "job_type"):
-            base_output_path = f"{self.config.pipeline_s3_loc}/xgboost_model_eval/{self.config.job_type}"
-            if "eval_output" in self.config.output_names and "metrics_output" in self.config.output_names:
-                eval_key = self.config.output_names["eval_output"]
-                metrics_key = self.config.output_names["metrics_output"]
-                outputs = {
-                    "outputs": {
-                        eval_key: f"{base_output_path}/eval",
-                        metrics_key: f"{base_output_path}/metrics"
-                    }
-                }
-                logger.info(f"Set up output paths: {outputs}")
-        
-        result = {}
-        if "inputs" in inputs:
-            result["inputs"] = inputs["inputs"]
-        if "outputs" in outputs:
-            result["outputs"] = outputs["outputs"]
-        
-        # Add enable_caching
-        result["enable_caching"] = True
-        
-        return result
-
+        # Look for model artifacts from a TrainingStep
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+            try:
+                model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                if "inputs" not in inputs:
+                    inputs["inputs"] = {}
+                
+                # Get the model input key from config
+                model_key = self.config.input_names.get("model_input")
+                if model_key and model_key not in inputs.get("inputs", {}):
+                    inputs["inputs"][model_key] = model_artifacts
+                    matched_inputs.add("inputs")
+                    logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
+            except AttributeError as e:
+                logger.warning(f"Could not extract model artifacts from step: {e}")
+                
+        # Look for validation data from a ProcessingStep
+        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+            try:
+                # Check if the step has an output that matches our validation_data input
+                validation_key = self.config.input_names.get("validation_data")
+                if validation_key:
+                    # Look for an output with a name that might contain validation data
+                    for output in prev_step.outputs:
+                        if hasattr(output, "output_name") and any(term in output.output_name.lower() 
+                                                                for term in ["valid", "test", "eval"]):
+                            if "inputs" not in inputs:
+                                inputs["inputs"] = {}
+                            
+                            if validation_key not in inputs.get("inputs", {}):
+                                inputs["inputs"][validation_key] = output.destination
+                                matched_inputs.add("inputs")
+                                logger.info(f"Found validation data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                break
+            except AttributeError as e:
+                logger.warning(f"Could not extract validation data from step: {e}")
+                
+        # Look for hyperparameters from a HyperparameterPrepStep
+        if hasattr(prev_step, "hyperparameters_s3_uri"):
+            try:
+                hyperparameters_s3_uri = prev_step.hyperparameters_s3_uri
+                if "inputs" not in inputs:
+                    inputs["inputs"] = {}
+                
+                # Get the hyperparameters input key from config
+                hyperparams_key = self.config.input_names.get("hyperparameters_input")
+                if hyperparams_key and hyperparams_key not in inputs.get("inputs", {}):
+                    inputs["inputs"][hyperparams_key] = hyperparameters_s3_uri
+                    matched_inputs.add("inputs")
+                    logger.info(f"Found hyperparameters from step: {getattr(prev_step, 'name', str(prev_step))}")
+            except AttributeError as e:
+                logger.warning(f"Could not extract hyperparameters from step: {e}")
+                
+        return matched_inputs
+    
     def create_step(self, **kwargs) -> ProcessingStep:
         """
-        Creates a ProcessingStep for XGBoost model evaluation.
-        
+        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
+        This method orchestrates the assembly of the processor, inputs, outputs, and
+        script arguments into a single, executable pipeline step.
+
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - inputs: Dictionary containing model_input and eval_data_input S3 paths
-                - outputs: Dictionary containing eval_output and metrics_output S3 paths
-                - dependencies: Optional list of step dependencies
-                - enable_caching: Whether to enable caching for this step (default: True)
-            
+                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                - outputs: A dictionary mapping output channel names to their S3 destinations.
+                - dependencies: Optional list of steps that this step depends on.
+                - enable_caching: A boolean indicating whether to cache the results of this step
+                                to speed up subsequent pipeline runs with the same inputs.
+
         Returns:
-            ProcessingStep object
+            A configured sagemaker.workflow.steps.ProcessingStep instance.
         """
+        logger.info("Creating XGBoostModelEval ProcessingStep...")
+
         # Extract parameters
         inputs = self._extract_param(kwargs, 'inputs')
         outputs = self._extract_param(kwargs, 'outputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        logger.info("Creating XGBoost Model Evaluation ProcessingStep...")
+        # Validate required parameters
+        if not inputs:
+            raise ValueError("inputs must be provided")
+        if not outputs:
+            raise ValueError("outputs must be provided")
 
         processor = self._create_processor()
-        proc_inputs = self._get_processing_inputs(inputs)
-        proc_outputs = self._get_processing_outputs(outputs)
+        proc_inputs = self._get_processor_inputs(inputs)
+        proc_outputs = self._get_processor_outputs(outputs)
         job_args = self._get_job_arguments()
 
-        # FIX: The processor's `.run()` method is called to correctly package the code,
-        # entrypoint, and dependencies. The output of this call (`step_args`) is then passed
-        # to the ProcessingStep.
-        step_args = processor.run(
-            code=self.config.processing_entry_point, #self.config.get_script_path(),
-            source_dir=self.config.processing_source_dir, # This is the crucial part
+        step_name = self._get_step_name('XGBoostModelEval')
+        
+        processing_step = ProcessingStep(
+            name=step_name,
+            processor=processor,
             inputs=proc_inputs,
             outputs=proc_outputs,
-            arguments=job_args,
-        )
-        
-        step_name = f"{self._get_step_name('XGBoostModelEval')}-{self.config.job_type.capitalize()}"
-        logger.info(f"Created ProcessingStep with name: {step_name}")
-
-        return ProcessingStep(
-            name=step_name,
-            step_args=step_args,
+            code=self.config.get_script_path(),
+            job_arguments=job_args,
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching)
         )
+        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
+        return processing_step

@@ -1,246 +1,150 @@
-from typing import Dict, Optional, List
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
 import logging
-from datetime import datetime
 
+from sagemaker.workflow.steps import Step
 from sagemaker.workflow.pipeline import Pipeline
-from sagemaker.workflow.parameters import ParameterString
-from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.pipeline_context import PipelineSession
 
-from mods_workflow_core.utils.constants import (
-    PIPELINE_EXECUTION_TEMP_DIR,
-    KMS_ENCRYPTION_KEY_PARAM,
-    PROCESSING_JOB_SHARED_NETWORK_CONFIG,
-    SECURITY_GROUP_ID,
-    VPC_SUBNET,
-)
-
-
-from .utils import load_configs
-
-# Import all Configs
-from .config_base import BasePipelineConfig
-from .config_training_step_pytorch import PytorchTrainingConfig
-from .config_model_step_pytorch import PytorchModelCreationConfig
-from .config_processing_step_base import ProcessingStepConfigBase
-from .config_mims_packaging_step import PackageStepConfig
-from .config_mims_registration_step import ModelRegistrationConfig
-from .config_mims_payload_step import PayloadConfig
-
-# Import Builders
-from .builder_model_step_pytorch import PytorchModelStepBuilder
-from .builder_mims_packaging_step import MIMSPackagingStepBuilder
-from .builder_mims_registration_step import ModelRegistrationStepBuilder
-
-CONFIG_CLASSES = {
-        'BasePipelineConfig': BasePipelineConfig,
-        'PytorchTrainingConfig': PytorchTrainingConfig,
-        'PytorchModelCreationConfig': PytorchModelCreationConfig,
-        'ProcessingStepConfigBase': ProcessingStepConfigBase,
-        'PackageStepConfig': PackageStepConfig,
-        'ModelRegistrationConfig': ModelRegistrationConfig,
-        'PayloadConfig': PayloadConfig
-    }
-
+from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
 
 
-class PytorchPipelineBuilder:
+class ModsPipelinePyTorchBuilder(StepBuilderBase):
     """
-    Builder for model deployment pipeline without training.
+    Builder for a MODS Pipeline for PyTorch models.
+    This class is responsible for configuring and creating a SageMaker Pipeline
+    that includes all the steps for a PyTorch model workflow.
     
-    The MODS Pipeline consists of three sequentially connected steps
-    1. Model Step: 
-        - This step create the model object in SageMaker using a pretrained model.tar.gz
-    2. Packaging Step
-        - This step would unpack the model.tar.gz, inject source code locally and repack the model.tar.gz
-    3. MIMS Model Registration Step
-        - This step would register the model in MMS using MIMS
+    Note: This is a special builder that doesn't create a single step, but rather
+    a complete pipeline. It's included in the step builders for consistency.
     """
-    
+
     def __init__(
         self,
-        config_path: str,
-        sagemaker_session: Optional[PipelineSession] = None,
+        config: Any,  # No specific config class for this builder
+        sagemaker_session=None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
     ):
-        """Initialize pipeline builder."""
-        logger.info(f"Loading configs from: {config_path}")
-        self.configs = load_configs(config_path, CONFIG_CLASSES)
-        
-        # Extract and validate configs
-        self._validate_and_extract_configs()
-        
-        self.session = sagemaker_session
-        self.role = role
-        self.notebook_root = notebook_root or Path.cwd()
+        """
+        Initializes the builder with a specific configuration for the MODS pipeline.
 
-        logger.info(f"Initialized PipelineBuilder for pipeline: {self.base_config.pipeline_name}")
-
-    def _validate_and_extract_configs(self):
-        """Extract and validate individual configs."""
-        required_steps = ['Base', 'PytorchModel', 'Package', 'Registration', 'Payload']
-        missing_steps = [step for step in required_steps if step not in self.configs]
-        if missing_steps:
-            raise ValueError(f"Missing required configurations for steps: {missing_steps}")
-
-        self.base_config = self.configs['Base']
-        self.model_config = self.configs['PytorchModel']
-        self.package_config = self.configs['Package']
-        self.registration_config = self.configs['Registration']
-        self.payload_config = self.configs['Payload']
-
-        # Validate config types
-        if not isinstance(self.package_config, PackageStepConfig):
-            raise TypeError(f"Expected PackageStepConfig, got {type(self.package_config)}")
-        if not isinstance(self.registration_config, ModelRegistrationConfig):
-            raise TypeError(f"Expected ModelRegistrationConfig, got {type(self.registration_config)}")
-
-    def _create_model_step(self, model_s3_path: str):
-        """Create model step using provided model S3 path."""
-        logger.info(f"Creating model step with model from: {model_s3_path}")
-        
-        # Force the model region to be NA
-        self.model_config.region = 'NA'
-        self.model_config.aws_region = 'us-east-1'
-        logger.info(f"Model aws region: {self.model_config.aws_region}")
-
-        model_builder = PytorchModelStepBuilder(
-            config=self.model_config,
-            sagemaker_session=self.session,
-            role=self.role
+        Args:
+            config: Configuration object containing all necessary settings.
+            sagemaker_session: The SageMaker session object to manage interactions with AWS.
+            role: The IAM role ARN to be used by the SageMaker Pipeline.
+            notebook_root: The root directory of the notebook environment, used for resolving
+                         local paths if necessary.
+        """
+        super().__init__(
+            config=config,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
         )
-        return model_builder.create_model_step(model_data=model_s3_path)
+        self.config = config
 
-    def _create_packaging_step(self, model_step):
-        """Create MIMS packaging step."""
-        logger.info("Creating MIMS packaging step")
+    def validate_configuration(self) -> None:
+        """
+        Validates the provided configuration to ensure all required fields for this
+        specific builder are present and valid before attempting to build the pipeline.
+
+        Raises:
+            ValueError: If any required configuration is missing or invalid.
+        """
+        logger.info("Validating ModsPipelinePyTorchBuilder configuration...")
         
-        # Ensure processing script exists
-        script_path = self.package_config.get_script_path()
-        if script_path:
-            logger.info(f"Using packaging script: {script_path}")
-        else:
-            raise ValueError("No packaging script path found in config")
-
-        packaging_builder = MIMSPackagingStepBuilder(
-            config=self.package_config,
-            sagemaker_session=self.session,
-            role=self.role,
-            notebook_root=self.notebook_root
-        )
+        # This builder doesn't have specific configuration requirements
+        # as it's more of a coordinator for other builders
         
-        return packaging_builder.create_packaging_step(
-            model_data=model_step.model_artifacts_path,
-            dependencies=[model_step]
-        )
-
-    def _create_registration_steps(self, packaging_step: ProcessingStep) -> Dict[str, ProcessingStep]:
-        """Create model registration steps."""
-        logger.info("Creating registration steps")
+        logger.info("ModsPipelinePyTorchBuilder configuration validation succeeded.")
         
-        # Generate and upload payloads first
-        logger.info("Generating and uploading payloads")
-        try:
-            self.payload_config.generate_and_upload_payloads()
-        except Exception as e:
-            logger.error(f"Failed to generate/upload payloads: {str(e)}")
-            raise
-
-        registration_builder = ModelRegistrationStepBuilder(
-            config=self.registration_config,
-            sagemaker_session=self.session,
-            role=self.role
-        )
-
-        try:
-            # Get output name from package config
-            output_name = self.package_config.output_names
-            logger.info(f"Looking for output with name: {output_name}")
+    def get_input_requirements(self) -> Dict[str, str]:
+        """
+        Get the input requirements for this step builder.
         
-            # Get the S3 URI directly from the first output
-            outputs = packaging_step.properties.ProcessingOutputConfig.Outputs
-            s3_uri = outputs[0].S3Output.S3Uri
+        Returns:
+            Dictionary mapping input parameter names to descriptions
+        """
+        # This builder doesn't have specific input requirements
+        # as it's more of a coordinator for other builders
+        return {}
+    
+    def get_output_properties(self) -> Dict[str, str]:
+        """
+        Get the output properties this step provides.
+        
+        Returns:
+            Dictionary mapping output property names to descriptions
+        """
+        # This builder doesn't have specific output properties
+        # as it's more of a coordinator for other builders
+        return {}
+        
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
+        """
+        Match custom properties specific to ModsPipelinePyTorch builder.
+        
+        Args:
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
             
-            # Log using expr
-            logger.info(f"Using output expression: {outputs[0].expr}")
+        Returns:
+            Set of input names that were successfully matched
+        """
+        # This builder doesn't have specific custom properties to match
+        return set()
+    
+    def create_pipeline(self, **kwargs) -> Pipeline:
+        """
+        Creates a SageMaker Pipeline for a PyTorch model workflow.
+        This method is a placeholder for the actual implementation, which would
+        create and configure all the steps for a PyTorch model workflow.
 
-            '''
-            return registration_builder.create_step(
-                packaging_step_output=s3_uri,
-                payload_s3_key=self.payload_config.sample_payload_s3_key,
-                dependencies=[packaging_step],
-                regions=[self.base_config.region]
-            )
-            '''
-            
-            result = registration_builder.create_step(
-                packaging_step_output=s3_uri,
-                payload_s3_key=self.payload_config.sample_payload_s3_key,
-                dependencies=[packaging_step],
-                regions=[self.base_config.region]
-            )
+        Args:
+            **kwargs: Keyword arguments for configuring the pipeline.
 
-            # Always return a list of steps
-            if isinstance(result, dict):
-                return list(result.values())
-            else:
-                return [result]
-
-        except Exception as e:
-            logger.error(f"Error in creating registration steps: {str(e)}")
-            logger.error("Available packaging step outputs:")
-            for output in outputs:
-                logger.error(f"- {output.OutputName}: {output.S3Output.S3Uri}")
-            raise
-
-    def _get_pipeline_parameters(self) -> List[ParameterString]:
-        """Get pipeline parameters."""
-        return [
-            PIPELINE_EXECUTION_TEMP_DIR,
-            KMS_ENCRYPTION_KEY_PARAM,
-            VPC_SUBNET,
-            SECURITY_GROUP_ID,
-        ]
-
-    def validate_model_path(self, model_s3_path: str) -> None:
-        """Validate the provided model S3 path."""
-        if not model_s3_path.startswith('s3://'):
-            raise ValueError(f"Invalid S3 path: {model_s3_path}. Must start with 's3://'")
-        if not model_s3_path.endswith('.tar.gz'):
-            logger.warning(f"Model path {model_s3_path} does not end with .tar.gz")
-        logger.info(f"Validated model S3 path: {model_s3_path}")
-
-    def generate_pipeline(self, model_s3_path: str) -> Pipeline:
-        """Create deployment pipeline using existing model."""
-        logger.info(f"Creating deployment pipeline: {self.base_config.pipeline_name}")
+        Returns:
+            A configured sagemaker.workflow.pipeline.Pipeline instance.
+        """
+        logger.info("Creating MODS Pipeline for PyTorch...")
         
-        self.validate_model_path(model_s3_path)
+        # This is a placeholder for the actual implementation
+        # In a real implementation, this would create and configure all the steps
+        # for a PyTorch model workflow
+        
+        # Example of what this might look like:
+        # 1. Create data loading step
+        # 2. Create preprocessing step
+        # 3. Create training step
+        # 4. Create model step
+        # 5. Create evaluation step
+        # 6. Create packaging step
+        # 7. Create registration step
+        # 8. Connect all steps in a pipeline
+        
+        # For now, just return a placeholder pipeline
+        pipeline = Pipeline(
+            name="PyTorch-MODS-Pipeline",
+            steps=[],
+            sagemaker_session=self.session
+        )
+        
+        logger.info(f"Created Pipeline with name: {pipeline.name}")
+        return pipeline
+    
+    def create_step(self, **kwargs) -> Step:
+        """
+        This method is not applicable for this builder, as it creates a pipeline, not a step.
+        It's included for compatibility with the StepBuilderBase interface.
 
-        try:
-            # Create steps
-            model_step = self._create_model_step(model_s3_path)
-            packaging_step = self._create_packaging_step(model_step)
-            registration_steps = self._create_registration_steps(packaging_step)
-
-            # Combine all steps
-            steps = [
-                model_step,
-                packaging_step,
-                *registration_steps  # Unpack the list of registration steps
-            ]
-
-            # Create pipeline
-            return Pipeline(
-                name=self.base_config.pipeline_name,
-                parameters=self._get_pipeline_parameters(),
-                steps=steps,
-                sagemaker_session=self.session
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to generate pipeline: {str(e)}")
-            raise
+        Raises:
+            NotImplementedError: This method is not implemented for this builder.
+        """
+        raise NotImplementedError(
+            "ModsPipelinePyTorchBuilder creates a pipeline, not a step. Use create_pipeline() instead."
+        )

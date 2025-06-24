@@ -1,14 +1,10 @@
-from typing import Optional, List, Union, Dict
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
-import os
 import logging
 
+from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.sklearn import SKLearnProcessor
-from sagemaker.workflow.steps import ProcessingStep, Step
-from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.workflow.properties import Properties
-from sagemaker.workflow.steps import CacheConfig
 
 from .config_mims_packaging_step import PackageStepConfig
 from .builder_step_base import StepBuilderBase
@@ -17,163 +13,203 @@ logger = logging.getLogger(__name__)
 
 
 class MIMSPackagingStepBuilder(StepBuilderBase):
-    """Builder for MIMS packaging processing step"""
+    """
+    Builder for a MIMS Packaging ProcessingStep.
+    This class is responsible for configuring and creating a SageMaker ProcessingStep
+    that packages a model for MIMS registration.
+    """
 
     def __init__(
-        self, 
-        config: PackageStepConfig, 
-        sagemaker_session: Optional[PipelineSession] = None,
+        self,
+        config: PackageStepConfig,
+        sagemaker_session=None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
     ):
         """
-        Initialize MIMS packaging step builder
-        
+        Initializes the builder with a specific configuration for the MIMS packaging step.
+
         Args:
-            config: PackageStepConfig instance with configuration parameters
-            sagemaker_session: SageMaker session
-            role: IAM role ARN
-            notebook_root: Root directory of notebook
+            config: A PackageStepConfig instance containing all necessary settings.
+            sagemaker_session: The SageMaker session object to manage interactions with AWS.
+            role: The IAM role ARN to be used by the SageMaker Processing Job.
+            notebook_root: The root directory of the notebook environment, used for resolving
+                         local paths if necessary.
         """
-        super().__init__(config, sagemaker_session, role, notebook_root)
+        if not isinstance(config, PackageStepConfig):
+            raise ValueError(
+                "MIMSPackagingStepBuilder requires a PackageStepConfig instance."
+            )
+        super().__init__(
+            config=config,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
+        )
+        self.config: PackageStepConfig = config
 
     def validate_configuration(self) -> None:
-        """Validate required configuration settings for MIMS packaging."""
-        logger.info(f"Running {self.__class__.__name__} specific configuration validation.")
+        """
+        Validates the provided configuration to ensure all required fields for this
+        specific step are present and valid before attempting to build the step.
+
+        Raises:
+            ValueError: If any required configuration is missing or invalid.
+        """
+        logger.info("Validating PackageStepConfig...")
         
+        # Validate required attributes
         required_attrs = [
-            'processing_entry_point',
-            'processing_instance_count', 
+            'processing_instance_type',
+            'processing_instance_count',
             'processing_volume_size',
-            'pipeline_name', 
-            'pipeline_s3_loc'
+            'processing_entry_point',
+            'processing_source_dir',
+            'model_name',
+            'model_version',
+            'model_package_group_name'
         ]
         
-        # Check for either processing_source_dir or source_dir
-        if not (hasattr(self.config, 'processing_source_dir') and self.config.processing_source_dir) and \
-           not (hasattr(self.config, 'source_dir') and self.config.source_dir):
-            raise ValueError("Either processing_source_dir or source_dir must be set.")
-
-        # Validate instance types
-        if getattr(self.config, 'use_large_processing_instance', False):
-            required_attrs.append('processing_instance_type_large')
-        else:
-            required_attrs.append('processing_instance_type_small')
-
-        # Validate required attributes
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
-                raise ValueError(f"PackageStepConfig missing required attribute for builder: {attr}")
-
-        # Validate input/output names
-        if "model_input" not in self.config.input_names or "inference_scripts_input" not in self.config.input_names:
-            raise ValueError("Required input names 'model_input' and 'inference_scripts_input' must be defined")
+                raise ValueError(f"PackageStepConfig missing required attribute: {attr}")
         
-        if "packaged_model_output" not in self.config.output_names:
-            raise ValueError("Required output name 'packaged_model_output' must be defined")
-
-        logger.info(f"{self.__class__.__name__} configuration attributes presence check passed.")
+        # Validate input and output names
+        if "model_input" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'model_input'")
+        
+        if "model_package" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'model_package'")
+        
+        logger.info("PackageStepConfig validation succeeded.")
 
     def _create_processor(self) -> SKLearnProcessor:
-        """Create SKLearn processor for MIMS packaging."""
-        instance_type = self.config.get_instance_type(
-            'large' if self.config.use_large_processing_instance else 'small'
-        )
-        logger.info(f"Using processing instance type for packaging: {instance_type}")
+        """
+        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
+        This defines the execution environment for the script, including the instance
+        type, framework version, and environment variables.
 
-        base_job_name_prefix = self._sanitize_name_for_sagemaker(self.config.pipeline_name, 30)
-
+        Returns:
+            An instance of sagemaker.sklearn.SKLearnProcessor.
+        """
         return SKLearnProcessor(
             framework_version=self.config.processing_framework_version,
             role=self.role,
-            instance_type=instance_type,
+            instance_type=self.config.processing_instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            sagemaker_session=self.session,
-            base_job_name=f"{base_job_name_prefix}-mims-pkg"
-        )
-
-    def _get_processing_inputs(
-        self, 
-        model_artifacts_input_source: Union[str, Properties]
-    ) -> List[ProcessingInput]:
-        """
-        Define processing inputs for the packaging step.
-        
-        Args:
-            model_artifacts_input_source: Source location of model artifacts
-            
-        Returns:
-            List of ProcessingInput objects
-        """
-        inference_source_dir = self.config.source_dir
-        
-        inputs = [
-            ProcessingInput(
-                source=model_artifacts_input_source,
-                destination="/opt/ml/processing/input/model",
-                input_name=self.config.input_names["model_input"]
+            base_job_name=self._sanitize_name_for_sagemaker(
+                f"{self._get_step_name('MIMSPackaging')}"
             ),
+            sagemaker_session=self.session,
+            env=self._get_environment_variables(),
+        )
+
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Constructs a dictionary of environment variables to be passed to the processing job.
+        These variables are used to control the behavior of the packaging script
+        without needing to pass them as command-line arguments.
+
+        Returns:
+            A dictionary of environment variables.
+        """
+        env_vars = {
+            "MODEL_NAME": self.config.model_name,
+            "MODEL_VERSION": self.config.model_version,
+            "MODEL_PACKAGE_GROUP_NAME": self.config.model_package_group_name,
+        }
+        
+        # Add optional environment variables if they exist
+        if hasattr(self.config, "model_description") and self.config.model_description:
+            env_vars["MODEL_DESCRIPTION"] = self.config.model_description
+            
+        if hasattr(self.config, "domain") and self.config.domain:
+            env_vars["DOMAIN"] = self.config.domain
+            
+        if hasattr(self.config, "task") and self.config.task:
+            env_vars["TASK"] = self.config.task
+            
+        if hasattr(self.config, "framework") and self.config.framework:
+            env_vars["FRAMEWORK"] = self.config.framework
+            
+        if hasattr(self.config, "framework_version") and self.config.framework_version:
+            env_vars["FRAMEWORK_VERSION"] = self.config.framework_version
+            
+        logger.info(f"Processing environment variables: {env_vars}")
+        return env_vars
+
+    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """
+        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
+        This defines the data channels for the processing job, mapping S3 locations
+        to local directories inside the container.
+
+        Args:
+            inputs: A dictionary mapping logical input channel names (e.g., 'model_input')
+                    to their S3 URIs or dynamic Step properties.
+
+        Returns:
+            A list of sagemaker.processing.ProcessingInput objects.
+        """
+        # Get the model input key from config
+        key_in = self.config.input_names["model_input"]
+        
+        # Check if inputs is empty or doesn't contain the required key
+        if not inputs:
+            raise ValueError(f"Inputs dictionary is empty. Must supply an S3 URI for '{key_in}'")
+        
+        if key_in not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{key_in}' in 'inputs'")
+
+        # Define the model input channel
+        processing_inputs = [
             ProcessingInput(
-                source=inference_source_dir,
-                destination="/opt/ml/processing/input/script",
-                input_name=self.config.input_names["inference_scripts_input"]
+                input_name=key_in,
+                source=inputs[key_in],
+                destination="/opt/ml/processing/input/model"
             )
         ]
-        #logger.info(f"Processing inputs: {[str(i.source) for i in inputs]}")
-        safe_sources = [
-            i.source.expr if hasattr(i.source, 'expr') else str(i.source) 
-            for i in inputs
-        ]
-        logger.info(f"Processing inputs: {safe_sources}")
-        return inputs
-
-    def _get_processing_outputs(self, step_name_for_s3_path: str) -> List[ProcessingOutput]:
-        """
-        Define processing outputs for the packaging step.
         
-        Args:
-            step_name_for_s3_path: Step name for constructing S3 path
-            
-        Returns:
-            List of ProcessingOutput objects
-        """
-        output_s3_destination = os.path.join(
-            str(self.config.pipeline_s3_loc).rstrip('/'),
-            step_name_for_s3_path,
-            "packaged_model_artifacts"
-        )
+        return processing_inputs
 
-        outputs = [
+    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+        """
+        Constructs the ProcessingOutput objects needed for this step.
+        This defines the S3 location where the results of the processing job will be stored.
+
+        Args:
+            outputs: A dictionary mapping the logical output channel name ('model_package')
+                     to its S3 destination URI.
+
+        Returns:
+            A list containing sagemaker.processing.ProcessingOutput objects.
+        """
+        key_out = self.config.output_names["model_package"]
+        if not outputs or key_out not in outputs:
+            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        
+        # Define the output for the model package
+        processing_outputs = [
             ProcessingOutput(
-                output_name=self.config.output_names["packaged_model_output"],
+                output_name=key_out,
                 source="/opt/ml/processing/output",
-                destination=output_s3_destination
+                destination=outputs[key_out]
             )
         ]
-        logger.info(f"Processing outputs defined: {outputs}")
-        return outputs
-
-    def _get_cache_config(self, enable_caching: bool = True) -> Optional[CacheConfig]:
-        """
-        Get cache configuration for the step.
         
-        Args:
-            enable_caching: Whether to enable caching
-            
+        return processing_outputs
+
+    def _get_job_arguments(self) -> List[str]:
+        """
+        Constructs the list of command-line arguments to be passed to the processing script.
+        This allows for parameterizing the script's execution at runtime.
+
         Returns:
-            CacheConfig object or None
+            A list of strings representing the command-line arguments.
         """
-        if not enable_caching:
-            return None
+        return []  # No command-line arguments needed, using environment variables instead
         
-        expire_after = "30d"  # Cache expires after 30 days
-
-        return CacheConfig(
-            enable_caching=enable_caching,
-            expire_after=expire_after
-        )
-
     def get_input_requirements(self) -> Dict[str, str]:
         """
         Get the input requirements for this step builder.
@@ -181,10 +217,12 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
+        # Get input requirements from config's input_names
         input_reqs = {
-            "model_artifacts_input_source": "Source location of model artifacts (S3 path or Properties object)"
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
+            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
+            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
-        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -194,116 +232,89 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {k: v for k, v in self.config.output_names.items()}
-    
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
-        """
-        Extract inputs from dependency steps.
+        # Get output properties from config's output_names
+        return {k: v for k, v in (self.config.output_names or {}).items()}
         
-        This method extracts the inputs required by the MIMSPackagingStep from the dependency steps.
-        Specifically, it looks for:
-        1. model_artifacts_input_source from a ModelStep or TrainingStep
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
+        """
+        Match custom properties specific to MIMSPackaging step.
         
         Args:
-            dependency_steps: List of dependency steps
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
             
         Returns:
-            Dictionary of inputs extracted from dependency steps
+            Set of input names that were successfully matched
         """
-        inputs = {}
+        matched_inputs = set()
         
-        # Look for model_artifacts_input_source from a ModelStep or TrainingStep
-        for prev_step in dependency_steps:
-            # Check for model step output
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
-                try:
-                    inputs["model_artifacts_input_source"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                    logger.info(f"Found model_artifacts_input_source from ModelStep or TrainingStep: {prev_step.name}")
-                    break
-                except AttributeError as e:
-                    logger.warning(f"Could not extract model artifacts from step: {e}")
-            
-            # Check for model_artifacts_path attribute (used by some model steps)
-            elif hasattr(prev_step, "model_artifacts_path"):
-                inputs["model_artifacts_input_source"] = prev_step.model_artifacts_path
-                logger.info(f"Found model_artifacts_input_source from step's model_artifacts_path: {prev_step.name}")
-                break
-        
-        # Add enable_caching
-        inputs["enable_caching"] = getattr(self.config, 'enable_caching_package_step', True)
-        
-        return inputs
+        # Look for model artifacts from a TrainingStep
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+            try:
+                model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                if "inputs" not in inputs:
+                    inputs["inputs"] = {}
+                
+                # Get the model input key from config
+                key_in = self.config.input_names.get("model_input")
+                if key_in and key_in not in inputs.get("inputs", {}):
+                    inputs["inputs"][key_in] = model_artifacts
+                    matched_inputs.add("inputs")
+                    logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
+            except AttributeError as e:
+                logger.warning(f"Could not extract model artifacts from step: {e}")
+                
+        return matched_inputs
     
     def create_step(self, **kwargs) -> ProcessingStep:
         """
-        Creates a ProcessingStep for MIMS model packaging.
-        
+        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
+        This method orchestrates the assembly of the processor, inputs, outputs, and
+        script arguments into a single, executable pipeline step.
+
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - model_artifacts_input_source: Source location of model artifacts
-                - dependencies: Optional list of step dependencies
-                - enable_caching: Whether to enable caching for this step (default: True)
-            
-        Returns:
-            ProcessingStep object
-        """
-        # Extract parameters
-        model_artifacts_input_source = self._extract_param(kwargs, 'model_artifacts_input_source')
-        dependencies = self._extract_param(kwargs, 'dependencies')
-        enable_caching = self._extract_param(kwargs, 'enable_caching', 
-                                            getattr(self.config, 'enable_caching_package_step', True))
-        
-        step_name = self._get_step_name('Package')
+                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                - outputs: A dictionary mapping output channel names to their S3 destinations.
+                - dependencies: Optional list of steps that this step depends on.
+                - enable_caching: A boolean indicating whether to cache the results of this step
+                                to speed up subsequent pipeline runs with the same inputs.
 
-        effective_source_dir = self.config.get_effective_source_dir()
+        Returns:
+            A configured sagemaker.workflow.steps.ProcessingStep instance.
+        """
+        logger.info("Creating MIMSPackaging ProcessingStep...")
+
+        # Extract parameters
+        inputs = self._extract_param(kwargs, 'inputs')
+        outputs = self._extract_param(kwargs, 'outputs')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        if str(effective_source_dir).startswith('s3://'):
-            main_processing_script_uri = f"{effective_source_dir.rstrip('/')}/{self.config.processing_entry_point}"
-            logger.warning(
-                f"SKLearnProcessor 'code' argument is an S3 URI: {main_processing_script_uri}. "
-                f"Ensure processor supports this for non-tar.gz S3 scripts or it's a tar.gz."
-            )
-        else:
-            main_processing_script_uri = str(Path(effective_source_dir) / self.config.processing_entry_point)
-        
-        logger.info(f"Defining {step_name} with main script: {main_processing_script_uri}")
+        # Validate required parameters
+        if not inputs:
+            raise ValueError("inputs must be provided")
+        if not outputs:
+            raise ValueError("outputs must be provided")
 
         processor = self._create_processor()
-        processing_inputs = self._get_processing_inputs(model_artifacts_input_source)
-        processing_outputs = self._get_processing_outputs(step_name)
-        job_arguments = self.config.processing_script_arguments
-        cache_config = self._get_cache_config(
-            getattr(self.config, 'enable_caching_package_step', True)
-        )
+        proc_inputs = self._get_processor_inputs(inputs)
+        proc_outputs = self._get_processor_outputs(outputs)
+        job_args = self._get_job_arguments()
 
-        return ProcessingStep(
+        step_name = self._get_step_name('MIMSPackaging')
+        
+        processing_step = ProcessingStep(
             name=step_name,
             processor=processor,
-            inputs=processing_inputs,
-            outputs=processing_outputs,
-            code=main_processing_script_uri,
-            job_arguments=job_arguments,
+            inputs=proc_inputs,
+            outputs=proc_outputs,
+            code=self.config.get_script_path(),
+            job_arguments=job_args,
             depends_on=dependencies or [],
-            cache_config=cache_config
+            cache_config=self._get_cache_config(enable_caching)
         )
-
-    def create_packaging_step(self, **kwargs) -> ProcessingStep:
-        """
-        Backwards compatible method for creating packaging step.
-        
-        Args:
-            **kwargs: Keyword arguments for configuring the step, including:
-                - model_data: Location of model data (alias for model_artifacts_input_source)
-                - dependencies: Optional list of step dependencies
-                - enable_caching: Whether to enable caching for this step (default: True)
-            
-        Returns:
-            ProcessingStep object
-        """
-        logger.warning("create_packaging_step is deprecated, use create_step instead.")
-        
-        # Handle model_data parameter (alias for model_artifacts_input_source)
-        if 'model_data' in kwargs and 'model_artifacts_input_source' not in kwargs:
-            kwargs['model_artifacts_input_source'] = kwargs.pop('model_data')
-            
-        return self.create_step(**kwargs)
+        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
+        return processing_step

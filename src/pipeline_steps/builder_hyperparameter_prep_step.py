@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
 import logging
 import json
@@ -8,6 +8,7 @@ import os
 
 from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput, LambdaOutputTypeEnum
 from sagemaker.lambda_helper import Lambda
+from sagemaker.workflow.steps import Step
 
 from .config_hyperparameter_prep_step import HyperparameterPrepConfig
 from .builder_step_base import StepBuilderBase
@@ -94,21 +95,23 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         output_props["hyperparameters_s3_uri"] = "S3 URI of the hyperparameters.json file"
         return output_props
         
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
         """
-        Extract inputs from dependency steps.
-        
-        The HyperparameterPrepStep doesn't require any inputs from dependency steps,
-        as it gets its hyperparameters from its config.
+        Match custom properties specific to HyperparameterPrep step.
         
         Args:
-            dependency_steps: List of dependency steps
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
             
         Returns:
-            Dictionary of inputs extracted from dependency steps
+            Set of input names that were successfully matched
         """
-        # This step doesn't require any inputs from dependency steps
-        return {"enable_caching": True}
+        matched_inputs = set()
+        
+        # No custom properties to match for this step
+        return matched_inputs
 
     def create_step(self, **kwargs) -> LambdaStep:
         """

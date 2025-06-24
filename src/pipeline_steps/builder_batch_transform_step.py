@@ -22,13 +22,14 @@ class BatchTransformStepBuilder(StepBuilderBase):
         self,
         config: BatchTransformStepConfig,
         sagemaker_session: Optional[PipelineSession] = None,
-        role: Optional[str] = None
+        role: Optional[str] = None,
+        notebook_root: Optional[Path] = None
     ):
         if not isinstance(config, BatchTransformStepConfig):
             raise ValueError(
                 "BatchTransformStepBuilder requires a BatchTransformStepConfig instance."
             )
-        super().__init__(config=config, sagemaker_session=sagemaker_session, role=role)
+        super().__init__(config=config, sagemaker_session=sagemaker_session, role=role, notebook_root=notebook_root)
         self.config: BatchTransformStepConfig = config
 
     def validate_configuration(self) -> None:
@@ -66,6 +67,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
         input_reqs = super().get_input_requirements()
         input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
         input_reqs["model_name"] = "Name of the SageMaker model to use for batch transform"
+        input_reqs["enable_caching"] = self.COMMON_PROPERTIES["enable_caching"]
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -114,26 +116,6 @@ class BatchTransformStepBuilder(StepBuilderBase):
                 logger.warning(f"Could not extract model_name from step: {e}")
                 
         return matched_inputs
-        
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
-        """
-        Extract inputs from dependency steps.
-        
-        This method uses the base class implementation and adds enable_caching.
-        
-        Args:
-            dependency_steps: List of dependency steps
-            
-        Returns:
-            Dictionary of inputs extracted from dependency steps
-        """
-        # Use the base class implementation to extract inputs
-        inputs = super().extract_inputs_from_dependencies(dependency_steps)
-        
-        # Add enable_caching
-        inputs["enable_caching"] = True
-        
-        return inputs
     
     def create_step(self, **kwargs) -> TransformStep:
         """
@@ -148,11 +130,10 @@ class BatchTransformStepBuilder(StepBuilderBase):
         Returns:
             TransformStep: configured batch transform step.
         """
-        self.validate_configuration()
-        
         # Extract parameters
         model_name = self._extract_param(kwargs, 'model_name')
         dependencies = self._extract_param(kwargs, 'dependencies')
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
         # Validate required parameters
         if not model_name:
@@ -179,6 +160,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
             transformer=transformer,
             inputs=transform_input,
             depends_on=dependencies or [],
+            cache_config=self._get_cache_config(enable_caching) if enable_caching else None
         )
 
         logger.info(f"Created TransformStep with name: {step_name}")

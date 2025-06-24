@@ -1,54 +1,10 @@
-from typing import Dict, Optional, List, Union, Any, Set
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
-import os
-import importlib
 import logging
-from dotenv import load_dotenv # For loading .env file
 
-from sagemaker.processing import ProcessingInput
 from sagemaker.workflow.steps import ProcessingStep, Step
-from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.workflow.properties import Properties
-
-# Load environment variables from .env file
-# Ensure load_dotenv() is called early in your application's entry point.
-# If .env is in a specific location relative to the script, you might use:
-# from pathlib import Path
-# dotenv_path = Path(__file__).resolve().parent / '.env' # Assuming .env is in the same dir as script
-# load_dotenv(dotenv_path=dotenv_path)
-# Or, if .env is in the project root and scripts are in subdirectories:
-# dotenv_path = Path(__file__).resolve().parent.parent / '.env' # Go up one level for project root
-# load_dotenv(dotenv_path=dotenv_path)
-# For SageMaker, environment variables are typically set directly in the job configuration.
-load_dotenv()
-
-logger = logging.getLogger(__name__)
-
-# Helper function for dynamic imports
-def import_from_env(env_var_name_for_module: str, class_or_object_name: str):
-    module_path = os.environ.get(env_var_name_for_module)
-    if not module_path:
-        logger.error(f"Environment variable '{env_var_name_for_module}' not set. Cannot import '{class_or_object_name}'.")
-        return None
-    try:
-        module = importlib.import_module(module_path)
-        return getattr(module, class_or_object_name)
-    except ImportError:
-        logger.error(f"Could not import module '{module_path}' for '{class_or_object_name}'.")
-        return None
-    except AttributeError:
-        logger.error(f"'{class_or_object_name}' not found in module '{module_path}'.")
-        return None
-    
-
-MimsModelRegistrationProcessingStep = import_from_env(
-    "SECUREAI_MIMS_REGISTRATION_STEP_MODULE",
-    "MimsModelRegistrationProcessingStep"
-)
-if MimsModelRegistrationProcessingStep:
-    logger.info("MimsModelRegistrationProcessingStep class is available.")
-else:
-    logger.warning("MimsModelRegistrationProcessingStep class is not available.")
+from sagemaker.processing import ProcessingInput, ProcessingOutput
+from sagemaker.sklearn import SKLearnProcessor
 
 from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
@@ -57,97 +13,215 @@ logger = logging.getLogger(__name__)
 
 
 class ModelRegistrationStepBuilder(StepBuilderBase):
-    """Builder for model registration steps"""
+    """
+    Builder for a Model Registration ProcessingStep.
+    This class is responsible for configuring and creating a SageMaker ProcessingStep
+    that registers a model with MIMS.
+    """
 
     def __init__(
         self,
         config: ModelRegistrationConfig,
-        sagemaker_session: Optional[PipelineSession] = None,
+        sagemaker_session=None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
     ):
-        super().__init__(config, sagemaker_session, role, notebook_root)
+        """
+        Initializes the builder with a specific configuration for the model registration step.
+
+        Args:
+            config: A ModelRegistrationConfig instance containing all necessary settings.
+            sagemaker_session: The SageMaker session object to manage interactions with AWS.
+            role: The IAM role ARN to be used by the SageMaker Processing Job.
+            notebook_root: The root directory of the notebook environment, used for resolving
+                         local paths if necessary.
+        """
+        if not isinstance(config, ModelRegistrationConfig):
+            raise ValueError(
+                "ModelRegistrationStepBuilder requires a ModelRegistrationConfig instance."
+            )
+        super().__init__(
+            config=config,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
+        )
         self.config: ModelRegistrationConfig = config
 
     def validate_configuration(self) -> None:
-        """Validate required configuration settings"""
-        logger.info("Validating model registration configuration...")
+        """
+        Validates the provided configuration to ensure all required fields for this
+        specific step are present and valid before attempting to build the step.
 
+        Raises:
+            ValueError: If any required configuration is missing or invalid.
+        """
+        logger.info("Validating ModelRegistrationConfig...")
+        
         # Validate required attributes
         required_attrs = [
-            'model_owner',
-            'model_registration_domain',
-            'model_registration_objective',
-            'source_model_inference_content_types',
-            'source_model_inference_response_types'
+            'processing_instance_type',
+            'processing_instance_count',
+            'processing_volume_size',
+            'processing_entry_point',
+            'processing_source_dir',
+            'region',
+            'model_name',
+            'model_version'
         ]
-
+        
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
-
-        # Validate variable lists
-        if not self.config.source_model_inference_output_variable_list:
-            raise ValueError("At least one output variable must be defined")
-
-        if not self.config.source_model_inference_input_variable_list:
-            logger.warning("No input variables defined for model registration")
-
-        # Validate content types
-        valid_content_types = ["text/csv", "application/json"]
-        for content_type in self.config.source_model_inference_content_types:
-            if content_type not in valid_content_types:
-                raise ValueError(f"Invalid content type: {content_type}. Must be one of {valid_content_types}")
-
-        for response_type in self.config.source_model_inference_response_types:
-            if response_type not in valid_content_types:
-                raise ValueError(f"Invalid response type: {response_type}. Must be one of {valid_content_types}")
-
-        logger.info(
-            f"Validated registration configuration for region {self.config.region}\n"
-            f"Domain: {self.config.model_registration_domain}\n"
-            f"Objective: {self.config.model_registration_objective}\n"
-            f"Input variables: {len(self.config.source_model_inference_input_variable_list)}\n"
-            f"Output variables: {len(self.config.source_model_inference_output_variable_list)}"
-        )
-
-    def _get_processing_inputs(
-        self, 
-        packaging_step_output: Union[str, Properties],
-        payload_s3_key: Optional[str] = None
-    ) -> List[ProcessingInput]:
-        """Get processing inputs for registration step."""
-        model_input = ProcessingInput(
-            source=packaging_step_output,
-            destination="/opt/ml/processing/input/model",
-            s3_data_distribution_type="FullyReplicated",
-            s3_input_mode="File"
-        )
         
-        inputs = [model_input]
+        # Validate input and output names
+        if "model_package_input" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'model_package_input'")
+        
+        if "payload_input" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'payload_input'")
+        
+        if "registration_output" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'registration_output'")
+        
+        logger.info("ModelRegistrationConfig validation succeeded.")
 
-        if payload_s3_key:
-            payload_url = f"s3://{self.config.bucket}/{payload_s3_key}"
-            inputs.append(
-                ProcessingInput(
-                    source=payload_url,
-                    destination="/opt/ml/processing/mims_payload",
-                    s3_data_distribution_type="FullyReplicated",
-                    s3_input_mode="File"
-                )
+    def _create_processor(self) -> SKLearnProcessor:
+        """
+        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
+        This defines the execution environment for the script, including the instance
+        type, framework version, and environment variables.
+
+        Returns:
+            An instance of sagemaker.sklearn.SKLearnProcessor.
+        """
+        return SKLearnProcessor(
+            framework_version=self.config.processing_framework_version,
+            role=self.role,
+            instance_type=self.config.processing_instance_type,
+            instance_count=self.config.processing_instance_count,
+            volume_size_in_gb=self.config.processing_volume_size,
+            base_job_name=self._sanitize_name_for_sagemaker(
+                f"{self._get_step_name('ModelRegistration')}-{self.config.region}"
+            ),
+            sagemaker_session=self.session,
+            env=self._get_environment_variables(),
+        )
+
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Constructs a dictionary of environment variables to be passed to the processing job.
+        These variables are used to control the behavior of the registration script
+        without needing to pass them as command-line arguments.
+
+        Returns:
+            A dictionary of environment variables.
+        """
+        env_vars = {
+            "MODEL_NAME": self.config.model_name,
+            "MODEL_VERSION": self.config.model_version,
+            "REGION": self.config.region,
+        }
+        
+        # Add optional environment variables if they exist
+        if hasattr(self.config, "model_description") and self.config.model_description:
+            env_vars["MODEL_DESCRIPTION"] = self.config.model_description
+            
+        if hasattr(self.config, "domain") and self.config.domain:
+            env_vars["DOMAIN"] = self.config.domain
+            
+        if hasattr(self.config, "task") and self.config.task:
+            env_vars["TASK"] = self.config.task
+            
+        if hasattr(self.config, "framework") and self.config.framework:
+            env_vars["FRAMEWORK"] = self.config.framework
+            
+        if hasattr(self.config, "framework_version") and self.config.framework_version:
+            env_vars["FRAMEWORK_VERSION"] = self.config.framework_version
+            
+        logger.info(f"Processing environment variables: {env_vars}")
+        return env_vars
+
+    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """
+        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
+        This defines the data channels for the processing job, mapping S3 locations
+        to local directories inside the container.
+
+        Args:
+            inputs: A dictionary mapping logical input channel names (e.g., 'model_package_input', 'payload_input')
+                    to their S3 URIs or dynamic Step properties.
+
+        Returns:
+            A list of sagemaker.processing.ProcessingInput objects.
+        """
+        # Get the input keys from config
+        model_package_key = self.config.input_names["model_package_input"]
+        payload_key = self.config.input_names["payload_input"]
+        
+        # Check if inputs is empty or doesn't contain the required keys
+        if not inputs:
+            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_package_key}' and '{payload_key}'")
+        
+        if model_package_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{model_package_key}' in 'inputs'")
+        
+        if payload_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{payload_key}' in 'inputs'")
+
+        # Define the input channels
+        processing_inputs = [
+            ProcessingInput(
+                input_name=model_package_key,
+                source=inputs[model_package_key],
+                destination="/opt/ml/processing/input/model_package"
+            ),
+            ProcessingInput(
+                input_name=payload_key,
+                source=inputs[payload_key],
+                destination="/opt/ml/processing/input/payload"
             )
+        ]
+        
+        return processing_inputs
 
-        return inputs
+    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+        """
+        Constructs the ProcessingOutput objects needed for this step.
+        This defines the S3 location where the results of the processing job will be stored.
 
-    def _validate_regions(self, regions: List[str]) -> None:
-        """Validate region codes"""
-        invalid_regions = [r for r in regions if r not in self.config.REGION_MAPPING]
-        if invalid_regions:
-            raise ValueError(
-                f"Invalid region(s): {invalid_regions}. "
-                f"Must be one of: {', '.join(self.config.REGION_MAPPING.keys())}"
+        Args:
+            outputs: A dictionary mapping the logical output channel name ('registration_output')
+                     to its S3 destination URI.
+
+        Returns:
+            A list containing sagemaker.processing.ProcessingOutput objects.
+        """
+        key_out = self.config.output_names["registration_output"]
+        if not outputs or key_out not in outputs:
+            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        
+        # Define the output for the registration
+        processing_outputs = [
+            ProcessingOutput(
+                output_name=key_out,
+                source="/opt/ml/processing/output",
+                destination=outputs[key_out]
             )
+        ]
+        
+        return processing_outputs
 
+    def _get_job_arguments(self) -> List[str]:
+        """
+        Constructs the list of command-line arguments to be passed to the processing script.
+        This allows for parameterizing the script's execution at runtime.
+
+        Returns:
+            A list of strings representing the command-line arguments.
+        """
+        return []  # No command-line arguments needed, using environment variables instead
+        
     def get_input_requirements(self) -> Dict[str, str]:
         """
         Get the input requirements for this step builder.
@@ -155,10 +229,12 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        # Get base input requirements and add additional ones
-        input_reqs = super().get_input_requirements()
-        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
-        input_reqs["regions"] = "Optional list of regions for registration"
+        # Get input requirements from config's input_names
+        input_reqs = {
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
+            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
+            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
+        }
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -168,24 +244,13 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Define the output properties for model registration
-        output_props = {
-            "model_package_arn": "ARN of the registered model package",
-            "model_name": "Name of the registered model"
-        }
-        # Add any output names from config if they exist
-        if hasattr(self.config, "output_names"):
-            output_props.update({k: v for k, v in self.config.output_names.items()})
-        return output_props
+        # Get output properties from config's output_names
+        return {k: v for k, v in (self.config.output_names or {}).items()}
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
         """
-        Match custom properties specific to MIMS registration step.
-        
-        This method looks for:
-        1. packaging_step_output from a PackagingStep
-        2. payload_s3_key from a PayloadStep
+        Match custom properties specific to ModelRegistration step.
         
         Args:
             inputs: Dictionary to add matched inputs to
@@ -197,142 +262,95 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         
-        # Look for packaging_step_output from a PackagingStep
-        if (hasattr(prev_step, "properties") and 
-            hasattr(prev_step.properties, "ProcessingOutputConfig") and
-            hasattr(prev_step.properties.ProcessingOutputConfig, "Outputs") and
-            hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__")):
-            
+        # Look for model package output from a MIMSPackagingStep
+        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Try string keys (dict-like)
-                if "packaged_model_output" in prev_step.properties.ProcessingOutputConfig.Outputs:
-                    output = prev_step.properties.ProcessingOutputConfig.Outputs["packaged_model_output"]
-                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                        s3_uri = output.S3Output.S3Uri
-                        if "packaging_step_output" in input_requirements:
-                            inputs["packaging_step_output"] = s3_uri
-                            matched_inputs.add("packaging_step_output")
-                            logger.info(f"Found packaging_step_output from PackagingStep: {getattr(prev_step, 'name', str(prev_step))}")
-            except (AttributeError, IndexError, KeyError) as e:
-                logger.warning(f"Could not extract packaged model output from step: {e}")
-        
-        # Look for payload_s3_key from a PayloadStep
-        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "payload_s3_key"):
-            try:
-                payload_s3_key = prev_step.properties.payload_s3_key
-                if "payload_s3_key" in input_requirements:
-                    inputs["payload_s3_key"] = payload_s3_key
-                    matched_inputs.add("payload_s3_key")
-                    logger.info(f"Found payload_s3_key from PayloadStep: {getattr(prev_step, 'name', str(prev_step))}")
+                # Check if the step has an output that matches our model_package_input
+                model_package_key = self.config.input_names.get("model_package_input")
+                if model_package_key:
+                    # Look for an output with a name that contains 'model_package'
+                    for output in prev_step.outputs:
+                        if hasattr(output, "output_name") and "model_package" in output.output_name.lower():
+                            if "inputs" not in inputs:
+                                inputs["inputs"] = {}
+                            
+                            if model_package_key not in inputs.get("inputs", {}):
+                                inputs["inputs"][model_package_key] = output.destination
+                                matched_inputs.add("inputs")
+                                logger.info(f"Found model package from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                break
             except AttributeError as e:
-                logger.warning(f"Could not extract payload_s3_key from step: {e}")
+                logger.warning(f"Could not extract model package from step: {e}")
+                
+        # Look for payload output from a MIMSPayloadStep
+        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+            try:
+                # Check if the step has an output that matches our payload_input
+                payload_key = self.config.input_names.get("payload_input")
+                if payload_key:
+                    # Look for an output with a name that contains 'payload'
+                    for output in prev_step.outputs:
+                        if hasattr(output, "output_name") and "payload" in output.output_name.lower():
+                            if "inputs" not in inputs:
+                                inputs["inputs"] = {}
+                            
+                            if payload_key not in inputs.get("inputs", {}):
+                                inputs["inputs"][payload_key] = output.destination
+                                matched_inputs.add("inputs")
+                                logger.info(f"Found payload from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                break
+            except AttributeError as e:
+                logger.warning(f"Could not extract payload from step: {e}")
                 
         return matched_inputs
-        
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
-        """
-        Extract inputs from dependency steps.
-        
-        This method uses the base class implementation and adds enable_caching.
-        
-        Args:
-            dependency_steps: List of dependency steps
-            
-        Returns:
-            Dictionary of inputs extracted from dependency steps
-        """
-        # Use the base class implementation to extract inputs
-        inputs = super().extract_inputs_from_dependencies(dependency_steps)
-        
-        # Add enable_caching
-        inputs["enable_caching"] = True
-        
-        return inputs
     
-    def create_step(self, **kwargs) -> Union[Step, Dict[str, Step]]:
+    def create_step(self, **kwargs) -> ProcessingStep:
         """
-        Create registration steps for specified regions.
-        
+        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
+        This method orchestrates the assembly of the processor, inputs, outputs, and
+        script arguments into a single, executable pipeline step.
+
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - packaging_step_output: Output from the packaging step (required)
-                - dependencies: Optional list of steps this step depends on
-                - payload_s3_key: Optional S3 key for the payload
-                - regions: Optional list of regions for registration
-                - enable_caching: Whether to enable caching for this step (default: True)
-        
+                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                - outputs: A dictionary mapping output channel names to their S3 destinations.
+                - dependencies: Optional list of steps that this step depends on.
+                - enable_caching: A boolean indicating whether to cache the results of this step
+                                to speed up subsequent pipeline runs with the same inputs.
+
         Returns:
-            A single registration step or a dictionary of registration steps by region
+            A configured sagemaker.workflow.steps.ProcessingStep instance.
         """
+        logger.info("Creating ModelRegistration ProcessingStep...")
+
         # Extract parameters
-        packaging_step_output = self._extract_param(kwargs, 'packaging_step_output')
+        inputs = self._extract_param(kwargs, 'inputs')
+        outputs = self._extract_param(kwargs, 'outputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
-        payload_s3_key = self._extract_param(kwargs, 'payload_s3_key')
-        regions = self._extract_param(kwargs, 'regions', [self.config.region])
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
         # Validate required parameters
-        if not packaging_step_output:
-            raise ValueError("packaging_step_output must be provided")
-            
-        self._validate_regions(regions)
+        if not inputs:
+            raise ValueError("inputs must be provided")
+        if not outputs:
+            raise ValueError("outputs must be provided")
 
-        if isinstance(packaging_step_output, Properties):
-            logger.info("Creating registration steps with packaging output from Properties")
-        else:
-            logger.info(f"Creating registration steps with packaging output path: {packaging_step_output}")
+        processor = self._create_processor()
+        proc_inputs = self._get_processor_inputs(inputs)
+        proc_outputs = self._get_processor_outputs(outputs)
+        job_args = self._get_job_arguments()
 
-        registration_steps = {}
-        for region in regions:
-            step_name = f"Registration_{region}"
-            logger.info(f"Creating registration step for region {region}")
-            
-            try:
-                registration_inputs = self._get_processing_inputs(
-                    packaging_step_output,
-                    payload_s3_key
-                )
-
-                step = MimsModelRegistrationProcessingStep(
-                    step_name=step_name,
-                    role=self.role,
-                    sagemaker_session=self.session,
-                    processing_input=registration_inputs,
-                    depends_on=dependencies or [],
-                )
-                
-                # Add output properties for downstream steps
-                if hasattr(step, 'properties'):
-                    # These are placeholder properties that might be available in the actual implementation
-                    # The actual implementation would need to expose these properties
-                    pass
-                
-                registration_steps[region] = step
-                logger.info(f"Created registration step for {region}")
-            except Exception as e:
-                logger.error(f"Failed to create registration step for {region}: {str(e)}")
-                raise
-
-        # If only one region, return the step directly
-        if len(regions) == 1:
-            return registration_steps[regions[0]]
-        return registration_steps
-    
-    # Maintain backwards compatibility
-    def create_registration_steps(
-        self,
-        packaging_step_output: str,
-        dependencies: Optional[List[Step]] = None,
-        payload_s3_key: Optional[str] = None,
-        regions: Optional[List[str]] = None
-    ) -> Dict[str, ProcessingStep]:
-        """Backwards compatible method for creating registration steps"""
-        result = self.create_step(
-            packaging_step_output=packaging_step_output,
-            dependencies=dependencies,
-            payload_s3_key=payload_s3_key,
-            regions=regions
+        step_name = f"{self._get_step_name('ModelRegistration')}-{self.config.region}"
+        
+        processing_step = ProcessingStep(
+            name=step_name,
+            processor=processor,
+            inputs=proc_inputs,
+            outputs=proc_outputs,
+            code=self.config.get_script_path(),
+            job_arguments=job_args,
+            depends_on=dependencies or [],
+            cache_config=self._get_cache_config(enable_caching)
         )
-        # Ensure we always return a dictionary for backwards compatibility
-        if isinstance(result, dict):
-            return result
-        return {self.config.region: result}
+        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
+        return processing_step

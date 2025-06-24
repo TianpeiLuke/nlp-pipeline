@@ -131,15 +131,24 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             raise ValueError("Expected at least two TabularPreprocessingConfig instances")
             
         for cfg in tp_configs:
-            # Ensure input_names is available
-            if not hasattr(cfg, 'input_names'):
-                cfg.input_names = cfg.get_input_names() if hasattr(cfg, 'get_input_names') else {}
-                
-            missing = self.REQUIRED_INPUTS - set(cfg.input_names.keys())
+            # Create a temporary builder to validate the configuration
+            temp_builder = TabularPreprocessingStepBuilder(
+                config=cfg,
+                sagemaker_session=self.session,
+                role=self.role,
+                notebook_root=self.notebook_root
+            )
+            
+            # Get input requirements from the builder
+            input_reqs = temp_builder.get_input_requirements()
+            
+            # Check for required inputs
+            missing = self.REQUIRED_INPUTS - set(input_reqs.keys())
             if missing:
                 raise ValueError(f"TabularPreprocessing config missing required input channels: {missing}")
             
-            unknown = set(cfg.input_names.keys()) - allowed_inputs
+            # Check for unknown inputs
+            unknown = set(input_reqs.keys()) - allowed_inputs - {"outputs", "enable_caching", "dependencies"}
             if unknown:
                 raise ValueError(f"TabularPreprocessing config contains unknown input channels: {unknown}")
 
@@ -183,13 +192,6 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         config_map["train_data_load"] = cradle_configs.get('training')
         config_map["train_preprocess"] = tp_configs.get('training')
         
-        # Ensure configs have input_names and output_names attributes
-        for step_name, cfg in config_map.items():
-            if cfg and not hasattr(cfg, 'input_names'):
-                cfg.input_names = cfg.get_input_names() if hasattr(cfg, 'get_input_names') else {}
-            if cfg and not hasattr(cfg, 'output_names'):
-                cfg.output_names = cfg.get_output_names() if hasattr(cfg, 'get_output_names') else {}
-        
         # Find single instance configs
         for cfg_type, step_name in [
             (HyperparameterPrepConfig, "hyperparameter_prep"),
@@ -202,17 +204,6 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             instances = [cfg for _, cfg in self.configs.items() if isinstance(cfg, cfg_type)]
             if instances:
                 config_map[step_name] = instances[0]
-                # Ensure input_names and output_names attributes
-                if not hasattr(config_map[step_name], 'input_names'):
-                    config_map[step_name].input_names = (
-                        config_map[step_name].get_input_names() 
-                        if hasattr(config_map[step_name], 'get_input_names') else {}
-                    )
-                if not hasattr(config_map[step_name], 'output_names'):
-                    config_map[step_name].output_names = (
-                        config_map[step_name].get_output_names() 
-                        if hasattr(config_map[step_name], 'get_output_names') else {}
-                    )
         
         # Add calibration flow steps
         config_map["calib_data_load"] = cradle_configs.get('calibration')

@@ -1,117 +1,138 @@
-from typing import Dict, Optional, List
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
-
-from sagemaker.pytorch import PyTorchModel
-from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.workflow.model_step import ModelStep
-from sagemaker.workflow.parameters import Parameter
-from sagemaker.workflow.steps import Step
-from sagemaker import image_uris
 import logging
 
-from .config_model_step_pytorch import PytorchModelCreationConfig
+from sagemaker.workflow.steps import ModelStep, Step
+from sagemaker.pytorch import PyTorchModel
+from sagemaker.model import Model
+
+from .config_model_step_pytorch import ModelStepPyTorchConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
 
 
-class PytorchModelStepBuilder(StepBuilderBase):
-    """Model step builder for PyTorch models"""
+class PyTorchModelStepBuilder(StepBuilderBase):
+    """
+    Builder for a PyTorch Model Step.
+    This class is responsible for configuring and creating a SageMaker ModelStep
+    that creates a PyTorch model from a trained model artifact.
+    """
 
     def __init__(
-        self, 
-        config: PytorchModelCreationConfig, 
-        sagemaker_session: Optional[PipelineSession] = None,
+        self,
+        config: ModelStepPyTorchConfig,
+        sagemaker_session=None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
     ):
         """
-        Initialize PyTorch model builder
-        
+        Initializes the builder with a specific configuration for the model step.
+
         Args:
-            config: Pydantic ModelConfig instance with hyperparameters
-            sagemaker_session: SageMaker session
-            role: IAM role ARN
-            notebook_root: Root directory of notebook
+            config: A ModelStepPyTorchConfig instance containing all necessary settings.
+            sagemaker_session: The SageMaker session object to manage interactions with AWS.
+            role: The IAM role ARN to be used by the SageMaker Model.
+            notebook_root: The root directory of the notebook environment, used for resolving
+                         local paths if necessary.
         """
-        super().__init__(config, sagemaker_session, role, notebook_root)
+        if not isinstance(config, ModelStepPyTorchConfig):
+            raise ValueError(
+                "PyTorchModelStepBuilder requires a ModelStepPyTorchConfig instance."
+            )
+        super().__init__(
+            config=config,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
+        )
+        self.config: ModelStepPyTorchConfig = config
 
     def validate_configuration(self) -> None:
-        """Validate configuration requirements"""
+        """
+        Validates the provided configuration to ensure all required fields for this
+        specific step are present and valid before attempting to build the step.
+
+        Raises:
+            ValueError: If any required configuration is missing or invalid.
+        """
+        logger.info("Validating ModelStepPyTorchConfig...")
+        
+        # Validate required attributes
         required_attrs = [
-            'inference_entry_point',
-            'source_dir',
-            'inference_instance_type',
-            'framework_version',
-            'py_version',
-            'container_startup_health_check_timeout',
-            'container_memory_limit',
-            'data_download_timeout',
-            'inference_memory_limit',
-            'max_concurrent_invocations',
-            'max_payload_size'
+            'model_name',
+            'image_uri',
+            'instance_type',
+            'entry_point',
+            'source_dir'
         ]
         
         for attr in required_attrs:
-            if not hasattr(self.config, attr):
-                raise ValueError(f"ModelConfig missing required attribute: {attr}")
-                
-        if not self.config.inference_entry_point:
-            raise ValueError("inference_entry_point cannot be empty")
-
-    def _get_image_uri(self) -> str:
-        """Get the PyTorch inference image URI"""
-        return image_uris.retrieve(
-            framework="pytorch",
-            region=self.aws_region,
-            version=self.config.framework_version,
-            py_version=self.config.py_version,
-            instance_type=self.config.inference_instance_type,
-            image_scope="inference"
-        )
-
-    def _create_env_config(self) -> dict:
-        """Create and validate environment configuration"""
-        env_config = {
-            'MMS_DEFAULT_RESPONSE_TIMEOUT': str(self.config.container_startup_health_check_timeout),
-            'SAGEMAKER_CONTAINER_LOG_LEVEL': '20',
-            'SAGEMAKER_PROGRAM': self.config.inference_entry_point,
-            'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/model/code',
-            'SAGEMAKER_CONTAINER_MEMORY_LIMIT': str(self.config.container_memory_limit),
-            'SAGEMAKER_MODEL_DATA_DOWNLOAD_TIMEOUT': str(self.config.data_download_timeout),
-            'SAGEMAKER_INFERENCE_MEMORY_LIMIT': str(self.config.inference_memory_limit),
-            'SAGEMAKER_MAX_CONCURRENT_INVOCATIONS': str(self.config.max_concurrent_invocations),
-            'SAGEMAKER_MAX_PAYLOAD_IN_MB': str(self.config.max_payload_size),
-            'AWS_REGION': self.aws_region
-        }
-
-        for key, value in env_config.items():
-            if value is None or (isinstance(value, str) and not value.strip() and key in ['SAGEMAKER_PROGRAM']):
-                raise ValueError(f"Missing or empty environment variable value for critical key: {key}")
-            elif value is None or (isinstance(value, str) and not value.strip()):
-                logger.warning(f"Environment variable {key} has an effectively empty value: '{value}'. "
-                             "This might be acceptable depending on the variable.")
-
-        return env_config
+            if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
+                raise ValueError(f"ModelStepPyTorchConfig missing required attribute: {attr}")
+        
+        logger.info("ModelStepPyTorchConfig validation succeeded.")
 
     def _create_pytorch_model(self, model_data: str) -> PyTorchModel:
-        """Create PyTorch model"""
-        safe_date_string = self.config.current_date.replace(":", "-").replace("T", "-").replace("Z", "")
-        model_name = f"bsm-rnr-model-{safe_date_string}"[:63]
+        """
+        Creates and configures the PyTorchModel.
+        This defines the model that will be deployed, including the model artifacts,
+        inference code, and environment.
 
+        Args:
+            model_data: The S3 URI of the model artifacts.
+
+        Returns:
+            An instance of sagemaker.pytorch.PyTorchModel.
+        """
         return PyTorchModel(
-            name=model_name,
             model_data=model_data,
             role=self.role,
-            entry_point=self.config.inference_entry_point,
+            entry_point=self.config.entry_point,
             source_dir=self.config.source_dir,
             framework_version=self.config.framework_version,
             py_version=self.config.py_version,
+            image_uri=self.config.image_uri,
             sagemaker_session=self.session,
-            env=self._create_env_config(),
-            image_uri=self._get_image_uri()
+            env=self._get_environment_variables(),
         )
 
+    def _create_model(self, model_data: str) -> Model:
+        """
+        Creates and configures a generic SageMaker Model.
+        This is used when a custom image URI is provided instead of using the PyTorch framework.
+
+        Args:
+            model_data: The S3 URI of the model artifacts.
+
+        Returns:
+            An instance of sagemaker.model.Model.
+        """
+        return Model(
+            image_uri=self.config.image_uri,
+            model_data=model_data,
+            role=self.role,
+            sagemaker_session=self.session,
+            env=self._get_environment_variables(),
+        )
+
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Constructs a dictionary of environment variables to be passed to the model.
+        These variables are used to control the behavior of the inference code.
+
+        Returns:
+            A dictionary of environment variables.
+        """
+        env_vars = {}
+        
+        # Add environment variables from config if they exist
+        if hasattr(self.config, "env") and self.config.env:
+            env_vars.update(self.config.env)
+            
+        logger.info(f"Model environment variables: {env_vars}")
+        return env_vars
+        
     def get_input_requirements(self) -> Dict[str, str]:
         """
         Get the input requirements for this step builder.
@@ -119,8 +140,12 @@ class PytorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        input_reqs = {k: v for k, v in self.config.input_names.items()}
-        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        # Get input requirements
+        input_reqs = {
+            "model_data": "S3 URI of the model artifacts",
+            "dependencies": self.COMMON_PROPERTIES["dependencies"],
+            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
+        }
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -130,89 +155,84 @@ class PytorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {k: v for k, v in self.config.output_names.items()}
+        # Define the output properties for the model step
+        output_props = {
+            "ModelName": "Name of the created SageMaker model"
+        }
+        return output_props
         
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
         """
-        Extract inputs from dependency steps.
-        
-        This method extracts the inputs required by the PytorchModelStep from the dependency steps.
-        Specifically, it looks for:
-        1. model_data from a TrainingStep
+        Match custom properties specific to PyTorchModel step.
         
         Args:
-            dependency_steps: List of dependency steps
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
             
         Returns:
-            Dictionary of inputs extracted from dependency steps
+            Set of input names that were successfully matched
         """
-        inputs = {}
+        matched_inputs = set()
         
-        # Look for model_data from a TrainingStep
-        for prev_step in dependency_steps:
-            # Check for training step output
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
-                try:
-                    inputs["model_data"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                    logger.info(f"Found model_data from TrainingStep: {prev_step.name}")
-                    break
-                except AttributeError as e:
-                    logger.warning(f"Could not extract model artifacts from step: {e}")
-        
-        # Add enable_caching
-        inputs["enable_caching"] = True
-        
-        return inputs
+        # Look for model artifacts from a TrainingStep
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+            try:
+                model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                if "model_data" in input_requirements:
+                    inputs["model_data"] = model_artifacts
+                    matched_inputs.add("model_data")
+                    logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
+            except AttributeError as e:
+                logger.warning(f"Could not extract model artifacts from step: {e}")
+                
+        return matched_inputs
     
-    def create_step(self, **kwargs) -> Step:
+    def create_step(self, **kwargs) -> ModelStep:
         """
-        Create model step for deployment.
-        
+        Creates the final, fully configured SageMaker ModelStep for the pipeline.
+        This method orchestrates the assembly of the model and its configuration
+        into a single, executable pipeline step.
+
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - model_data: S3 path to model artifacts (required)
-                - dependencies: Optional list of dependent steps
-                - enable_caching: Whether to enable caching for this step (default: True)
-            
+                - model_data: The S3 URI of the model artifacts.
+                - dependencies: Optional list of steps that this step depends on.
+                - enable_caching: A boolean indicating whether to cache the results of this step
+                                to speed up subsequent pipeline runs with the same inputs.
+
         Returns:
-            ModelStep instance
+            A configured sagemaker.workflow.steps.ModelStep instance.
         """
+        logger.info("Creating PyTorch ModelStep...")
+
         # Extract parameters
         model_data = self._extract_param(kwargs, 'model_data')
         dependencies = self._extract_param(kwargs, 'dependencies')
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
         # Validate required parameters
         if not model_data:
             raise ValueError("model_data must be provided")
-            
-        logger.info(f"Creating model step with instance type: {self.config.inference_instance_type} "
-                   f"in region: {self.aws_region}")
 
-        instance_type_param = Parameter(
-            name="InferenceInstanceType",
-            default_value=self.config.inference_instance_type
-        )
+        # Create the model
+        if self.config.use_pytorch_framework:
+            model = self._create_pytorch_model(model_data)
+        else:
+            model = self._create_model(model_data)
 
-        model = self._create_pytorch_model(model_data)
-        step_creation_args = model.create(
-            instance_type=instance_type_param,
-            accelerator_type=None
-        )
-        
-        step_name = self._get_step_name('PytorchModel')
+        step_name = self._get_step_name('PyTorchModel')
         
         model_step = ModelStep(
             name=step_name,
-            step_args=step_creation_args
+            step_args=model.create(
+                instance_type=self.config.instance_type,
+                accelerator_type=self.config.accelerator_type,
+                tags=self.config.tags,
+                model_name=self.config.model_name
+            ),
+            depends_on=dependencies or []
         )
-        
-        # Store model data path for subsequent steps
-        model_step.model_artifacts_path = model_data
-        model_step.model = model
-        
+        logger.info(f"Created ModelStep with name: {model_step.name}")
         return model_step
-
-    # Maintain backwards compatibility
-    def create_model_step(self, model_data: str) -> ModelStep:
-        """Backwards compatible method for creating model step"""
-        return self.create_step(model_data)

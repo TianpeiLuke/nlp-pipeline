@@ -1,110 +1,137 @@
-from sagemaker.pytorch import PyTorch
-from sagemaker.debugger import ProfilerConfig
-from sagemaker.inputs import TrainingInput
-from sagemaker.workflow.steps import TrainingStep, Step
-from sagemaker.workflow.pipeline_context import PipelineSession
+from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
-
-from typing import Optional, Dict, List
-import os
 import logging
 
-from .config_training_step_pytorch import PytorchTrainingConfig
+from sagemaker.workflow.steps import TrainingStep, Step
+from sagemaker.pytorch import PyTorch
+
+from .config_training_step_pytorch import PyTorchTrainingConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
 
+
 class PyTorchTrainingStepBuilder(StepBuilderBase):
-    """PyTorch model builder"""
-    
+    """
+    Builder for a PyTorch Training Step.
+    This class is responsible for configuring and creating a SageMaker TrainingStep
+    that trains a PyTorch model.
+    """
+
     def __init__(
-        self, 
-        config: PytorchTrainingConfig, 
-        sagemaker_session: Optional[PipelineSession] = None,
+        self,
+        config: PyTorchTrainingConfig,
+        sagemaker_session=None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
     ):
         """
-        Initialize PyTorch model builder
-        
+        Initializes the builder with a specific configuration for the training step.
+
         Args:
-            config: Pydantic ModelConfig instance with hyperparameters
-            sagemaker_session: SageMaker session
-            role: IAM role ARN
-            notebook_root: Root directory of notebook
+            config: A PyTorchTrainingConfig instance containing all necessary settings.
+            sagemaker_session: The SageMaker session object to manage interactions with AWS.
+            role: The IAM role ARN to be used by the SageMaker Training Job.
+            notebook_root: The root directory of the notebook environment, used for resolving
+                         local paths if necessary.
         """
-        super().__init__(config, sagemaker_session, role, notebook_root)
-        
-        if not self.config.hyperparameters:
-            raise ValueError("ModelConfig must include hyperparameters for training")
-            
-        logger.info(f"Initialized PyTorchTrainingStepBuilder with hyperparams: {self.config.hyperparameters.get_config()}")
+        if not isinstance(config, PyTorchTrainingConfig):
+            raise ValueError(
+                "PyTorchTrainingStepBuilder requires a PyTorchTrainingConfig instance."
+            )
+        super().__init__(
+            config=config,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
+        )
+        self.config: PyTorchTrainingConfig = config
 
     def validate_configuration(self) -> None:
-        """Validate configuration requirements"""
+        """
+        Validates the provided configuration to ensure all required fields for this
+        specific step are present and valid before attempting to build the step.
+
+        Raises:
+            ValueError: If any required configuration is missing or invalid.
+        """
+        logger.info("Validating PyTorchTrainingConfig...")
+        
+        # Validate required attributes
         required_attrs = [
-            'training_entry_point',
+            'instance_type',
+            'instance_count',
+            'volume_size',
+            'entry_point',
             'source_dir',
-            'training_instance_type',
-            'training_instance_count',
-            'training_volume_size',
             'framework_version',
             'py_version',
-            'input_path',
-            'output_path'
+            'job_name'
         ]
         
         for attr in required_attrs:
-            if not hasattr(self.config, attr):
-                raise ValueError(f"ModelConfig missing required attribute: {attr}")
+            if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
+                raise ValueError(f"PyTorchTrainingConfig missing required attribute: {attr}")
         
-    def _create_profiler_config(self) -> ProfilerConfig:
-        """Create profiler configuration"""
-        return ProfilerConfig(
-            system_monitor_interval_millis=1000
-        )
+        # Validate input and output names
+        if "training_data" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'training_data'")
+        
+        logger.info("PyTorchTrainingConfig validation succeeded.")
 
-    def _get_metric_definitions(self) -> List[Dict[str, str]]:
-        """Get metric definitions for training monitoring"""
-        return [
-            {'Name': 'Train Loss', 'Regex': 'train_loss=([0-9\\.]+)'},
-            {'Name': 'Validation Loss', 'Regex': 'val_loss=([0-9\\.]+)'},
-            {'Name': 'Validation F1 Score', 'Regex': 'val/f1_score=([0-9\\.]+)'},
-            {'Name': 'Validation AUC ROC', 'Regex': 'val/auroc=([0-9\\.]+)'},
-        ]
-    
-    def _create_pytorch_estimator(self, checkpoint_s3_uri: str) -> PyTorch:
-        """Create PyTorch estimator"""
+    def _create_estimator(self) -> PyTorch:
+        """
+        Creates and configures the PyTorch estimator for the SageMaker Training Job.
+        This defines the execution environment for the training script, including the instance
+        type, framework version, and hyperparameters.
+
+        Returns:
+            An instance of sagemaker.pytorch.PyTorch.
+        """
+        hyperparameters = {}
+        if hasattr(self.config, "hyperparameters") and self.config.hyperparameters:
+            hyperparameters.update(self.config.hyperparameters)
+        
         return PyTorch(
-            entry_point=self.config.training_entry_point,
+            entry_point=self.config.entry_point,
             source_dir=self.config.source_dir,
-            role=self.role,
-            instance_count=self.config.training_instance_count,
-            instance_type=self.config.training_instance_type,
             framework_version=self.config.framework_version,
             py_version=self.config.py_version,
-            volume_size=self.config.training_volume_size,
-            max_run=4 * 24 * 60 * 60,
-            output_path=self.config.output_path,
-            checkpoint_s3_uri=checkpoint_s3_uri,
-            checkpoint_local_path="/opt/ml/checkpoints",
+            role=self.role,
+            instance_type=self.config.instance_type,
+            instance_count=self.config.instance_count,
+            volume_size=self.config.volume_size,
+            max_run=self.config.max_run,
+            keep_alive_period_in_seconds=self.config.keep_alive_period,
+            base_job_name=self._sanitize_name_for_sagemaker(
+                f"{self._get_step_name('PyTorchTraining')}"
+            ),
+            hyperparameters=hyperparameters,
             sagemaker_session=self.session,
-            hyperparameters=self.config.hyperparameters.serialize_config(),
-            profiler_config=self._create_profiler_config(),
-            metric_definitions=self._get_metric_definitions()
+            enable_sagemaker_metrics=self.config.enable_sagemaker_metrics,
+            debugger_hook_config=self.config.debugger_hook_config,
+            tensorboard_output_config=self.config.tensorboard_output_config,
+            environment=self._get_environment_variables(),
         )
 
-    def _get_checkpoint_uri(self) -> str:
-        """Get checkpoint URI for training"""
-        if self.config.has_checkpoint():
-            return self.config.get_checkpoint_uri()
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Constructs a dictionary of environment variables to be passed to the training job.
+        These variables are used to control the behavior of the training script
+        without needing to pass them as hyperparameters.
+
+        Returns:
+            A dictionary of environment variables.
+        """
+        env_vars = {}
         
-        return os.path.join(
-            self.config.output_path,
-            "checkpoints",
-            self.config.current_date
-        )
-
+        # Add environment variables from config if they exist
+        if hasattr(self.config, "env") and self.config.env:
+            env_vars.update(self.config.env)
+            
+        logger.info(f"Training environment variables: {env_vars}")
+        return env_vars
+        
     def get_input_requirements(self) -> Dict[str, str]:
         """
         Get the input requirements for this step builder.
@@ -112,8 +139,12 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        input_reqs = {k: v for k, v in self.config.input_names.items()}
-        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        # Get input requirements from config's input_names
+        input_reqs = {
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
+            "dependencies": self.COMMON_PROPERTIES["dependencies"],
+            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
+        }
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -123,96 +154,118 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        return {k: v for k, v in self.config.output_names.items()}
+        # Define the output properties for the training step
+        output_props = {
+            "ModelArtifacts.S3ModelArtifacts": "S3 URI of the model artifacts"
+        }
+        return output_props
         
-    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
         """
-        Extract inputs from dependency steps.
-        
-        This method extracts the inputs required by the PyTorchTrainingStep from the dependency steps.
-        Specifically, it looks for:
-        1. input_path from a TabularPreprocessingStep
+        Match custom properties specific to PyTorchTraining step.
         
         Args:
-            dependency_steps: List of dependency steps
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
             
         Returns:
-            Dictionary of inputs extracted from dependency steps
+            Set of input names that were successfully matched
         """
-        inputs = {}
+        matched_inputs = set()
         
-        # Look for input_path from a TabularPreprocessingStep
-        for prev_step in dependency_steps:
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
-                try:
-                    # Try to get the processed data output
-                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
-                        # Try string keys (dict-like)
-                        if "ProcessedTabularData" in prev_step.properties.ProcessingOutputConfig.Outputs:
-                            output = prev_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"]
-                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                inputs["input_path"] = output.S3Output.S3Uri
-                                logger.info(f"Found input_path from TabularPreprocessingStep: {prev_step.name}")
+        # Look for preprocessed data from a ProcessingStep
+        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+            try:
+                # Check if the step has an output that matches our training_data input
+                training_key = self.config.input_names.get("training_data")
+                if training_key:
+                    # Look for an output with a name that might contain training data
+                    for output in prev_step.outputs:
+                        if hasattr(output, "output_name") and any(term in output.output_name.lower() 
+                                                                for term in ["train", "preprocess"]):
+                            if "inputs" not in inputs:
+                                inputs["inputs"] = {}
+                            
+                            if training_key not in inputs.get("inputs", {}):
+                                inputs["inputs"][training_key] = output.destination
+                                matched_inputs.add("inputs")
+                                logger.info(f"Found training data from step: {getattr(prev_step, 'name', str(prev_step))}")
                                 break
-                except (AttributeError, IndexError) as e:
-                    logger.warning(f"Could not extract processed data output from step: {e}")
-        
-        # Add enable_caching
-        inputs["enable_caching"] = True
-        
-        return inputs
+            except AttributeError as e:
+                logger.warning(f"Could not extract training data from step: {e}")
+                
+        # Look for validation data from a ProcessingStep
+        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+            try:
+                # Check if the step has an output that matches our validation_data input
+                validation_key = self.config.input_names.get("validation_data")
+                if validation_key:
+                    # Look for an output with a name that might contain validation data
+                    for output in prev_step.outputs:
+                        if hasattr(output, "output_name") and any(term in output.output_name.lower() 
+                                                                for term in ["valid", "val", "test"]):
+                            if "inputs" not in inputs:
+                                inputs["inputs"] = {}
+                            
+                            if validation_key not in inputs.get("inputs", {}):
+                                inputs["inputs"][validation_key] = output.destination
+                                matched_inputs.add("inputs")
+                                logger.info(f"Found validation data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                break
+            except AttributeError as e:
+                logger.warning(f"Could not extract validation data from step: {e}")
+                
+        return matched_inputs
     
-    def create_step(self, **kwargs) -> Step:
+    def create_step(self, **kwargs) -> TrainingStep:
         """
-        Create training step with dataset inputs.
-        
+        Creates the final, fully configured SageMaker TrainingStep for the pipeline.
+        This method orchestrates the assembly of the estimator and its inputs
+        into a single, executable pipeline step.
+
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - dependencies: Optional list of dependent steps
-                - input_path: Optional S3 path to the input data (overrides config.input_path)
-                - enable_caching: Whether to enable caching for this step (default: True)
-            
+                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                - dependencies: Optional list of steps that this step depends on.
+                - enable_caching: A boolean indicating whether to cache the results of this step
+                                to speed up subsequent pipeline runs with the same inputs.
+
         Returns:
-            TrainingStep instance
+            A configured sagemaker.workflow.steps.TrainingStep instance.
         """
+        logger.info("Creating PyTorch TrainingStep...")
+
         # Extract parameters
+        inputs = self._extract_param(kwargs, 'inputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
-        input_path = self._extract_param(kwargs, 'input_path', self.config.input_path)
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Validate input path structure
-        train_path = os.path.join(input_path, "train", "train.parquet")
-        val_path = os.path.join(input_path, "val", "val.parquet")
-        test_path = os.path.join(input_path, "test", "test.parquet")
+        # Validate required parameters
+        if not inputs:
+            raise ValueError("inputs must be provided")
 
-        # Create training inputs
-        inputs = {
-            "train": TrainingInput(train_path),
-            "val": TrainingInput(val_path),
-            "test": TrainingInput(test_path)
-        }
+        estimator = self._create_estimator()
 
-        # Get checkpoint URI and create estimator
-        checkpoint_uri = self._get_checkpoint_uri()
-        logger.info(
-            f"Creating PyTorch estimator:"
-            f"\n\tCheckpoint URI: {checkpoint_uri}"
-            f"\n\tInstance Type: {self.config.instance_type}"
-            f"\n\tFramework Version: {self.config.framework_version}"
-            f"\n\tPython Version: {self.config.py_version}"
-        )
-        estimator = self._create_pytorch_estimator(checkpoint_uri)
+        # Prepare the inputs for the estimator
+        estimator_inputs = {}
+        for logical_name, s3_uri in inputs.items():
+            # Map the logical name to the actual channel name expected by the estimator
+            channel_name = logical_name
+            if logical_name in self.config.input_names:
+                channel_name = self.config.input_names[logical_name]
+            estimator_inputs[channel_name] = s3_uri
+
+        step_name = self._get_step_name('PyTorchTraining')
         
-        # Get step name
-        step_name = self._get_step_name('PytorchTraining')
-        
-        return TrainingStep(
+        training_step = TrainingStep(
             name=step_name,
             estimator=estimator,
-            inputs=inputs,
-            depends_on=dependencies or []
+            inputs=estimator_inputs,
+            job_name=self.config.job_name,
+            depends_on=dependencies or [],
+            cache_config=self._get_cache_config(enable_caching)
         )
-
-    # Maintain backwards compatibility
-    def create_training_step(self, dependencies: Optional[List] = None) -> TrainingStep:
-        """Backwards compatible method for creating training step"""
-        return self.create_step(dependencies)
+        logger.info(f"Created TrainingStep with name: {training_step.name}")
+        return training_step
