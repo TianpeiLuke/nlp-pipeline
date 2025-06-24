@@ -124,21 +124,65 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         return {k: v for k, v in self.config.output_names.items()}
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the PyTorchTrainingStep from the dependency steps.
+        Specifically, it looks for:
+        1. input_path from a TabularPreprocessingStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for input_path from a TabularPreprocessingStep
+        for prev_step in dependency_steps:
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    # Try to get the processed data output
+                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                        # Try string keys (dict-like)
+                        if "ProcessedTabularData" in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                inputs["input_path"] = output.S3Output.S3Uri
+                                logger.info(f"Found input_path from TabularPreprocessingStep: {prev_step.name}")
+                                break
+                except (AttributeError, IndexError) as e:
+                    logger.warning(f"Could not extract processed data output from step: {e}")
+        
+        # Add enable_caching
+        inputs["enable_caching"] = True
+        
+        return inputs
     
-    def create_step(self, dependencies: Optional[List] = None) -> Step:
+    def create_step(self, **kwargs) -> Step:
         """
         Create training step with dataset inputs.
         
         Args:
-            dependencies: List of dependent steps
+            **kwargs: Keyword arguments for configuring the step, including:
+                - dependencies: Optional list of dependent steps
+                - input_path: Optional S3 path to the input data (overrides config.input_path)
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             TrainingStep instance
         """
+        # Extract parameters
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        input_path = self._extract_param(kwargs, 'input_path', self.config.input_path)
+        
         # Validate input path structure
-        train_path = os.path.join(self.config.input_path, "train", "train.parquet")
-        val_path = os.path.join(self.config.input_path, "val", "val.parquet")
-        test_path = os.path.join(self.config.input_path, "test", "test.parquet")
+        train_path = os.path.join(input_path, "train", "train.parquet")
+        val_path = os.path.join(input_path, "val", "val.parquet")
+        test_path = os.path.join(input_path, "test", "test.parquet")
 
         # Create training inputs
         inputs = {

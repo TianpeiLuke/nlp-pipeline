@@ -311,16 +311,21 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
 
         return request
 
-    def create_step(
-        self,
-        dependencies: Optional[List] = None
-    ) -> CradleDataLoadingStep:
+    def create_step(self, **kwargs) -> CradleDataLoadingStep:
         """
         Build the CradleDataLoadingStep.  
         This step will run a Data Load job in the Cradle service using the parameters
         from self.config. Returns the fully‐configured CradleDataLoadingStep.
+        
+        Args:
+            **kwargs: Keyword arguments for configuring the step, including:
+                - dependencies: Optional list of dependent steps
+                - enable_caching: Whether to enable caching for this step (default: True)
         """
         logger.info("Creating CradleDataLoadingStep…")
+        
+        # Extract parameters
+        dependencies = self._extract_param(kwargs, 'dependencies')
 
         # Build the CreateCradleDataLoadJobRequest
         request = self._build_request()
@@ -377,6 +382,24 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         return {k: v for k, v in self.config.output_names.items()}
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the CradleDataLoadingStep from the dependency steps.
+        For this step, we don't typically need to extract inputs from dependencies as it's usually
+        the first step in a pipeline, but we include this method for consistency.
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        # This step doesn't typically need inputs from dependencies
+        # as it's usually the first step in a pipeline
+        return {}
     
     def get_step_outputs(self, step: CradleDataLoadingStep) -> Dict[str, str]:
         """

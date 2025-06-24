@@ -203,6 +203,64 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         """
         # Get output properties from config's output_names
         return {k: v for k, v in (self.config.output_names or {}).items()}
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the TabularPreprocessingStep from the dependency steps.
+        Specifically, it looks for:
+        1. data_input from a DataLoadStep or other processing steps
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        outputs = {}
+        
+        # Look for data_input from a DataLoadStep or other processing steps
+        for prev_step in dependency_steps:
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    # Try to get the data output
+                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                        # Try string keys (dict-like)
+                        for key in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                # If this is a data load step, use it as data_input
+                                if key == "DATA" or key == "RawData":
+                                    if "data_input" in self.config.input_names:
+                                        input_key = self.config.input_names["data_input"]
+                                        if not inputs:
+                                            inputs = {}
+                                        inputs[input_key] = output.S3Output.S3Uri
+                                        logger.info(f"Found data_input from step: {prev_step.name}")
+                                        break
+                except (AttributeError, IndexError) as e:
+                    logger.warning(f"Could not extract data output from step: {e}")
+        
+        # Set up outputs if not already set
+        if not outputs and hasattr(self.config, "pipeline_s3_loc") and hasattr(self.config, "job_type"):
+            output_path = f"{self.config.pipeline_s3_loc}/tabular_preprocessing/{self.config.job_type}"
+            if "processed_data" in self.config.output_names:
+                output_key = self.config.output_names["processed_data"]
+                outputs = {output_key: output_path}
+                logger.info(f"Set up output path: {output_path}")
+        
+        result = {}
+        if inputs:
+            result["inputs"] = inputs
+        if outputs:
+            result["outputs"] = outputs
+        
+        # Add enable_caching
+        result["enable_caching"] = True
+        
+        return result
 
     def create_step(
         self,

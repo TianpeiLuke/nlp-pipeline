@@ -131,18 +131,60 @@ class PytorchModelStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         return {k: v for k, v in self.config.output_names.items()}
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the PytorchModelStep from the dependency steps.
+        Specifically, it looks for:
+        1. model_data from a TrainingStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for model_data from a TrainingStep
+        for prev_step in dependency_steps:
+            # Check for training step output
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+                try:
+                    inputs["model_data"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                    logger.info(f"Found model_data from TrainingStep: {prev_step.name}")
+                    break
+                except AttributeError as e:
+                    logger.warning(f"Could not extract model artifacts from step: {e}")
+        
+        # Add enable_caching
+        inputs["enable_caching"] = True
+        
+        return inputs
     
-    def create_step(self, model_data: str, dependencies: Optional[List] = None) -> Step:
+    def create_step(self, **kwargs) -> Step:
         """
         Create model step for deployment.
         
         Args:
-            model_data: S3 path to model artifacts
-            dependencies: List of dependent steps
+            **kwargs: Keyword arguments for configuring the step, including:
+                - model_data: S3 path to model artifacts (required)
+                - dependencies: Optional list of dependent steps
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             ModelStep instance
         """
+        # Extract parameters
+        model_data = self._extract_param(kwargs, 'model_data')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        
+        # Validate required parameters
+        if not model_data:
+            raise ValueError("model_data must be provided")
+            
         logger.info(f"Creating model step with instance type: {self.config.inference_instance_type} "
                    f"in region: {self.aws_region}")
 

@@ -83,23 +83,61 @@ class BatchTransformStepBuilder(StepBuilderBase):
         if hasattr(self.config, "output_names") and self.config.output_names is not None:
             output_props.update({k: v for k, v in self.config.output_names.items()})
         return output_props
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the BatchTransformStep from the dependency steps.
+        Specifically, it looks for:
+        1. model_name from a ModelStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for model_name from a ModelStep
+        for prev_step in dependency_steps:
+            # Check if this is a model step
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelName"):
+                try:
+                    inputs["model_name"] = prev_step.properties.ModelName
+                    logger.info(f"Found model_name from ModelStep: {prev_step.name}")
+                    break
+                except AttributeError as e:
+                    logger.warning(f"Could not extract model_name from step: {e}")
+        
+        # Add enable_caching
+        inputs["enable_caching"] = True
+        
+        return inputs
     
-    def create_step(
-        self,
-        model_name: Union[str, Properties],
-        dependencies: Optional[List[Step]] = None
-    ) -> TransformStep:
+    def create_step(self, **kwargs) -> TransformStep:
         """
         Create a TransformStep for a batch transform.
 
         Args:
-            model_name: The name of the SageMaker model (string or Properties).
-            dependencies: Optional list of Pipeline Step dependencies.
+            **kwargs: Keyword arguments for configuring the step, including:
+                - model_name: The name of the SageMaker model (string or Properties) (required)
+                - dependencies: Optional list of Pipeline Step dependencies
+                - enable_caching: Whether to enable caching for this step (default: True)
 
         Returns:
             TransformStep: configured batch transform step.
         """
         self.validate_configuration()
+        
+        # Extract parameters
+        model_name = self._extract_param(kwargs, 'model_name')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        
+        # Validate required parameters
+        if not model_name:
+            raise ValueError("model_name must be provided")
 
         # Build the transformer
         transformer = self._create_transformer(model_name)
