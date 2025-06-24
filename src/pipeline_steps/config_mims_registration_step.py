@@ -83,7 +83,7 @@ class ModelRegistrationConfig(BasePipelineConfig):
     )
     
     # Input/output names for registration
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
             "payload_s3_key": "S3 key for payload data"
@@ -91,7 +91,7 @@ class ModelRegistrationConfig(BasePipelineConfig):
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "model_package_arn": "ARN of the registered model package",
             "registration_status": "Status of the model registration"
@@ -127,15 +127,32 @@ class ModelRegistrationConfig(BasePipelineConfig):
     @model_validator(mode='after')
     def validate_registration_configs(self) -> 'ModelRegistrationConfig':
         """Validate registration-specific configurations"""
-        # Existing validation
+        # Validate model registration objective
         if not self.model_registration_objective:
             raise ValueError("model_registration_objective must be provided")
         
-        # New validation for entry point
+        # Validate inference entry point
         if self.source_dir and not self.source_dir.startswith('s3://'):
             entry_point_path = Path(self.source_dir) / self.inference_entry_point
             if not entry_point_path.exists():
                 raise ValueError(f"Inference entry point script not found: {entry_point_path}")
+        
+        return self
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'ModelRegistrationConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
+                "payload_s3_key": "S3 key for payload data"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "model_package_arn": "ARN of the registered model package",
+                "registration_status": "Status of the model registration"
+            }
         
         return self
 

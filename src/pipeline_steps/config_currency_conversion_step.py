@@ -72,11 +72,11 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
     )
 
     # --- IO channel names (must match TabularPreprocessingStep outputs) ---
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {"data_input": "ProcessedTabularData"},
         description="Should match TabularPreprocessingConfig.output_names['processed_data']"
     )
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {"converted_data": "ConvertedCurrencyData"},
         description="Mapping for the single output channel"
     )
@@ -117,7 +117,8 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
         return v
 
     @model_validator(mode='after')
-    def _validate_full_config(self) -> "CurrencyConversionConfig":
+    def validate_config(self) -> 'CurrencyConversionConfig':
+        """Validate currency conversion configuration."""
         if self.enable_currency_conversion:
             if not self.marketplace_id_col:
                 raise ValueError("marketplace_id_col required when conversion enabled")
@@ -126,9 +127,23 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
             if not self.marketplace_info:
                 raise ValueError("marketplace_info must be provided")
             if self.mode == "split_after_conversion":
-                # require label_field for stratification
                 if not self.label_field:
                     raise ValueError("label_field required for split_after_conversion")
+        return self
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'CurrencyConversionConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "data_input": "ProcessedTabularData"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "converted_data": "ConvertedCurrencyData"
+            }
+        
         return self
 
     def get_script_arguments(self) -> List[str]:

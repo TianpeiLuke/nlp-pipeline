@@ -108,11 +108,15 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         Returns:
             List of ProcessingInput objects
         """
+        input_name = "data_input"
+        if self.config.input_names:
+            input_name = list(self.config.input_names.keys())[0] if self.config.input_names else "data_input"
+            
         inputs = [
             ProcessingInput(
                 source=data_input,
                 destination="/opt/ml/processing/input/data",
-                input_name=self.config.input_names["data_input"]
+                input_name=input_name
             )
         ]
         
@@ -128,9 +132,13 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         """
         output_path = f"{self.config.pipeline_s3_loc}/currency_conversion"
         
+        output_name = "converted_data"
+        if self.config.output_names:
+            output_name = list(self.config.output_names.keys())[0] if self.config.output_names else "converted_data"
+            
         outputs = [
             ProcessingOutput(
-                output_name=self.config.output_names["converted_data"],
+                output_name=output_name,
                 source="/opt/ml/processing/output",
                 destination=output_path
             )

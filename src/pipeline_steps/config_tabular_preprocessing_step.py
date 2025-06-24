@@ -52,22 +52,22 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
     )
 
     # 5) Exactly one input channel, two output channels
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "data_input": "RawData",
-            "metadata_input": "Metadata",  # Optional
-            "signature_input": "Signature"  # Optional
+            "metadata_input": "Metadata",
+            "signature_input": "Signature"
         },
         description="Mapping of input channel names to their descriptions. "
                    "Must contain 'data_input'. 'metadata_input' and 'signature_input' are optional."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "processed_data": "ProcessedTabularData",
-            "full_data":      "FullTabularData"
+            "full_data": "FullTabularData"
         },
-        description="Mapping of output channel names to their descriptions. (Must contain 'processed_data' & 'full_data'.)"
+        description="Mapping of output channel names to their descriptions."
     )
 
     class Config(ProcessingStepConfigBase.Config):
@@ -106,29 +106,45 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
 
     @model_validator(mode="after")
     def validate_label_and_channels(self) -> "TabularPreprocessingConfig":
-        """
-        Cross‐field checks:
-         - hyperparameters.label_name must be nonempty and not whitespace.
-         - input_names must contain 'data_input'
-         - output_names must contain 'processed_data' and 'full_data'
-         - optional input channels are allowed
-        """
-        hp = self.hyperparameters
-
-        if not hp.label_name or not hp.label_name.strip():
+        """Validate label name and channel configurations."""
+        # Validate label name
+        if not self.hyperparameters.label_name or not self.hyperparameters.label_name.strip():
             raise ValueError("hyperparameters.label_name must be provided and non‐empty")
 
-        if "data_input" not in self.input_names:
+        # Create update dictionary if needed
+        update_dict = {}
+        
+        # Set default input names if None or empty
+        if not self.input_names:
+            update_dict["input_names"] = {
+                "data_input": "RawData",
+                "metadata_input": "Metadata",
+                "signature_input": "Signature"
+            }
+        
+        # Set default output names if None or empty
+        if not self.output_names:
+            update_dict["output_names"] = {
+                "processed_data": "ProcessedTabularData",
+                "full_data": "FullTabularData"
+            }
+        
+        # Create new model copy if updates are needed
+        model = self.model_copy(update=update_dict) if update_dict else self
+
+        # Validate required input channel
+        if "data_input" not in model.input_names:
             raise ValueError("input_names must contain key 'data_input'")
 
-        if "processed_data" not in self.output_names or "full_data" not in self.output_names:
+        # Validate required output channels
+        if not all(key in model.output_names for key in ["processed_data", "full_data"]):
             raise ValueError("output_names must contain keys 'processed_data' and 'full_data'")
 
-        # Validate optional input channels if present
+        # Validate optional input channels
         valid_input_channels = {"data_input", "metadata_input", "signature_input"}
-        invalid_channels = set(self.input_names.keys()) - valid_input_channels
+        invalid_channels = set(model.input_names.keys()) - valid_input_channels
         if invalid_channels:
             raise ValueError(f"Invalid input channel names: {invalid_channels}. "
                            f"Must be one of: {valid_input_channels}")
 
-        return self
+        return model

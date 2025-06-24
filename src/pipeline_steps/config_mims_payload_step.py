@@ -19,6 +19,23 @@ from .config_mims_registration_step import ModelRegistrationConfig, VariableType
 class PayloadConfig(ModelRegistrationConfig):
     """Configuration for payload generation and testing."""
     
+    # Override input_names and output_names from parent class with specific defaults
+    input_names: Optional[Dict[str, str]] = Field(
+        default_factory=lambda: {
+            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
+            "payload_s3_key": "S3 key for payload data"
+        },
+        description="Mapping of input channel names to their descriptions."
+    )
+    
+    output_names: Optional[Dict[str, str]] = Field(
+        default_factory=lambda: {
+            "model_package_arn": "ARN of the registered model package",
+            "registration_status": "Status of the model registration"
+        },
+        description="Mapping of output channel names to their descriptions."
+    )
+    
     # Performance metrics
     expected_tps: int = Field(
         default=2,
@@ -116,12 +133,35 @@ class PayloadConfig(ModelRegistrationConfig):
     
     @model_validator(mode='after')
     def construct_payload_path(self) -> 'PayloadConfig':
-        """Construct S3 key for payload if not provided"""
+        """Construct S3 key for payload if not provided and set default input/output names if empty"""
+        # Construct S3 key for payload if not provided
         if not self.sample_payload_s3_key:
             payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
             if self.model_registration_objective:
                 payload_file_name += f'_{self.model_registration_objective}'
             self.sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
+        
+        # Update model with sample payload S3 key
+        self = self.model_copy(update={"sample_payload_s3_key": self.sample_payload_s3_key})
+        
+        # Set default input names if not provided or empty
+        if self.input_names is None or not self.input_names:
+            input_names = {
+                "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
+                "payload_s3_key": "S3 key for payload data"
+            }
+            # Use self.model_copy to avoid triggering validators recursively
+            self = self.model_copy(update={"input_names": input_names})
+        
+        # Set default output names if not provided or empty
+        if self.output_names is None or not self.output_names:
+            output_names = {
+                "model_package_arn": "ARN of the registered model package",
+                "registration_status": "Status of the model registration"
+            }
+            # Use self.model_copy to avoid triggering validators recursively
+            self = self.model_copy(update={"output_names": output_names})
+        
         return self
         
     def ensure_payload_path(self) -> None:

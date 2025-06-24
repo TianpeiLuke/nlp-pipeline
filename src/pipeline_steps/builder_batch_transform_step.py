@@ -79,8 +79,8 @@ class BatchTransformStepBuilder(StepBuilderBase):
         output_props = {
             "transform_output": "S3 location of the batch transform output"
         }
-        # Add any output names from config if they exist
-        if hasattr(self.config, "output_names"):
+        # Add any output names from config if they exist and are not None
+        if hasattr(self.config, "output_names") and self.config.output_names is not None:
             output_props.update({k: v for k, v in self.config.output_names.items()})
         return output_props
     

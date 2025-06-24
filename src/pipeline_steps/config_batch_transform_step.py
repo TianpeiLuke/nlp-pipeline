@@ -74,14 +74,14 @@ class BatchTransformStepConfig(BasePipelineConfig):
     )
 
     # 7) Input/output names for batch transform
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "model_name": "The name of the SageMaker model (string or Properties)"
         },
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "transform_output": "S3 location of the batch transform output",
             "batch_transform_job_name": "Name of the batch transform job"
@@ -112,11 +112,28 @@ class BatchTransformStepConfig(BasePipelineConfig):
             raise ValueError(f"invalid instance type '{v}', must start with 'ml.'")
         return v
 
-    @model_validator(mode="after")
-    def _check_join_and_assemble(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        split = values.get("split_type")
-        assemble = values.get("assemble_with")
-        join = values.get("join_source")
+    @model_validator(mode='after')
+    def validate_config(self) -> 'BatchTransformStepConfig':
+        """Validate join and assemble configurations."""
+        split = self.split_type
+        assemble = self.assemble_with
+        join = self.join_source
         if join == "Input" and assemble and assemble != split:
             raise ValueError("when join_source='Input', assemble_with must equal split_type")
-        return values
+        return self
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'BatchTransformStepConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "model_name": "The name of the SageMaker model (string or Properties)"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "transform_output": "S3 location of the batch transform output",
+                "batch_transform_job_name": "Name of the batch transform job"
+            }
+        
+        return self

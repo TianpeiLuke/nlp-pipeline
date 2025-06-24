@@ -60,11 +60,11 @@ class ProcessingStepConfigBase(BasePipelineConfig):
 
     # Optional Input/Output settings - to be defined by derived classes
     input_names: Optional[Dict[str, str]] = Field(
-        default=None,
+        default_factory=lambda: {},
         description="Optional dictionary mapping input names to their descriptions. Should be defined in derived classes."
     )
     output_names: Optional[Dict[str, str]] = Field(
-        default=None,
+        default_factory=lambda: {},
         description="Optional dictionary mapping output names to their descriptions. Should be defined in derived classes."
     )
 

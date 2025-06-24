@@ -10,7 +10,7 @@ from .config_base import BasePipelineConfig
 
 class PytorchTrainingConfig(BasePipelineConfig):
     """Configuration specific to the SageMaker Training Step."""
-    # Input/output names for training
+    # Input/output names for training with default values
     input_names: Dict[str, str] = Field(
         default_factory=lambda: {
             "train": "Training data input",
@@ -114,17 +114,44 @@ class PytorchTrainingConfig(BasePipelineConfig):
 
         # Check if all fields in tab_field_list and cat_field_list are in full_field_list
         all_fields = set(self.hyperparameters.full_field_list)
+        
         if not set(self.hyperparameters.tab_field_list).issubset(all_fields):
             raise ValueError("All fields in tab_field_list must be in full_field_list")
+            
         if not set(self.hyperparameters.cat_field_list).issubset(all_fields):
             raise ValueError("All fields in cat_field_list must be in full_field_list")
         
         # Check if label_name and id_name are in full_field_list
         if self.hyperparameters.label_name not in all_fields:
-            raise ValueError(f"label_name '{self.hyperparameters.label_name}' must be in full_field_list")
+            raise ValueError(
+                f"label_name '{self.hyperparameters.label_name}' must be in full_field_list"
+            )
+            
         if self.hyperparameters.id_name not in all_fields:
-            raise ValueError(f"id_name '{self.hyperparameters.id_name}' must be in full_field_list")
+            raise ValueError(
+                f"id_name '{self.hyperparameters.id_name}' must be in full_field_list"
+            )
 
+        return self
+
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'PytorchTrainingConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "train": "Training data input",
+                "val": "Validation data input",
+                "test": "Test data input"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "training_job_name": "Name of the training job",
+                "model_data": "S3 path to the model artifacts",
+                "model_data_url": "S3 URL to the model artifacts"
+            }
+        
         return self
     
     # If validate_field_lists from original ModelConfig is specific to training data prep:

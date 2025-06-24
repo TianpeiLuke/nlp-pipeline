@@ -15,14 +15,14 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
     # framework_version, py_version are inherited from BasePipelineConfig
     
     # Input/output names for model creation
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "model_data": "S3 path to model artifacts (.tar.gz file)"
         },
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "model_artifacts_path": "S3 path to model artifacts",
             "model": "SageMaker model object"
@@ -48,6 +48,22 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
         self._validate_memory_constraints()
         self._validate_timeouts()
         self._validate_entry_point()
+        return self
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'PytorchModelCreationConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "model_data": "S3 path to model artifacts (.tar.gz file)"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "model_artifacts_path": "S3 path to model artifacts",
+                "model": "SageMaker model object"
+            }
+        
         return self
 
     def _validate_memory_constraints(self) -> None:

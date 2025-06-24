@@ -14,8 +14,8 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     This version is adapted to pass hyperparameters as a single config file
     via an S3 input channel, avoiding character limits.
     """
-    # Input/output names for training
-    input_names: Dict[str, str] = Field(
+    # Update input/output names with default values
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "train": "Training data input",
             "val": "Validation data input",
@@ -25,7 +25,7 @@ class XGBoostTrainingConfig(BasePipelineConfig):
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "training_job_name": "Name of the training job",
             "model_data": "S3 path to the model artifacts",
@@ -144,28 +144,55 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     @model_validator(mode='after')
     def validate_hyperparameter_fields(self) -> 'XGBoostTrainingConfig':
         """
-        Validate field lists from hyperparameters if they are used by the XGBoost script.
-        This is inherited from the PyTorch example; its relevance depends on your XGBoost script.
+        Validate field lists from hyperparameters.
         """
+        # Validate hyperparameters presence
         if not self.hyperparameters:
-            # This should not happen if the field is non-optional, but good check.
             raise ValueError("XGBoost hyperparameters must be provided.")
 
-        # The following checks are from your PyTorch example.
-        # They assume your XGBoost script or data prep relies on these fields
-        # from the ModelHyperparameters base. If not, these can be removed or adjusted.
+        # Validate field lists
         all_fields = set(self.hyperparameters.full_field_list)
+        
+        # Check tab_field_list
         if not set(self.hyperparameters.tab_field_list).issubset(all_fields):
             raise ValueError("All fields in tab_field_list must be in full_field_list (from hyperparameters).")
+        
+        # Check cat_field_list
         if not set(self.hyperparameters.cat_field_list).issubset(all_fields):
             raise ValueError("All fields in cat_field_list must be in full_field_list (from hyperparameters).")
         
+        # Check label_name
         if self.hyperparameters.label_name not in all_fields:
-            raise ValueError(f"label_name '{self.hyperparameters.label_name}' must be in full_field_list (from hyperparameters).")
-        # id_name might not always be required for training itself, but for data prep.
+            raise ValueError(
+                f"label_name '{self.hyperparameters.label_name}' must be in full_field_list (from hyperparameters)."
+            )
+        
+        # Check id_name
         if self.hyperparameters.id_name not in all_fields:
-            raise ValueError(f"id_name '{self.hyperparameters.id_name}' must be in full_field_list (from hyperparameters).")
+            raise ValueError(
+                f"id_name '{self.hyperparameters.id_name}' must be in full_field_list (from hyperparameters)."
+            )
 
+        return self
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'XGBoostTrainingConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "train": "Training data input",
+                "val": "Validation data input",
+                "test": "Test data input",
+                "hyperparameters": "Hyperparameters configuration input"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "training_job_name": "Name of the training job",
+                "model_data": "S3 path to the model artifacts",
+                "model_data_url": "S3 URL to the model artifacts"
+            }
+        
         return self
     
     @field_validator('training_instance_type')

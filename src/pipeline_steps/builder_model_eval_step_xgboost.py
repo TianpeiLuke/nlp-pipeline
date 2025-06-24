@@ -58,10 +58,10 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         required_inputs = {"model_input", "eval_data_input"}
         required_outputs = {"eval_output", "metrics_output"}
         
-        if not all(name in self.config.input_names for name in required_inputs):
+        if not all(name in (self.config.input_names or {}) for name in required_inputs):
             raise ValueError(f"Required input names {required_inputs} must be defined")
         
-        if not all(name in self.config.output_names for name in required_outputs):
+        if not all(name in (self.config.output_names or {}) for name in required_outputs):
             raise ValueError(f"Required output names {required_outputs} must be defined")
 
         logger.info(f"{self.__class__.__name__} configuration validation passed.")
@@ -98,7 +98,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         )
 
     def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
-        required_inputs = self.config.input_names.keys()
+        required_inputs = (self.config.input_names or {}).keys()
         
         if not inputs or not all(k in inputs for k in required_inputs):
             raise ValueError(f"Must supply S3 URIs for all required inputs: {required_inputs}")
@@ -118,7 +118,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         ]
 
     def _get_processing_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        required_outputs = self.config.output_names.keys()
+        required_outputs = (self.config.output_names or {}).keys()
         
         if not outputs or not all(k in outputs for k in required_outputs):
             raise ValueError(f"Must supply S3 URIs for all required outputs: {required_outputs}")
@@ -157,8 +157,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         """
         # Get base input requirements and add additional ones
         input_reqs = {
-            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.input_names.keys()])} S3 paths",
-            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.output_names.keys()])} S3 paths",
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
+            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
             "dependencies": self.COMMON_PROPERTIES["dependencies"],
             "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
@@ -172,7 +172,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         # Get output properties from config's output_names
-        return {k: v for k, v in self.config.output_names.items()}
+        return {k: v for k, v in (self.config.output_names or {}).items()}
 
     def create_step(
         self,

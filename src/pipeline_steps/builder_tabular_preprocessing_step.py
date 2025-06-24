@@ -188,8 +188,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         """
         # Get input requirements from config's input_names
         input_reqs = {
-            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.input_names.keys()])} S3 paths",
-            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in self.config.output_names.keys()])} S3 paths",
+            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
+            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
             "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
         return input_reqs
@@ -202,7 +202,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         # Get output properties from config's output_names
-        return {k: v for k, v in self.config.output_names.items()}
+        return {k: v for k, v in (self.config.output_names or {}).items()}
 
     def create_step(
         self,

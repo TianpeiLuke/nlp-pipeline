@@ -36,12 +36,12 @@ class BasePipelineConfig(BaseModel):
     STEP_NAMES: ClassVar[Dict[str, str]] = STEP_REGISTRY
     
     # Input/output names for standardization across all pipeline steps
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=dict,
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=dict,
         description="Mapping of output channel names to their descriptions."
     )

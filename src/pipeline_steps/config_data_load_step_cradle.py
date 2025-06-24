@@ -6,6 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
+    OUTPUT_TYPE_DATA,
+    OUTPUT_TYPE_METADATA,
+    OUTPUT_TYPE_SIGNATURE,
+)
+
 from .config_base import BasePipelineConfig
 
 
@@ -498,16 +504,16 @@ class CradleDataLoadConfig(BasePipelineConfig):
     )
     
     # Input/output names for data loading
-    input_names: Dict[str, str] = Field(
-        default_factory=lambda: {},
+    input_names: Optional[Dict[str, str]] = Field(
+        default_factory=dict,
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "data_output_location": "S3 location of the data output",
-            "metadata_output_location": "S3 location of the metadata output",
-            "signature_output_location": "S3 location of the signature output"
+            OUTPUT_TYPE_DATA: "S3 location of the data output",
+            OUTPUT_TYPE_METADATA: "S3 location of the metadata output",
+            OUTPUT_TYPE_SIGNATURE: "S3 location of the signature output"
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -531,5 +537,13 @@ class CradleDataLoadConfig(BasePipelineConfig):
         # (2) If user supplied s3_input_override, they can skip transform or data sources,
         #     but we don't enforce that here. We simply allow s3_input_override to bypass usage.
         #     No extra checks are necessary—downstream code should look at s3_input_override first.
+
+        # (3) Deal with empty input names and empty output names separately
+        if not model.output_names:
+            model.output_names = {
+                OUTPUT_TYPE_DATA: "S3 location of the data output",
+                OUTPUT_TYPE_METADATA: "S3 location of the metadata output",
+                OUTPUT_TYPE_SIGNATURE: "S3 location of the signature output"
+            }
 
         return model

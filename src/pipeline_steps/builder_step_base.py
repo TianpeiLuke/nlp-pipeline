@@ -165,7 +165,7 @@ class StepBuilderBase(ABC):
         """
         # Base implementation returns input_names from config
         # Subclasses can override this to add additional input requirements
-        return {k: v for k, v in self.config.input_names.items()}
+        return {k: v for k, v in (self.config.input_names or {}).items()}
     
     def get_output_properties(self) -> Dict[str, str]:
         """
@@ -180,7 +180,7 @@ class StepBuilderBase(ABC):
         """
         # Base implementation returns output_names from config
         # Subclasses can override this to add additional output properties
-        return {k: v for k, v in self.config.output_names.items()}
+        return {k: v for k, v in (self.config.output_names or {}).items()}
     
     @abstractmethod
     def create_step(self, *args, **kwargs) -> Step:

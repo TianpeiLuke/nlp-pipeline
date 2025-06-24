@@ -16,7 +16,7 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     )
 
     # Input/output names for evaluation with defaults
-    input_names: Dict[str, str] = Field(
+    input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "model_input": "Model artifacts input",
             "eval_data_input": "Evaluation data input"
@@ -24,7 +24,7 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         description="Mapping of input channel names to their descriptions."
     )
     
-    output_names: Dict[str, str] = Field(
+    output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "eval_output": "Output name for evaluation predictions",
             "metrics_output": "Output name for evaluation metrics"
@@ -68,7 +68,25 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         
         if not isinstance(self.hyperparameters, ModelHyperparameters):
             raise ValueError("hyperparameters must be an instance of ModelHyperparameters")
-            
+        
+        return self
+
+
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'XGBoostModelEvalConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "model_input": "Model artifacts input",
+                "eval_data_input": "Evaluation data input"
+            }
+        
+        if not self.output_names:
+            self.output_names = {
+                "eval_output": "Output name for evaluation predictions",
+                "metrics_output": "Output name for evaluation metrics"
+            }
+        
         return self
 
 
