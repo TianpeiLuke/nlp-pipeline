@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Any, List
 from pathlib import Path
 import logging
+import os, importlib
 
 from sagemaker.sklearn import SKLearnProcessor
 from sagemaker.processing import ProcessingInput, ProcessingOutput
@@ -8,6 +9,32 @@ from sagemaker.workflow.steps import ProcessingStep
 
 from .config_tabular_preprocessing_step import TabularPreprocessingConfig
 from .builder_step_base import StepBuilderBase
+
+# Import constants from the same module used by the data loading step
+try:
+    from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
+        OUTPUT_TYPE_DATA,
+        OUTPUT_TYPE_METADATA,
+        OUTPUT_TYPE_SIGNATURE,
+    )
+except ImportError:
+    # Fallback to dynamic import if the direct import fails
+    SECUREAI_PIPELINE_CONSTANTS_MODULE = os.environ.get("SECUREAI_PIPELINE_CONSTANTS_MODULE")
+    OUTPUT_TYPE_DATA = OUTPUT_TYPE_METADATA = OUTPUT_TYPE_SIGNATURE = None
+    if SECUREAI_PIPELINE_CONSTANTS_MODULE:
+        try:
+            const_mod = importlib.import_module(SECUREAI_PIPELINE_CONSTANTS_MODULE)
+            OUTPUT_TYPE_DATA      = getattr(const_mod, "OUTPUT_TYPE_DATA",      None)
+            OUTPUT_TYPE_METADATA  = getattr(const_mod, "OUTPUT_TYPE_METADATA",  None)
+            OUTPUT_TYPE_SIGNATURE = getattr(const_mod, "OUTPUT_TYPE_SIGNATURE", None)
+            logger.info(f"Imported pipeline constants from {SECUREAI_PIPELINE_CONSTANTS_MODULE}")
+        except ImportError as e:
+            logger.error(f"Could not import pipeline constants: {e}")
+    else:
+        logger.warning(
+            "SECUREAI_PIPELINE_CONSTANTS_MODULE not set; "
+            "pipeline constants (DATA, METADATA, SIGNATURE) unavailable."
+        )
 
 logger = logging.getLogger(__name__)
 
@@ -128,9 +155,22 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
+        # Get the data input key from config
         key_in = self.config.input_names["data_input"]
-        if not inputs or key_in not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_in}' in 'inputs'")
+        
+        # Check if inputs is empty or doesn't contain the required key
+        if not inputs:
+            raise ValueError(f"Inputs dictionary is empty. Must supply an S3 URI for '{key_in}'")
+        
+        # Try to find the input using the standard key or the constant
+        if key_in not in inputs:
+            # If the standard key is not found, try to find it using the constant
+            if OUTPUT_TYPE_DATA and OUTPUT_TYPE_DATA in inputs:
+                # Use the constant key instead
+                logger.info(f"Using {OUTPUT_TYPE_DATA} as input key instead of {key_in}")
+                key_in = OUTPUT_TYPE_DATA
+            else:
+                raise ValueError(f"Must supply an S3 URI for '{key_in}' in 'inputs'. Available keys: {list(inputs.keys())}")
 
         # Define the primary data input channel.
         processing_inputs = [
@@ -140,6 +180,46 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                 destination="/opt/ml/processing/input/data"
             )
         ]
+        
+        # Add optional metadata and signature inputs if available
+        if "metadata_input" in self.config.input_names:
+            metadata_key = self.config.input_names["metadata_input"]
+            if metadata_key in inputs:
+                processing_inputs.append(
+                    ProcessingInput(
+                        input_name=metadata_key,
+                        source=inputs[metadata_key],
+                        destination="/opt/ml/processing/input/metadata"
+                    )
+                )
+            elif OUTPUT_TYPE_METADATA and OUTPUT_TYPE_METADATA in inputs:
+                processing_inputs.append(
+                    ProcessingInput(
+                        input_name=OUTPUT_TYPE_METADATA,
+                        source=inputs[OUTPUT_TYPE_METADATA],
+                        destination="/opt/ml/processing/input/metadata"
+                    )
+                )
+        
+        if "signature_input" in self.config.input_names:
+            signature_key = self.config.input_names["signature_input"]
+            if signature_key in inputs:
+                processing_inputs.append(
+                    ProcessingInput(
+                        input_name=signature_key,
+                        source=inputs[signature_key],
+                        destination="/opt/ml/processing/input/signature"
+                    )
+                )
+            elif OUTPUT_TYPE_SIGNATURE and OUTPUT_TYPE_SIGNATURE in inputs:
+                processing_inputs.append(
+                    ProcessingInput(
+                        input_name=OUTPUT_TYPE_SIGNATURE,
+                        source=inputs[OUTPUT_TYPE_SIGNATURE],
+                        destination="/opt/ml/processing/input/signature"
+                    )
+                )
+        
         return processing_inputs
 
     def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
@@ -232,7 +312,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                             output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
                             if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
                                 # If this is a data load step, use it as data_input
-                                if key == "DATA" or key == "RawData":
+                                # Check for both the constants and fallback string values
+                                if (OUTPUT_TYPE_DATA and key == OUTPUT_TYPE_DATA) or key == "DATA" or key == "RawData":
                                     if "data_input" in self.config.input_names:
                                         input_key = self.config.input_names["data_input"]
                                         if not inputs:
@@ -240,6 +321,19 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                                         inputs[input_key] = output.S3Output.S3Uri
                                         logger.info(f"Found data_input from step: {prev_step.name}")
                                         break
+                                # Also check for metadata and signature if needed
+                                elif (OUTPUT_TYPE_METADATA and key == OUTPUT_TYPE_METADATA) and "metadata_input" in self.config.input_names:
+                                    input_key = self.config.input_names["metadata_input"]
+                                    if not inputs:
+                                        inputs = {}
+                                    inputs[input_key] = output.S3Output.S3Uri
+                                    logger.info(f"Found metadata_input from step: {prev_step.name}")
+                                elif (OUTPUT_TYPE_SIGNATURE and key == OUTPUT_TYPE_SIGNATURE) and "signature_input" in self.config.input_names:
+                                    input_key = self.config.input_names["signature_input"]
+                                    if not inputs:
+                                        inputs = {}
+                                    inputs[input_key] = output.S3Output.S3Uri
+                                    logger.info(f"Found signature_input from step: {prev_step.name}")
                 except (AttributeError, IndexError) as e:
                     logger.warning(f"Could not extract data output from step: {e}")
         
