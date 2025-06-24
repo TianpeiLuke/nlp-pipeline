@@ -103,13 +103,18 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
     ):
         logger.info(f"Loading configs from: {config_path}")
         self.configs = load_configs(config_path, CONFIG_CLASSES)
-        self._extract_configs()
+        self.base_config = self.configs.get('Base')
+        if not self.base_config:
+            raise ValueError("Base configuration not found in config file")
+            
         self.session = sagemaker_session
         self.role = role
         self.notebook_root = notebook_root or Path.cwd()
         
         self.cradle_loading_requests: Dict[str, Dict[str, Any]] = {}
         self.registration_configs: Dict[str, Dict[str, Any]] = {}
+        
+        # Validate preprocessing inputs
         self._validate_preprocessing_inputs()
         
         logger.info(f"Initialized builder for: {self.base_config.pipeline_name}")
@@ -118,7 +123,18 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         """Validate input channels in preprocessing configs."""
         allowed_inputs = self.REQUIRED_INPUTS | self.OPTIONAL_INPUTS
         
-        for cfg in [self.tp_train_cfg, self.tp_calib_cfg]:
+        # Find preprocessing configs
+        tp_configs = [cfg for name, cfg in self.configs.items() 
+                     if isinstance(cfg, TabularPreprocessingConfig)]
+        
+        if len(tp_configs) < 2:
+            raise ValueError("Expected at least two TabularPreprocessingConfig instances")
+            
+        for cfg in tp_configs:
+            # Ensure input_names is available
+            if not hasattr(cfg, 'input_names'):
+                cfg.input_names = cfg.get_input_names() if hasattr(cfg, 'get_input_names') else {}
+                
             missing = self.REQUIRED_INPUTS - set(cfg.input_names.keys())
             if missing:
                 raise ValueError(f"TabularPreprocessing config missing required input channels: {missing}")
@@ -126,111 +142,6 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             unknown = set(cfg.input_names.keys()) - allowed_inputs
             if unknown:
                 raise ValueError(f"TabularPreprocessing config contains unknown input channels: {unknown}")
-
-    def _find_config_key(self, class_name: str, **attrs: Any) -> str:
-        base = BasePipelineConfig.get_step_name(class_name)
-        candidates = [
-            step_name for step_name in self.configs
-            if step_name.startswith(base + "_") and
-               all(str(val) in step_name[len(base) + 1:].split("_") for val in attrs.values())
-        ]
-        if not candidates:
-            raise ValueError(f"No config found for {class_name} with {attrs}")
-        if len(candidates) > 1:
-            raise ValueError(f"Multiple configs found for {class_name} with {attrs}: {candidates}")
-        return candidates[0]
-
-    def _extract_configs(self):
-        self.base_config = self.configs['Base']
-        
-        # Cradle Data Load configs
-        self.cradle_train_cfg = self.configs[self._find_config_key('CradleDataLoadConfig', job_type='training')]
-        self.cradle_calib_cfg = self.configs[self._find_config_key('CradleDataLoadConfig', job_type='calibration')]
-        
-        # Tabular Preprocessing configs
-        self.tp_train_cfg = self.configs[self._find_config_key('TabularPreprocessingConfig', job_type='training')]
-        self.tp_calib_cfg = self.configs[self._find_config_key('TabularPreprocessingConfig', job_type='calibration')]
-        
-        # Hyperparameter Prep config
-        hyperparameter_prep_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, HyperparameterPrepConfig):
-                hyperparameter_prep_config_instance = cfg
-                break
-        if not hyperparameter_prep_config_instance:
-            raise ValueError("Could not find a configuration of type HyperparameterPrepConfig in the config file.")
-        self.hyperparameter_prep_cfg = hyperparameter_prep_config_instance
-        
-        # XGBoost Training config
-        xgb_train_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, XGBoostTrainingConfig):
-                xgb_train_config_instance = cfg
-                break
-        if not xgb_train_config_instance:
-            raise ValueError("Could not find a configuration of type XGBoostTrainingConfig in the config file.")
-        self.xgb_train_cfg = xgb_train_config_instance
-        
-        # XGBoost Model Evaluation config
-        xgb_eval_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, XGBoostModelEvalConfig):
-                xgb_eval_config_instance = cfg
-                break
-        if not xgb_eval_config_instance:
-            raise ValueError("Could not find a configuration of type XGBoostModelEvalConfig in the config file.")
-        self.xgb_eval_cfg = xgb_eval_config_instance
-        
-        # Package config
-        package_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, PackageStepConfig):
-                package_config_instance = cfg
-                break
-        if not package_config_instance:
-            raise ValueError("Could not find a configuration of type PackageStepConfig")
-        self.package_cfg = package_config_instance
-        
-        # Registration config
-        registration_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, ModelRegistrationConfig):
-                registration_config_instance = cfg
-                break
-        if not registration_config_instance:
-            raise ValueError("Could not find a configuration of type ModelRegistrationConfig")
-        self.registration_cfg = registration_config_instance
-        
-        # Payload config
-        payload_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, PayloadConfig):
-                payload_config_instance = cfg
-                break
-        if not payload_config_instance:
-            raise ValueError("Could not find a configuration of type PayloadConfig")
-        self.payload_cfg = payload_config_instance
-        
-        # Type checks
-        if not all(isinstance(c, CradleDataLoadConfig) for c in [self.cradle_train_cfg, self.cradle_calib_cfg]):
-            raise TypeError("Expected CradleDataLoadConfig for both training and calibration")
-        if not all(isinstance(c, TabularPreprocessingConfig) for c in [self.tp_train_cfg, self.tp_calib_cfg]):
-            raise TypeError("Expected TabularPreprocessingConfig for both data types")
-        if not isinstance(self.hyperparameter_prep_cfg, HyperparameterPrepConfig):
-            raise TypeError("Expected HyperparameterPrepConfig")
-        if not isinstance(self.xgb_train_cfg, XGBoostTrainingConfig):
-            raise TypeError("Expected XGBoostTrainingConfig")
-        if not isinstance(self.package_cfg, PackageStepConfig):
-            raise TypeError("Expected PackageStepConfig")
-        if not isinstance(self.registration_cfg, ModelRegistrationConfig):
-            raise TypeError("Expected ModelRegistrationConfig")
-        if not isinstance(self.payload_cfg, PayloadConfig):
-            raise TypeError("Expected PayloadConfig")
-        if not isinstance(self.xgb_eval_cfg, XGBoostModelEvalConfig):
-            raise TypeError("Expected XGBoostModelEvalConfig")
-
-        # Log successful config extraction
-        logger.info("Successfully extracted and validated all configurations")
 
     def _get_pipeline_parameters(self) -> List[ParameterString]:
         return [
@@ -255,42 +166,62 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         """Create a mapping from step names to config instances."""
         config_map = {}
         
+        # Find configs by type and job_type attribute
+        cradle_configs = {
+            getattr(cfg, 'job_type', 'unknown'): cfg 
+            for _, cfg in self.configs.items() 
+            if isinstance(cfg, CradleDataLoadConfig)
+        }
+        
+        tp_configs = {
+            getattr(cfg, 'job_type', 'unknown'): cfg 
+            for _, cfg in self.configs.items() 
+            if isinstance(cfg, TabularPreprocessingConfig)
+        }
+        
         # Add training flow steps
-        config_map["train_data_load"] = self.cradle_train_cfg
-        config_map["train_preprocess"] = self.tp_train_cfg
+        config_map["train_data_load"] = cradle_configs.get('training')
+        config_map["train_preprocess"] = tp_configs.get('training')
         
-        # Ensure tp_train_cfg has both input_names and output_names attributes
-        if not hasattr(self.tp_train_cfg, 'input_names'):
-            self.tp_train_cfg.input_names = self.tp_train_cfg.get_input_names()
-        if not hasattr(self.tp_train_cfg, 'output_names'):
-            self.tp_train_cfg.output_names = self.tp_train_cfg.get_output_names()
+        # Ensure configs have input_names and output_names attributes
+        for step_name, cfg in config_map.items():
+            if cfg and not hasattr(cfg, 'input_names'):
+                cfg.input_names = cfg.get_input_names() if hasattr(cfg, 'get_input_names') else {}
+            if cfg and not hasattr(cfg, 'output_names'):
+                cfg.output_names = cfg.get_output_names() if hasattr(cfg, 'get_output_names') else {}
         
-        # Add hyperparameter prep step
-        config_map["hyperparameter_prep"] = self.hyperparameter_prep_cfg
-            
-        config_map["xgboost_train"] = self.xgb_train_cfg
-        config_map["model_packaging"] = self.package_cfg
-        config_map["payload_test"] = self.payload_cfg
-        config_map["model_registration"] = self.registration_cfg
+        # Find single instance configs
+        for cfg_type, step_name in [
+            (HyperparameterPrepConfig, "hyperparameter_prep"),
+            (XGBoostTrainingConfig, "xgboost_train"),
+            (PackageStepConfig, "model_packaging"),
+            (PayloadConfig, "payload_test"),
+            (ModelRegistrationConfig, "model_registration"),
+            (XGBoostModelEvalConfig, "model_evaluation")
+        ]:
+            instances = [cfg for _, cfg in self.configs.items() if isinstance(cfg, cfg_type)]
+            if instances:
+                config_map[step_name] = instances[0]
+                # Ensure input_names and output_names attributes
+                if not hasattr(config_map[step_name], 'input_names'):
+                    config_map[step_name].input_names = (
+                        config_map[step_name].get_input_names() 
+                        if hasattr(config_map[step_name], 'get_input_names') else {}
+                    )
+                if not hasattr(config_map[step_name], 'output_names'):
+                    config_map[step_name].output_names = (
+                        config_map[step_name].get_output_names() 
+                        if hasattr(config_map[step_name], 'get_output_names') else {}
+                    )
         
         # Add calibration flow steps
-        config_map["calib_data_load"] = self.cradle_calib_cfg
-        config_map["calib_preprocess"] = self.tp_calib_cfg
+        config_map["calib_data_load"] = cradle_configs.get('calibration')
+        config_map["calib_preprocess"] = tp_configs.get('calibration')
         
-        # Ensure tp_calib_cfg has both input_names and output_names attributes
-        if not hasattr(self.tp_calib_cfg, 'input_names'):
-            self.tp_calib_cfg.input_names = self.tp_calib_cfg.get_input_names()
-        if not hasattr(self.tp_calib_cfg, 'output_names'):
-            self.tp_calib_cfg.output_names = self.tp_calib_cfg.get_output_names()
-        
-        # Add model evaluation step
-        config_map["model_evaluation"] = self.xgb_eval_cfg
-        
-        # Ensure xgb_eval_cfg has both input_names and output_names attributes
-        if not hasattr(self.xgb_eval_cfg, 'input_names'):
-            self.xgb_eval_cfg.input_names = self.xgb_eval_cfg.get_input_names()
-        if not hasattr(self.xgb_eval_cfg, 'output_names'):
-            self.xgb_eval_cfg.output_names = self.xgb_eval_cfg.get_output_names()
+        # Validate all required configs are present
+        missing_configs = [name for name, cfg in config_map.items() if cfg is None]
+        if missing_configs:
+            raise ValueError(f"Missing required configurations: {missing_configs}")
         
         return config_map
 
@@ -315,9 +246,8 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         dag.add_edge("train_preprocess", "xgboost_train")
         dag.add_edge("hyperparameter_prep", "xgboost_train")
         dag.add_edge("xgboost_train", "model_packaging")
-        # Removed dependency between model_packaging and payload_test as payload_test doesn't depend on any step
-        dag.add_edge("model_packaging", "model_registration")  # Added dependency from model_packaging to model_registration
-        dag.add_edge("payload_test", "model_registration")  # Registration depends on both model_packaging and payload_test
+        dag.add_edge("model_packaging", "model_registration")
+        dag.add_edge("payload_test", "model_registration")
         
         # Add edges for calibration flow
         dag.add_edge("calib_data_load", "calib_preprocess")
@@ -377,13 +307,20 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             pipeline_configs[step_name]["STEP_CONFIG"] = request_dict
             logger.info(f"Updated execution config for Cradle step: {step_name}")
 
+        # Find registration config
+        registration_cfg = next(
+            (cfg for _, cfg in self.configs.items() if isinstance(cfg, ModelRegistrationConfig)), 
+            None
+        )
+        
         # Fill Registration configurations
-        for step_name, config in self.registration_configs.items():
-            registration_step_name = f"Registration_{self.registration_cfg.region}"
-            if registration_step_name not in pipeline_configs:
-                logger.warning(f"Registration step '{registration_step_name}' not found in execution document")
-                continue
-            pipeline_configs[registration_step_name]["STEP_CONFIG"] = config
-            logger.info(f"Updated execution config for registration step: {registration_step_name}")
+        if registration_cfg:
+            for step_name, config in self.registration_configs.items():
+                registration_step_name = f"Registration_{registration_cfg.region}"
+                if registration_step_name not in pipeline_configs:
+                    logger.warning(f"Registration step '{registration_step_name}' not found in execution document")
+                    continue
+                pipeline_configs[registration_step_name]["STEP_CONFIG"] = config
+                logger.info(f"Updated execution config for registration step: {registration_step_name}")
 
         return execution_document
