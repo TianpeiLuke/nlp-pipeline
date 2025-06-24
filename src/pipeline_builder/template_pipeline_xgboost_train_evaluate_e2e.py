@@ -315,8 +315,9 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         dag.add_edge("train_preprocess", "xgboost_train")
         dag.add_edge("hyperparameter_prep", "xgboost_train")
         dag.add_edge("xgboost_train", "model_packaging")
-        dag.add_edge("model_packaging", "payload_test")
-        dag.add_edge("payload_test", "model_registration")
+        # Removed dependency between model_packaging and payload_test as payload_test doesn't depend on any step
+        dag.add_edge("model_packaging", "model_registration")  # Added dependency from model_packaging to model_registration
+        dag.add_edge("payload_test", "model_registration")  # Registration depends on both model_packaging and payload_test
         
         # Add edges for calibration flow
         dag.add_edge("calib_data_load", "calib_preprocess")
