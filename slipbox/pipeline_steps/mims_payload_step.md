@@ -8,7 +8,21 @@ The MIMS Payload Step generates and uploads test payloads for a model to be regi
 3. Uploads the archive to an S3 location
 4. Provides the S3 URI for use in model testing and registration
 
-This step is typically used in conjunction with the [MIMS Registration Step](mims_registration_step.md) to ensure the model can be properly tested during the registration process.
+This step is a key component in the MIMS registration workflow:
+- It generates sample payloads based on the model's input and output schema
+- Its output (payload S3 URI) is a required input for the [MIMS Registration Step](mims_registration_step.md)
+- It typically runs after the [MIMS Packaging Step](mims_packaging_step.md) and before the registration step
+
+In the pipeline templates (e.g., `template_pipeline_pytorch_model_registration.py`), this step is positioned between the packaging step and the registration step, as seen in the DAG configuration:
+```python
+# Define the DAG structure
+nodes = ["CreatePytorchModelStep", "PackagingStep", "PayloadStep", "RegistrationStep"]
+edges = [
+    ("CreatePytorchModelStep", "PackagingStep"),
+    ("PackagingStep", "PayloadStep"),
+    ("PayloadStep", "RegistrationStep")
+]
+```
 
 ## Input and Output Format
 

@@ -8,7 +8,12 @@ The MIMS Packaging Step prepares a trained model for deployment in the Model Inv
 3. Outputs the packaged model to an S3 location
 4. Prepares the model for subsequent registration with MIMS
 
-This step is typically used in conjunction with the [MIMS Payload Step](mims_payload_step.md) and [MIMS Registration Step](mims_registration_step.md) to complete the model registration process.
+This step is a critical part of the MIMS registration workflow:
+- It receives model artifacts from a previous training or model creation step
+- Its output (packaged model) is a required input for the [MIMS Registration Step](mims_registration_step.md)
+- It typically runs in parallel with the [MIMS Payload Step](mims_payload_step.md), which generates test payloads for the model
+
+In the pipeline templates (e.g., `template_pipeline_pytorch_model_registration.py`), this step is positioned between the model creation step and the payload/registration steps.
 
 ## Input and Output Format
 
@@ -146,3 +151,7 @@ pipeline = template.generate_pipeline("my-pipeline")
 ```
 
 For more details on how the Pipeline Builder Template handles connections between steps, see the [Pipeline Builder documentation](../pipeline_builder/README.md).
+
+## Related Steps
+- [MIMS Payload Step](mims_payload_step.md): Generates test payloads for the model
+- [MIMS Registration Step](mims_registration_step.md): Registers the packaged model with MIMS
