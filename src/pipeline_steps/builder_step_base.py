@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Any
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 import logging
 from sagemaker.workflow.pipeline_context import PipelineSession
@@ -183,6 +183,7 @@ class StepBuilderBase(ABC):
         # Subclasses can override this to add additional output properties
         return {k: v for k, v in (self.config.output_names or {}).items()}
     
+    @abstractmethod
     def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
         """
         Extract inputs from dependency steps.
@@ -198,7 +199,7 @@ class StepBuilderBase(ABC):
         """
         # Base implementation returns an empty dictionary
         # Subclasses should override this to extract specific inputs
-        return {}
+        pass
     
     @abstractmethod
     def create_step(self, **kwargs) -> Step:
