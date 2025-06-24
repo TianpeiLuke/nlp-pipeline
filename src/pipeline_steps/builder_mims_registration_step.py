@@ -1,10 +1,17 @@
-from typing import Dict, Optional, Any, List, Set
+from typing import Dict, Optional, Any, List, Set, Union
 from pathlib import Path
 import logging
+import os
+import importlib
 
-from sagemaker.workflow.steps import ProcessingStep, Step
-from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.sklearn import SKLearnProcessor
+from sagemaker.workflow.steps import Step
+from sagemaker.processing import ProcessingInput
+from sagemaker.workflow.properties import Properties
+
+# Import the customized step
+from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_registration_processing_step import (
+    MimsModelRegistrationProcessingStep,
+)
 
 from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
@@ -86,27 +93,6 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         
         logger.info("ModelRegistrationConfig validation succeeded.")
 
-    def _create_processor(self) -> SKLearnProcessor:
-        """
-        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
-        This defines the execution environment for the script, including the instance
-        type, framework version, and environment variables.
-
-        Returns:
-            An instance of sagemaker.sklearn.SKLearnProcessor.
-        """
-        return SKLearnProcessor(
-            framework_version=self.config.processing_framework_version,
-            role=self.role,
-            instance_type=self.config.processing_instance_type,
-            instance_count=self.config.processing_instance_count,
-            volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('ModelRegistration')}-{self.config.region}"
-            ),
-            sagemaker_session=self.session,
-            env=self._get_environment_variables(),
-        )
 
     def _get_environment_variables(self) -> Dict[str, str]:
         """
@@ -142,7 +128,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         logger.info(f"Processing environment variables: {env_vars}")
         return env_vars
 
-    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+    def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
         Constructs a list of ProcessingInput objects from the provided inputs dictionary.
         This defines the data channels for the processing job, mapping S3 locations
@@ -172,45 +158,26 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Define the input channels
         processing_inputs = [
             ProcessingInput(
-                input_name=model_package_key,
                 source=inputs[model_package_key],
-                destination="/opt/ml/processing/input/model_package"
-            ),
-            ProcessingInput(
-                input_name=payload_key,
-                source=inputs[payload_key],
-                destination="/opt/ml/processing/input/payload"
+                destination="/opt/ml/processing/input/model",
+                s3_data_distribution_type="FullyReplicated",
+                s3_input_mode="File"
             )
         ]
+        
+        # Add payload input if available
+        if payload_key in inputs:
+            processing_inputs.append(
+                ProcessingInput(
+                    source=inputs[payload_key],
+                    destination="/opt/ml/processing/mims_payload",
+                    s3_data_distribution_type="FullyReplicated",
+                    s3_input_mode="File"
+                )
+            )
         
         return processing_inputs
 
-    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        """
-        Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 location where the results of the processing job will be stored.
-
-        Args:
-            outputs: A dictionary mapping the logical output channel name ('registration_output')
-                     to its S3 destination URI.
-
-        Returns:
-            A list containing sagemaker.processing.ProcessingOutput objects.
-        """
-        key_out = self.config.output_names["registration_output"]
-        if not outputs or key_out not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
-        
-        # Define the output for the registration
-        processing_outputs = [
-            ProcessingOutput(
-                output_name=key_out,
-                source="/opt/ml/processing/output",
-                destination=outputs[key_out]
-            )
-        ]
-        
-        return processing_outputs
 
     def _get_job_arguments(self) -> List[str]:
         """
@@ -232,8 +199,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Get input requirements from config's input_names
         input_reqs = {
             "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
-            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
-            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
+            "dependencies": self.COMMON_PROPERTIES["dependencies"],
+            "performance_metadata_location": "Optional S3 location of performance metadata file"
         }
         return input_reqs
     
@@ -304,53 +271,53 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 
         return matched_inputs
     
-    def create_step(self, **kwargs) -> ProcessingStep:
+    def create_step(self, **kwargs) -> Step:
         """
-        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
-        This method orchestrates the assembly of the processor, inputs, outputs, and
-        script arguments into a single, executable pipeline step.
+        Creates a specialized MimsModelRegistrationProcessingStep for the pipeline.
+        This method orchestrates the assembly of the inputs and configuration
+        into a single, executable pipeline step.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
-                - outputs: A dictionary mapping output channel names to their S3 destinations.
                 - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache the results of this step
-                                to speed up subsequent pipeline runs with the same inputs.
+                - performance_metadata_location: Optional S3 location of performance metadata file.
+                  If not provided, no performance metadata will be used.
 
         Returns:
-            A configured sagemaker.workflow.steps.ProcessingStep instance.
+            A configured MimsModelRegistrationProcessingStep instance.
         """
-        logger.info("Creating ModelRegistration ProcessingStep...")
+        logger.info("Creating MimsModelRegistrationProcessingStep...")
 
         # Extract parameters
         inputs = self._extract_param(kwargs, 'inputs')
-        outputs = self._extract_param(kwargs, 'outputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
-        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
+        performance_metadata_location = self._extract_param(kwargs, 'performance_metadata_location')
         
         # Validate required parameters
         if not inputs:
             raise ValueError("inputs must be provided")
-        if not outputs:
-            raise ValueError("outputs must be provided")
 
-        processor = self._create_processor()
-        proc_inputs = self._get_processor_inputs(inputs)
-        proc_outputs = self._get_processor_outputs(outputs)
-        job_args = self._get_job_arguments()
+        # Get processing inputs
+        processing_inputs = self._get_processing_inputs(inputs)
 
+        # Create step name
         step_name = f"{self._get_step_name('ModelRegistration')}-{self.config.region}"
         
-        processing_step = ProcessingStep(
-            name=step_name,
-            processor=processor,
-            inputs=proc_inputs,
-            outputs=proc_outputs,
-            code=self.config.get_script_path(),
-            job_arguments=job_args,
-            depends_on=dependencies or [],
-            cache_config=self._get_cache_config(enable_caching)
-        )
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
-        return processing_step
+        # Create the specialized step
+        try:
+            registration_step = MimsModelRegistrationProcessingStep(
+                step_name=step_name,
+                role=self.role,
+                sagemaker_session=self.session,
+                processing_input=processing_inputs,
+                performance_metadata_location=performance_metadata_location,
+                depends_on=dependencies or []
+            )
+            
+            logger.info(f"Created MimsModelRegistrationProcessingStep with name: {registration_step.name}")
+            return registration_step
+            
+        except Exception as e:
+            logger.error(f"Error creating MimsModelRegistrationProcessingStep: {e}")
+            raise ValueError(f"Failed to create MimsModelRegistrationProcessingStep: {e}") from e
