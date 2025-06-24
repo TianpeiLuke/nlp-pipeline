@@ -183,16 +183,55 @@ class StepBuilderBase(ABC):
         # Subclasses can override this to add additional output properties
         return {k: v for k, v in (self.config.output_names or {}).items()}
     
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by this step from the dependency steps.
+        It should be overridden by step builders that need to extract specific inputs.
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        # Base implementation returns an empty dictionary
+        # Subclasses should override this to extract specific inputs
+        return {}
+    
     @abstractmethod
-    def create_step(self, *args, **kwargs) -> Step:
+    def create_step(self, **kwargs) -> Step:
         """
         Create pipeline step.
         
+        This method should be implemented by all step builders to create a SageMaker pipeline step.
+        It accepts a dictionary of keyword arguments that can be used to configure the step.
+        
+        Common parameters that all step builders should handle:
+        - dependencies: Optional list of steps that this step depends on
+        - enable_caching: Whether to enable caching for this step (default: True)
+        
+        Step-specific parameters should be extracted from kwargs as needed.
+        
         Args:
-            *args: Positional arguments
-            **kwargs: Keyword arguments
+            **kwargs: Keyword arguments for configuring the step
             
         Returns:
             SageMaker pipeline step
         """
         pass
+    
+    def _extract_param(self, kwargs: Dict[str, Any], param_name: str, default=None):
+        """
+        Extract a parameter from kwargs with a default value if not present.
+        
+        Args:
+            kwargs: Dictionary of keyword arguments
+            param_name: Name of the parameter to extract
+            default: Default value to use if parameter is not present
+            
+        Returns:
+            Value of the parameter or default value
+        """
+        return kwargs.get(param_name, default)

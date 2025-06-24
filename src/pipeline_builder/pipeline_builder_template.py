@@ -204,9 +204,17 @@ class PipelineBuilderTemplate:
         # This allows steps to get inputs directly from their config
         self._add_config_inputs(kwargs, config)
         
-        # Extract inputs from dependency steps using message passing results
+        # Extract inputs from dependency steps using the step builder's extract_inputs_from_dependencies method
         if dependency_steps:
-            self._extract_inputs_from_dependencies(kwargs, step_name, dependency_steps)
+            # Use the step builder's extract_inputs_from_dependencies method if available
+            try:
+                extracted_inputs = builder.extract_inputs_from_dependencies(dependency_steps)
+                kwargs.update(extracted_inputs)
+                logger.info(f"Extracted inputs for {step_name} using step builder's extract_inputs_from_dependencies method")
+            except Exception as e:
+                logger.warning(f"Error extracting inputs using step builder's method: {e}")
+                # Fallback to the original extraction method
+                self._extract_inputs_from_dependencies(kwargs, step_name, dependency_steps)
         
         # Create the step with extracted inputs
         try:

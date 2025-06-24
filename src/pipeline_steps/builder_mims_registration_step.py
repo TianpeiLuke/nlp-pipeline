@@ -177,16 +177,81 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if hasattr(self.config, "output_names"):
             output_props.update({k: v for k, v in self.config.output_names.items()})
         return output_props
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the ModelRegistrationStep from the dependency steps.
+        Specifically, it looks for:
+        1. packaging_step_output from a PackagingStep
+        2. payload_s3_key from a PayloadStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for packaging_step_output from a PackagingStep
+        for prev_step in dependency_steps:
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    # Try to get the packaged model output
+                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                        # Try string keys (dict-like)
+                        if "packaged_model_output" in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs["packaged_model_output"]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                inputs["packaging_step_output"] = output.S3Output.S3Uri
+                                logger.info(f"Found packaging_step_output from PackagingStep: {prev_step.name}")
+                                break
+                except (AttributeError, IndexError) as e:
+                    logger.warning(f"Could not extract packaged model output from step: {e}")
+        
+        # Look for payload_s3_key from a PayloadStep
+        for prev_step in dependency_steps:
+            # Check if this is a payload step
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "payload_s3_key"):
+                try:
+                    inputs["payload_s3_key"] = prev_step.properties.payload_s3_key
+                    logger.info(f"Found payload_s3_key from PayloadStep: {prev_step.name}")
+                    break
+                except AttributeError as e:
+                    logger.warning(f"Could not extract payload_s3_key from step: {e}")
+        
+        # Add enable_caching
+        inputs["enable_caching"] = True
+        
+        return inputs
     
-    def create_step(
-        self,
-        packaging_step_output: Union[str, Properties],
-        dependencies: Optional[List[Step]] = None,
-        payload_s3_key: Optional[str] = None,
-        regions: Optional[List[str]] = None,
-    ) -> Union[Step, Dict[str, Step]]:
-        """Create registration steps for specified regions."""
-        regions = regions or [self.config.region]
+    def create_step(self, **kwargs) -> Union[Step, Dict[str, Step]]:
+        """
+        Create registration steps for specified regions.
+        
+        Args:
+            **kwargs: Keyword arguments for configuring the step, including:
+                - packaging_step_output: Output from the packaging step (required)
+                - dependencies: Optional list of steps this step depends on
+                - payload_s3_key: Optional S3 key for the payload
+                - regions: Optional list of regions for registration
+                - enable_caching: Whether to enable caching for this step (default: True)
+        
+        Returns:
+            A single registration step or a dictionary of registration steps by region
+        """
+        # Extract parameters
+        packaging_step_output = self._extract_param(kwargs, 'packaging_step_output')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        payload_s3_key = self._extract_param(kwargs, 'payload_s3_key')
+        regions = self._extract_param(kwargs, 'regions', [self.config.region])
+        
+        # Validate required parameters
+        if not packaging_step_output:
+            raise ValueError("packaging_step_output must be provided")
+            
         self._validate_regions(regions)
 
         if isinstance(packaging_step_output, Properties):

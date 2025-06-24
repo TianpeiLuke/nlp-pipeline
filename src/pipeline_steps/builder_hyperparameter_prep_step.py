@@ -93,25 +93,40 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         # Add the hyperparameters_s3_uri as an output property
         output_props["hyperparameters_s3_uri"] = "S3 URI of the hyperparameters.json file"
         return output_props
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        The HyperparameterPrepStep doesn't require any inputs from dependency steps,
+        as it gets its hyperparameters from its config.
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        # This step doesn't require any inputs from dependency steps
+        return {"enable_caching": True}
 
-    def create_step(
-        self,
-        enable_caching: bool = True,
-        dependencies: Optional[List[Any]] = None
-    ) -> LambdaStep:
+    def create_step(self, **kwargs) -> LambdaStep:
         """
         Creates a SageMaker LambdaStep for the pipeline.
         This method creates a Lambda function that serializes hyperparameters to JSON
         and uploads them to S3.
 
         Args:
-            enable_caching: A boolean indicating whether to cache the results of this step
-                            to speed up subsequent pipeline runs with the same inputs.
-            dependencies: A list of steps that this step depends on.
+            **kwargs: Keyword arguments for configuring the step, including:
+                - enable_caching: Whether to enable caching for this step (default: True)
+                - dependencies: Optional list of steps that this step depends on
 
         Returns:
             A configured sagemaker.workflow.lambda_step.LambdaStep instance.
         """
+        # Extract common parameters
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
+        dependencies = self._extract_param(kwargs, 'dependencies', None)
         logger.info("Creating HyperparameterPrep LambdaStep...")
 
         step_name = self._get_step_name('HyperparameterPrep')

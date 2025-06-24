@@ -100,15 +100,77 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             Dictionary mapping output property names to descriptions
         """
         return {k: v for k, v in self.config.output_names.items()}
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the XGBoostTrainingStep from the dependency steps.
+        Specifically, it looks for:
+        1. hyperparameters_s3_uri from a HyperparameterPrepStep
+        2. input_path from a TabularPreprocessingStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for hyperparameters_s3_uri from a HyperparameterPrepStep
+        for prev_step in dependency_steps:
+            if hasattr(prev_step, "hyperparameters_s3_uri"):
+                # For LambdaStep, the output is in properties.Outputs
+                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
+                    if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
+                        inputs["hyperparameters_s3_uri"] = prev_step.properties.Outputs["hyperparameters_s3_uri"]
+                        logger.info(f"Found hyperparameters_s3_uri from Lambda step: {prev_step.name}")
+                        break
+                # For direct property access (backward compatibility)
+                else:
+                    inputs["hyperparameters_s3_uri"] = prev_step.hyperparameters_s3_uri
+                    logger.info(f"Found hyperparameters_s3_uri from step: {prev_step.name}")
+                    break
+        
+        # Look for input_path from a TabularPreprocessingStep
+        for prev_step in dependency_steps:
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    # Try to get the processed data output
+                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                        # Try string keys (dict-like)
+                        if "ProcessedTabularData" in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                inputs["input_path"] = output.S3Output.S3Uri
+                                logger.info(f"Found input_path from TabularPreprocessingStep: {prev_step.name}")
+                                break
+                except (AttributeError, IndexError) as e:
+                    logger.warning(f"Could not extract processed data output from step: {e}")
+        
+        # Add enable_caching
+        inputs["enable_caching"] = True
+        
+        return inputs
     
-    def create_step(self, dependencies: Optional[List[Step]] = None, hyperparameters_s3_uri: Optional[str] = None) -> TrainingStep:
+    def create_step(self, **kwargs) -> TrainingStep:
         """
         Create XGBoost training step with data and config inputs.
         
         Args:
-            dependencies: Optional list of steps this step depends on
-            hyperparameters_s3_uri: S3 URI to the hyperparameters.json file
+            **kwargs: Keyword arguments for configuring the step, including:
+                - dependencies: Optional list of steps this step depends on
+                - hyperparameters_s3_uri: S3 URI to the hyperparameters.json file
+                - enable_caching: Whether to enable caching for this step (default: True)
+        
+        Returns:
+            A configured sagemaker.workflow.steps.TrainingStep instance
         """
+        # Extract common parameters
+        dependencies = self._extract_param(kwargs, 'dependencies', None)
+        hyperparameters_s3_uri = self._extract_param(kwargs, 'hyperparameters_s3_uri', None)
+        
         # Validate hyperparameters_s3_uri
         if not hyperparameters_s3_uri:
             raise ValueError("hyperparameters_s3_uri must be provided")
