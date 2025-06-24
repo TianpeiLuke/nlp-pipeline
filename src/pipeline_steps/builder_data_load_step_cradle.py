@@ -4,10 +4,44 @@ import logging
 import os
 import json
 import importlib
+from datetime import datetime
 
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.sklearn import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep, Step
+
+# Import CradleDataLoadingStep
+from secure_ai_sandbox_workflow_python_sdk.cradle_data_loading.cradle_data_loading_step import (
+    CradleDataLoadingStep,
+)
+
+# Import Cradle models for request building
+try:
+    from com.amazon.secureaisandboxproxyservice.models.field import Field
+    from com.amazon.secureaisandboxproxyservice.models.datasource import DataSource
+    from com.amazon.secureaisandboxproxyservice.models.mdsdatasourceproperties import MdsDataSourceProperties
+    from com.amazon.secureaisandboxproxyservice.models.edxdatasourceproperties import EdxDataSourceProperties
+    from com.amazon.secureaisandboxproxyservice.models.andesdatasourceproperties import AndesDataSourceProperties
+    from com.amazon.secureaisandboxproxyservice.models.datasourcesspecification import DataSourcesSpecification
+    from com.amazon.secureaisandboxproxyservice.models.jobsplitoptions import JobSplitOptions
+    from com.amazon.secureaisandboxproxyservice.models.transformspecification import TransformSpecification
+    from com.amazon.secureaisandboxproxyservice.models.outputspecification import OutputSpecification
+    from com.amazon.secureaisandboxproxyservice.models.cradlejobspecification import CradleJobSpecification
+    from com.amazon.secureaisandboxproxyservice.models.createcradledataloadjobrequest import CreateCradleDataLoadJobRequest
+    CRADLE_MODELS_AVAILABLE = True
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("Cradle models not available. _build_request and get_request_dict will not work.")
+    CRADLE_MODELS_AVAILABLE = False
+
+# Import coral utils for request conversion
+try:
+    from secure_ai_sandbox_python_lib.utils import coral_utils
+    CORAL_UTILS_AVAILABLE = True
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("coral_utils not available. get_request_dict will not work.")
+    CORAL_UTILS_AVAILABLE = False
 
 from .config_data_load_step_cradle import CradleDataLoadConfig
 from .builder_step_base import StepBuilderBase
@@ -281,24 +315,25 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         # No custom properties to match for this step
         return matched_inputs
     
-    def create_step(self, **kwargs) -> ProcessingStep:
+    def create_step(self, **kwargs) -> Step:
         """
-        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
-        This method orchestrates the assembly of the processor, inputs, outputs, and
-        script arguments into a single, executable pipeline step.
+        Creates a specialized CradleDataLoadingStep for Cradle data loading.
+        
+        This method creates a CradleDataLoadingStep that directly interacts with the
+        Cradle service to load data.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - outputs: A dictionary mapping output channel names to their S3 destinations.
                 - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache the results of this step
-                                to speed up subsequent pipeline runs with the same inputs.
+                - enable_caching: A boolean indicating whether to cache the results of this step.
 
         Returns:
-            A configured sagemaker.workflow.steps.ProcessingStep instance.
+            Step: A CradleDataLoadingStep instance.
+            
+        Raises:
+            ValueError: If there's an error creating the CradleDataLoadingStep.
         """
-        logger.info("Creating CradleDataLoading ProcessingStep...")
-
         # Extract parameters
         outputs = self._extract_param(kwargs, 'outputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
@@ -307,22 +342,305 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         # Validate required parameters
         if not outputs:
             raise ValueError("outputs must be provided")
-
-        processor = self._create_processor()
-        proc_outputs = self._get_processor_outputs(outputs)
-        job_args = self._get_job_arguments()
-
+            
+        # Create the step name
         step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
         
-        processing_step = ProcessingStep(
-            name=step_name,
-            processor=processor,
-            inputs=[],  # No inputs for data loading
-            outputs=proc_outputs,
-            code=self.config.get_script_path(),
-            job_arguments=job_args,
-            depends_on=dependencies or [],
-            cache_config=self._get_cache_config(enable_caching)
-        )
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
-        return processing_step
+        logger.info("Creating CradleDataLoadingStep...")
+        try:
+            # Create a CradleDataLoadingStep
+            step = CradleDataLoadingStep(
+                step_name=step_name,
+                role=self.role,
+                sagemaker_session=self.session
+            )
+            
+            # Set dependencies if provided
+            if dependencies:
+                step.add_depends_on(dependencies)
+            
+            logger.info(f"Created CradleDataLoadingStep with name: {step.name}")
+            
+            # Get the output locations for logging
+            output_locations = step.get_output_locations()
+            logger.info(f"CradleDataLoadingStep output locations: {output_locations}")
+            
+            return step
+            
+        except Exception as e:
+            logger.error(f"Error creating CradleDataLoadingStep: {e}")
+            raise ValueError(f"Failed to create CradleDataLoadingStep: {e}") from e
+        
+    def _build_request(self) -> Any:
+        """
+        Convert self.config → a CreateCradleDataLoadJobRequest instance under the hood.
+        
+        This method builds a Cradle data load request from the configuration, which can be
+        used to fill in the execution document or for logging purposes.
+        
+        Returns:
+            CreateCradleDataLoadJobRequest: The request object for Cradle data loading
+            
+        Raises:
+            ImportError: If the required Cradle models are not available
+        """
+        if not CRADLE_MODELS_AVAILABLE:
+            raise ImportError("Cradle models not available. Cannot build request.")
+            
+        # Check if we have the necessary configuration attributes
+        required_attrs = [
+            'data_sources_spec',
+            'transform_spec',
+            'output_spec',
+            'cradle_job_spec'
+        ]
+        
+        for attr in required_attrs:
+            if not hasattr(self.config, attr) or getattr(self.config, attr) is None:
+                raise ValueError(f"CradleDataLoadConfig missing required attribute: {attr}")
+        
+        try:
+            # (a) Build each DataSource from data_sources_spec.data_sources
+            data_source_models: List[DataSource] = []
+            for ds_cfg in self.config.data_sources_spec.data_sources:
+                if ds_cfg.data_source_type == "MDS":
+                    mds_props_cfg = ds_cfg.mds_data_source_properties
+                    mds_props = MdsDataSourceProperties(
+                        service_name=mds_props_cfg.service_name,
+                        org_id=mds_props_cfg.org_id,
+                        region=mds_props_cfg.region,
+                        output_schema=[
+                            Field(field_name=f["field_name"], field_type=f["field_type"])
+                            for f in mds_props_cfg.output_schema
+                        ],
+                        use_hourly_edx_data_set=mds_props_cfg.use_hourly_edx_data_set,
+                    )
+                    data_source_models.append(
+                        DataSource(
+                            data_source_name=ds_cfg.data_source_name,
+                            data_source_type="MDS",
+                            mds_data_source_properties=mds_props,
+                            edx_data_source_properties=None,
+                        )
+                    )
+
+                elif ds_cfg.data_source_type == "EDX":
+                    edx_props_cfg = ds_cfg.edx_data_source_properties
+                    edx_props = EdxDataSourceProperties(
+                        edx_arn=edx_props_cfg.edx_manifest,
+                        schema_overrides=[
+                            Field(field_name=f["field_name"], field_type=f["field_type"])
+                            for f in edx_props_cfg.schema_overrides
+                        ],
+                    )
+                    data_source_models.append(
+                        DataSource(
+                            data_source_name=ds_cfg.data_source_name,
+                            data_source_type="EDX",
+                            mds_data_source_properties=None,
+                            edx_data_source_properties=edx_props,
+                        )
+                    )
+                elif ds_cfg.data_source_type == "ANDES":
+                    andes_props_cfg = ds_cfg.andes_data_source_properties
+                    if andes_props_cfg.andes3_enabled:
+                        logger.info(f"ANDES 3.0 is enabled for table {andes_props_cfg.table_name}")
+                    andes_props = AndesDataSourceProperties(
+                        provider=andes_props_cfg.provider,
+                        table_name=andes_props_cfg.table_name,
+                        andes3_enabled=andes_props_cfg.andes3_enabled,
+                    )
+                    data_source_models.append(
+                        DataSource(
+                            data_source_name=ds_cfg.data_source_name,
+                            data_source_type="ANDES",
+                            mds_data_source_properties=None,
+                            edx_data_source_properties=None,
+                            andes_data_source_properties=andes_props,
+                        )
+                    )
+
+            # (b) DataSourcesSpecification
+            ds_spec_cfg = self.config.data_sources_spec
+            data_sources_spec = DataSourcesSpecification(
+                start_date=ds_spec_cfg.start_date,
+                end_date=ds_spec_cfg.end_date,
+                data_sources=data_source_models,
+            )
+
+            # (c) TransformSpecification
+            transform_spec_cfg = self.config.transform_spec
+            jso = transform_spec_cfg.job_split_options
+            split_opts = JobSplitOptions(
+                split_job=jso.split_job,
+                days_per_split=jso.days_per_split,
+                merge_sql=jso.merge_sql or "",
+            )
+            transform_spec = TransformSpecification(
+                transform_sql=transform_spec_cfg.transform_sql,
+                job_split_options=split_opts,
+            )
+
+            # (d) OutputSpecification
+            output_spec_cfg = self.config.output_spec
+            output_spec = OutputSpecification(
+                output_schema=output_spec_cfg.output_schema,
+                output_path=output_spec_cfg.output_path,
+                output_format=output_spec_cfg.output_format,
+                output_save_mode=output_spec_cfg.output_save_mode,
+                output_file_count=output_spec_cfg.output_file_count,
+                keep_dot_in_output_schema=output_spec_cfg.keep_dot_in_output_schema,
+                include_header_in_s3_output=output_spec_cfg.include_header_in_s3_output,
+            )
+
+            # (e) CradleJobSpecification
+            cradle_job_spec_cfg = self.config.cradle_job_spec
+            cradle_job_spec = CradleJobSpecification(
+                cluster_type=cradle_job_spec_cfg.cluster_type,
+                cradle_account=cradle_job_spec_cfg.cradle_account,
+                extra_spark_job_arguments=cradle_job_spec_cfg.extra_spark_job_arguments or "",
+                job_retry_count=cradle_job_spec_cfg.job_retry_count,
+            )
+
+            # (f) Build the final CreateCradleDataLoadJobRequest
+            request = CreateCradleDataLoadJobRequest(
+                data_sources=data_sources_spec,
+                transform_specification=transform_spec,
+                output_specification=output_spec,
+                cradle_job_specification=cradle_job_spec,
+            )
+
+            return request
+            
+        except Exception as e:
+            logger.error(f"Error building Cradle request: {e}")
+            raise ValueError(f"Failed to build Cradle request: {e}") from e
+    
+    def get_request_dict(self) -> Dict[str, Any]:
+        """
+        Return the CradleDataLoad request as a plain Python dict.
+        
+        This method is useful for logging or for passing to StepOperator.
+        It builds the request using _build_request and then converts it to a dictionary.
+        
+        Returns:
+            Dict[str, Any]: The request as a dictionary
+            
+        Raises:
+            ImportError: If coral_utils is not available
+            ValueError: If the request could not be built
+        """
+        if not CORAL_UTILS_AVAILABLE:
+            raise ImportError("coral_utils not available. Cannot convert request to dict.")
+            
+        try:
+            request = self._build_request()
+            return coral_utils.convert_coral_to_dict(request)
+        except Exception as e:
+            logger.error(f"Error getting request dict: {e}")
+            raise ValueError(f"Failed to get request dict: {e}") from e
+            
+    def get_step_outputs(self, step: CradleDataLoadingStep, output_type: str = None) -> Union[Dict[str, str], str]:
+        """
+        Get the output locations from a created CradleDataLoadingStep.
+        
+        This method retrieves the S3 locations where the Cradle data loading step will store its outputs.
+        These locations can be used as inputs to subsequent steps in the pipeline.
+
+        Args:
+            step (CradleDataLoadingStep): The CradleDataLoadingStep created by this builder
+            output_type (str, optional): Specific output type to retrieve. If None, returns all output types.
+                                       Valid values are OUTPUT_TYPE_DATA, OUTPUT_TYPE_METADATA, OUTPUT_TYPE_SIGNATURE.
+
+        Returns:
+            Union[Dict[str, str], str]: 
+                - If output_type is None: Dictionary mapping output types to their S3 locations
+                - If output_type is specified: S3 location for the specified output type
+
+        Raises:
+            ValueError: If the step is not a CradleDataLoadingStep instance, wasn't created by this builder,
+                      or if the requested output_type is not valid
+
+        Example:
+            ```python
+            # Get all output locations
+            builder = CradleDataLoadingStepBuilder(config)
+            step = builder.create_step()
+            all_outputs = builder.get_step_outputs(step)
+            
+            # Get specific output location
+            data_location = builder.get_step_outputs(step, OUTPUT_TYPE_DATA)
+            
+            # Connect to downstream step
+            preprocessing_step = preprocessing_builder.build(
+                dependencies=[step],
+                inputs={
+                    "input_data": builder.get_step_outputs(step, OUTPUT_TYPE_DATA)
+                }
+            )
+            ```
+        """
+        if not isinstance(step, CradleDataLoadingStep):
+            raise ValueError("Argument must be a CradleDataLoadingStep instance")
+
+        expected_step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
+        if step.name != expected_step_name:
+            raise ValueError(f"Step was not created by this builder. Expected name: {expected_step_name}, got: {step.name}")
+
+        try:
+            # Get output locations based on whether output_type is specified
+            if output_type is None:
+                # Get all output locations
+                output_locations = step.get_output_locations()
+                
+                if not output_locations:
+                    raise ValueError("No output locations found in the step")
+                
+                # Validate that all required output types are present
+                required_outputs = {OUTPUT_TYPE_DATA, OUTPUT_TYPE_METADATA, OUTPUT_TYPE_SIGNATURE}
+                missing_outputs = required_outputs - set(output_locations.keys())
+                if missing_outputs:
+                    raise ValueError(f"Missing required output types: {missing_outputs}")
+                
+                return output_locations
+            else:
+                # Get specific output location
+                return step.get_output_locations(output_type)
+                
+        except Exception as e:
+            logger.error(f"Error getting output locations from step: {e}")
+            raise ValueError(f"Failed to get output locations from step: {e}") from e
+    
+    def get_output_location(self, step: CradleDataLoadingStep, output_type: str) -> str:
+        """
+        Get a specific output location from a created CradleDataLoadingStep.
+        
+        This is a convenience method that calls get_step_outputs with a specific output_type.
+        It's useful for connecting the output of this step to the input of a downstream step.
+
+        Args:
+            step (CradleDataLoadingStep): The CradleDataLoadingStep created by this builder
+            output_type (str): The output type to retrieve. Valid values are:
+                             - OUTPUT_TYPE_DATA: Main data output location
+                             - OUTPUT_TYPE_METADATA: Metadata output location
+                             - OUTPUT_TYPE_SIGNATURE: Signature output location
+
+        Returns:
+            str: S3 location for the specified output type
+
+        Raises:
+            ValueError: If the step is not a CradleDataLoadingStep instance, wasn't created by this builder,
+                      or if the requested output_type is not valid
+
+        Example:
+            ```python
+            # Connect to downstream step
+            preprocessing_step = preprocessing_builder.build(
+                dependencies=[step],
+                inputs={
+                    "input_data": builder.get_output_location(step, OUTPUT_TYPE_DATA)
+                }
+            )
+            ```
+        """
+        return self.get_step_outputs(step, output_type)

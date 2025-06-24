@@ -262,6 +262,10 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         """
         Match custom properties specific to TabularPreprocessing step.
         
+        This method handles two types of dependency steps:
+        1. CradleDataLoadingStep: Uses get_output_locations() to get output locations
+        2. ProcessingStep: Looks for outputs with specific names
+        
         Args:
             inputs: Dictionary to add matched inputs to
             input_requirements: Dictionary of input requirements
@@ -271,68 +275,162 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             Set of input names that were successfully matched
         """
         matched_inputs = set()
+        step_name = getattr(prev_step, 'name', str(prev_step))
         
-        # Look for data output from a DataLoadingStep
-        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
-            try:
-                # Check if the step has an output that matches our data_input
-                data_key = self.config.input_names.get("data_input")
-                if data_key:
-                    # Look for an output with a name that contains 'data'
-                    for output in prev_step.outputs:
-                        if hasattr(output, "output_name") and "data" in output.output_name.lower():
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                            
-                            if data_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][data_key] = output.destination
-                                matched_inputs.add("inputs")
-                                logger.info(f"Found data from step: {getattr(prev_step, 'name', str(prev_step))}")
-                                break
-            except AttributeError as e:
-                logger.warning(f"Could not extract data from step: {e}")
-                
-        # Look for metadata output from a DataLoadingStep
-        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
-            try:
-                # Check if the step has an output that matches our metadata_input
-                metadata_key = self.config.input_names.get("metadata_input")
-                if metadata_key:
-                    # Look for an output with a name that contains 'metadata'
-                    for output in prev_step.outputs:
-                        if hasattr(output, "output_name") and "metadata" in output.output_name.lower():
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                            
-                            if metadata_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][metadata_key] = output.destination
-                                matched_inputs.add("inputs")
-                                logger.info(f"Found metadata from step: {getattr(prev_step, 'name', str(prev_step))}")
-                                break
-            except AttributeError as e:
-                logger.warning(f"Could not extract metadata from step: {e}")
-                
-        # Look for signature output from a DataLoadingStep
-        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
-            try:
-                # Check if the step has an output that matches our signature_input
-                signature_key = self.config.input_names.get("signature_input")
-                if signature_key:
-                    # Look for an output with a name that contains 'signature'
-                    for output in prev_step.outputs:
-                        if hasattr(output, "output_name") and "signature" in output.output_name.lower():
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                            
-                            if signature_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][signature_key] = output.destination
-                                matched_inputs.add("inputs")
-                                logger.info(f"Found signature from step: {getattr(prev_step, 'name', str(prev_step))}")
-                                break
-            except AttributeError as e:
-                logger.warning(f"Could not extract signature from step: {e}")
-                
+        # First, try to handle CradleDataLoadingStep
+        if self._match_cradle_data_loading_step(inputs, prev_step, matched_inputs):
+            logger.info(f"Matched inputs from CradleDataLoadingStep: {step_name}")
+            return matched_inputs
+            
+        # If not a CradleDataLoadingStep or matching failed, fall back to original logic
+        self._match_processing_step_outputs(inputs, prev_step, matched_inputs)
+        
+        if matched_inputs:
+            logger.info(f"Matched inputs from step: {step_name}")
+            
         return matched_inputs
+        
+    def _match_cradle_data_loading_step(self, inputs: Dict[str, Any], prev_step: Step, 
+                                       matched_inputs: Set[str]) -> bool:
+        """
+        Match outputs from a CradleDataLoadingStep.
+        
+        This method checks if the step is a CradleDataLoadingStep and if so,
+        extracts output locations using get_output_locations().
+        
+        Args:
+            inputs: Dictionary to add matched inputs to
+            prev_step: The dependency step
+            matched_inputs: Set to add matched input names to
+            
+        Returns:
+            True if the step is a CradleDataLoadingStep and matching was attempted,
+            False otherwise
+        """
+        # Check if the step has get_output_locations method (CradleDataLoadingStep)
+        if not hasattr(prev_step, "get_output_locations"):
+            return False
+            
+        try:
+            # Get output locations from CradleDataLoadingStep
+            output_locations = prev_step.get_output_locations()
+            if not output_locations:
+                logger.warning(f"No output locations found in step: {getattr(prev_step, 'name', str(prev_step))}")
+                return True  # Still return True as we identified it as a CradleDataLoadingStep
+                
+            # Import constants if available
+            try:
+                from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
+                    OUTPUT_TYPE_DATA,
+                    OUTPUT_TYPE_METADATA,
+                    OUTPUT_TYPE_SIGNATURE,
+                )
+            except ImportError:
+                # Fallback to string constants if import fails
+                OUTPUT_TYPE_DATA = "data"
+                OUTPUT_TYPE_METADATA = "metadata"
+                OUTPUT_TYPE_SIGNATURE = "signature"
+                
+            # Map output types to input keys
+            output_type_to_input_key = {
+                OUTPUT_TYPE_DATA: "data_input",
+                OUTPUT_TYPE_METADATA: "metadata_input",
+                OUTPUT_TYPE_SIGNATURE: "signature_input"
+            }
+            
+            # Match each output type to corresponding input key
+            for output_type, input_key_name in output_type_to_input_key.items():
+                if output_type in output_locations and input_key_name in self.config.input_names:
+                    input_key = self.config.input_names[input_key_name]
+                    
+                    # Initialize inputs dict if needed
+                    if "inputs" not in inputs:
+                        inputs["inputs"] = {}
+                        
+                    # Add output location to inputs
+                    if input_key not in inputs.get("inputs", {}):
+                        inputs["inputs"][input_key] = output_locations[output_type]
+                        matched_inputs.add("inputs")
+                        logger.info(f"Found {output_type} from CradleDataLoadingStep")
+                        
+            return True
+                
+        except Exception as e:
+            logger.warning(f"Error extracting output locations from CradleDataLoadingStep: {e}")
+            return True  # Still return True as we identified it as a CradleDataLoadingStep
+            
+    def _match_processing_step_outputs(self, inputs: Dict[str, Any], prev_step: Step, 
+                                      matched_inputs: Set[str]) -> None:
+        """
+        Match outputs from a ProcessingStep.
+        
+        This method looks for outputs with specific names in the dependency step.
+        
+        Args:
+            inputs: Dictionary to add matched inputs to
+            prev_step: The dependency step
+            matched_inputs: Set to add matched input names to
+        """
+        # Check if the step has outputs
+        if not (hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0):
+            return
+            
+        # Match data output
+        self._match_output_by_name(
+            inputs, prev_step, matched_inputs, 
+            "data_input", "data"
+        )
+        
+        # Match metadata output
+        self._match_output_by_name(
+            inputs, prev_step, matched_inputs, 
+            "metadata_input", "metadata"
+        )
+        
+        # Match signature output
+        self._match_output_by_name(
+            inputs, prev_step, matched_inputs, 
+            "signature_input", "signature"
+        )
+        
+    def _match_output_by_name(self, inputs: Dict[str, Any], prev_step: Step, 
+                             matched_inputs: Set[str], input_key_name: str, 
+                             output_name_pattern: str) -> None:
+        """
+        Match a specific output by name.
+        
+        Args:
+            inputs: Dictionary to add matched inputs to
+            prev_step: The dependency step
+            matched_inputs: Set to add matched input names to
+            input_key_name: Name of the input key in config.input_names
+            output_name_pattern: Pattern to look for in output names
+        """
+        try:
+            # Check if we have this input key in our config
+            if input_key_name not in self.config.input_names:
+                return
+                
+            input_key = self.config.input_names[input_key_name]
+            
+            # Look for an output with a name that matches the pattern
+            for output in prev_step.outputs:
+                if (hasattr(output, "output_name") and 
+                    output_name_pattern in output.output_name.lower()):
+                    
+                    # Initialize inputs dict if needed
+                    if "inputs" not in inputs:
+                        inputs["inputs"] = {}
+                    
+                    # Add output destination to inputs
+                    if input_key not in inputs.get("inputs", {}):
+                        inputs["inputs"][input_key] = output.destination
+                        matched_inputs.add("inputs")
+                        logger.info(f"Found {output_name_pattern} from ProcessingStep")
+                        break
+                        
+        except Exception as e:
+            logger.warning(f"Error matching {output_name_pattern} output: {e}")
     
     def create_step(self, **kwargs) -> ProcessingStep:
         """
