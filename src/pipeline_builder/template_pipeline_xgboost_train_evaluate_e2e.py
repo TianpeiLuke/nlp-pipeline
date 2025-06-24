@@ -226,13 +226,13 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
     def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
         """Create a mapping from step types to builder classes."""
         return {
-            "CradleDataLoadStep": CradleDataLoadingStepBuilder,
-            "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
-            "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
-            "PackagingStep": MIMSPackagingStepBuilder,
-            "PayloadStep": MIMSPayloadStepBuilder,
-            "RegistrationStep": ModelRegistrationStepBuilder,
-            "ModelEvalStep": XGBoostModelEvalStepBuilder,
+            "CradleDataLoading": CradleDataLoadingStepBuilder,
+            "TabularPreprocessing": TabularPreprocessingStepBuilder,
+            "XGBoostTraining": XGBoostTrainingStepBuilder,
+            "Package": MIMSPackagingStepBuilder,
+            "Payload": MIMSPayloadStepBuilder,
+            "Registration": ModelRegistrationStepBuilder,
+            "XGBoostModelEval": XGBoostModelEvalStepBuilder,
         }
 
     def _create_config_map(self) -> Dict[str, BasePipelineConfig]:

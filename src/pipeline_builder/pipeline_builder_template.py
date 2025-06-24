@@ -298,15 +298,15 @@ class PipelineBuilderTemplate:
                 self._extract_common_outputs(kwargs, prev_step, step_name, step_type)
                 
         # Special handling for specific step types
-        if step_type == "TabularPreprocessingStep":
+        if step_type == "TabularPreprocessing":
             self._handle_tabular_preprocessing_step(kwargs, step_name, dependency_steps)
-        elif step_type == "PytorchTrainingStep" or step_type == "XGBoostTrainingStep":
+        elif step_type == "PytorchTraining" or step_type == "XGBoostTraining":
             self._handle_training_step(kwargs, step_name, dependency_steps, step_type)
-        elif step_type == "CreatePytorchModelStep" or step_type == "CreateXGBoostModelStep":
+        elif step_type == "PytorchModel" or step_type == "XGBoostModel":
             self._handle_model_creation_step(kwargs, step_name, dependency_steps)
-        elif step_type == "PackagingStep":
+        elif step_type == "Package":
             self._handle_packaging_step(kwargs, step_name, dependency_steps)
-        elif step_type == "RegistrationStep":
+        elif step_type == "Registration":
             self._handle_registration_step(kwargs, step_name, dependency_steps)
     
     def _extract_common_outputs(self, kwargs: dict, prev_step: Step, step_name: str, step_type: str) -> None:
@@ -322,7 +322,7 @@ class PipelineBuilderTemplate:
         # Check for model artifacts path (common in model steps)
         if hasattr(prev_step, "model_artifacts_path"):
             # Different step types might use different parameter names for the same concept
-            if step_type == "PackagingStep":
+            if step_type == "Package":
                 kwargs["model_artifacts_input_source"] = prev_step.model_artifacts_path
             else:
                 kwargs["model_data"] = prev_step.model_artifacts_path
@@ -343,9 +343,9 @@ class PipelineBuilderTemplate:
                         s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
                         
                         # Different step types might use different parameter names
-                        if step_type == "RegistrationStep":
+                        if step_type == "Registration":
                             kwargs["packaging_step_output"] = s3_uri
-                        elif step_type == "TabularPreprocessingStep":
+                        elif step_type == "TabularPreprocessing":
                             # For tabular preprocessing, we need to check the input_names
                             config = self.config_map[step_name]
                             if hasattr(config, "input_names") and "data_input" in config.input_names:
@@ -361,9 +361,9 @@ class PipelineBuilderTemplate:
                                 s3_uri = output.S3Output.S3Uri
                                 
                                 # For tabular preprocessing, we need to check if this is the data output
-                                if key == "ProcessedTabularData" and (step_type == "PytorchTrainingStep" or step_type == "XGBoostTrainingStep"):
+                                if key == "ProcessedTabularData" and (step_type == "PytorchTraining" or step_type == "XGBoostTraining"):
                                     kwargs["input_path"] = s3_uri
-                                elif step_type == "RegistrationStep" and key == "packaged_model_output":
+                                elif step_type == "Registration" and key == "packaged_model_output":
                                     kwargs["packaging_step_output"] = s3_uri
                                 else:
                                     # Use the output key as the input key
@@ -478,9 +478,9 @@ class PipelineBuilderTemplate:
         # If output_path is not already set, try to set it
         if "output_path" not in kwargs and hasattr(config, "pipeline_s3_loc"):
             # Set the output path based on the config and step type
-            if step_type == "PytorchTrainingStep":
+            if step_type == "PytorchTraining":
                 kwargs["output_path"] = f"{config.pipeline_s3_loc}/pytorch_model_artifacts"
-            elif step_type == "XGBoostTrainingStep":
+            elif step_type == "XGBoostTraining":
                 kwargs["output_path"] = f"{config.pipeline_s3_loc}/xgboost_model_artifacts"
     
     def _handle_model_creation_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:

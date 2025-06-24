@@ -45,13 +45,13 @@ VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
 
 # Map config classes to step builder classes
 BUILDER_MAP = {
-    "CradleDataLoadingStep": CradleDataLoadingStepBuilder,
-    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
-    "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
-    "CreateXGBoostModelStep": XGBoostModelStepBuilder,
-    "PackagingStep": MIMSPackagingStepBuilder,
-    "PayloadStep": MIMSPayloadStepBuilder,
-    "RegistrationStep": ModelRegistrationStepBuilder,
+    "CradleDataLoading": CradleDataLoadingStepBuilder,
+    "TabularPreprocessing": TabularPreprocessingStepBuilder,
+    "XGBoostTraining": XGBoostTrainingStepBuilder,
+    "XGBoostModel": XGBoostModelStepBuilder,
+    "Package": MIMSPackagingStepBuilder,
+    "Payload": MIMSPayloadStepBuilder,
+    "Registration": ModelRegistrationStepBuilder,
 }
 
 def create_pipeline_from_template(
@@ -112,38 +112,38 @@ def create_pipeline_from_template(
     
     # Create config map
     config_map = {
-        "CradleDataLoadingStep_Training": configs[cradle_train_key],
-        "TabularPreprocessingStep_Training": configs[tp_train_key],
-        "XGBoostTrainingStep": xgb_train_config,
-        "CreateXGBoostModelStep": xgb_model_config,
-        "PackagingStep": package_config,
-        "PayloadStep": payload_config,
-        "RegistrationStep": registration_config,
-        "CradleDataLoadingStep_Calibration": configs[cradle_test_key],
-        "TabularPreprocessingStep_Calibration": configs[tp_test_key],
+        "CradleDataLoading_Training": configs[cradle_train_key],
+        "TabularPreprocessing_Training": configs[tp_train_key],
+        "XGBoostTraining": xgb_train_config,
+        "XGBoostModel": xgb_model_config,
+        "Package": package_config,
+        "Payload": payload_config,
+        "Registration": registration_config,
+        "CradleDataLoading_Calibration": configs[cradle_test_key],
+        "TabularPreprocessing_Calibration": configs[tp_test_key],
     }
     
     # Define DAG nodes and edges
     nodes = [
-        "CradleDataLoadingStep_Training",
-        "TabularPreprocessingStep_Training",
-        "XGBoostTrainingStep",
-        "CreateXGBoostModelStep",
-        "PackagingStep",
-        "PayloadStep",
-        "RegistrationStep",
-        "CradleDataLoadingStep_Calibration",
-        "TabularPreprocessingStep_Calibration",
+        "CradleDataLoading_Training",
+        "TabularPreprocessing_Training",
+        "XGBoostTraining",
+        "XGBoostModel",
+        "Package",
+        "Payload",
+        "Registration",
+        "CradleDataLoading_Calibration",
+        "TabularPreprocessing_Calibration",
     ]
     
     edges = [
-        ("CradleDataLoadingStep_Training", "TabularPreprocessingStep_Training"),
-        ("TabularPreprocessingStep_Training", "XGBoostTrainingStep"),
-        ("XGBoostTrainingStep", "CreateXGBoostModelStep"),
-        ("CreateXGBoostModelStep", "PackagingStep"),
-        ("PackagingStep", "PayloadStep"),
-        ("PayloadStep", "RegistrationStep"),
-        ("CradleDataLoadingStep_Calibration", "TabularPreprocessingStep_Calibration"),
+        ("CradleDataLoading_Training", "TabularPreprocessing_Training"),
+        ("TabularPreprocessing_Training", "XGBoostTraining"),
+        ("XGBoostTraining", "XGBoostModel"),
+        ("XGBoostModel", "Package"),
+        ("Package", "Payload"),
+        ("Payload", "Registration"),
+        ("CradleDataLoading_Calibration", "TabularPreprocessing_Calibration"),
     ]
     
     # Create DAG

@@ -45,13 +45,13 @@ VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
 
 # Map config classes to step builder classes
 BUILDER_MAP = {
-    "CradleDataLoadingStep": CradleDataLoadingStepBuilder,
-    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
-    "PytorchTrainingStep": PyTorchTrainingStepBuilder,
-    "CreatePytorchModelStep": PytorchModelStepBuilder,
-    "PackagingStep": MIMSPackagingStepBuilder,
-    "PayloadStep": MIMSPayloadStepBuilder,
-    "RegistrationStep": ModelRegistrationStepBuilder,
+    "CradleDataLoading": CradleDataLoadingStepBuilder,
+    "TabularPreprocessing": TabularPreprocessingStepBuilder,
+    "PytorchTraining": PyTorchTrainingStepBuilder,
+    "PytorchModel": PytorchModelStepBuilder,
+    "Package": MIMSPackagingStepBuilder,
+    "Payload": MIMSPayloadStepBuilder,
+    "Registration": ModelRegistrationStepBuilder,
 }
 
 def create_pipeline_from_template(
@@ -112,38 +112,38 @@ def create_pipeline_from_template(
     
     # Create config map
     config_map = {
-        "CradleDataLoadingStep_Training": configs[cradle_train_key],
-        "TabularPreprocessingStep_Training": configs[tp_train_key],
-        "PytorchTrainingStep": pytorch_train_config,
-        "CreatePytorchModelStep": pytorch_model_config,
-        "PackagingStep": package_config,
-        "PayloadStep": payload_config,
-        "RegistrationStep": registration_config,
-        "CradleDataLoadingStep_Calibration": configs[cradle_test_key],
-        "TabularPreprocessingStep_Calibration": configs[tp_test_key],
+        "CradleDataLoading_Training": configs[cradle_train_key],
+        "TabularPreprocessing_Training": configs[tp_train_key],
+        "PytorchTraining": pytorch_train_config,
+        "PytorchModel": pytorch_model_config,
+        "Package": package_config,
+        "Payload": payload_config,
+        "Registration": registration_config,
+        "CradleDataLoading_Calibration": configs[cradle_test_key],
+        "TabularPreprocessing_Calibration": configs[tp_test_key],
     }
     
     # Define DAG nodes and edges
     nodes = [
-        "CradleDataLoadingStep_Training",
-        "TabularPreprocessingStep_Training",
-        "PytorchTrainingStep",
-        "CreatePytorchModelStep",
-        "PackagingStep",
-        "PayloadStep",
-        "RegistrationStep",
-        "CradleDataLoadingStep_Calibration",
-        "TabularPreprocessingStep_Calibration",
+        "CradleDataLoading_Training",
+        "TabularPreprocessing_Training",
+        "PytorchTraining",
+        "PytorchModel",
+        "Package",
+        "Payload",
+        "Registration",
+        "CradleDataLoading_Calibration",
+        "TabularPreprocessing_Calibration",
     ]
     
     edges = [
-        ("CradleDataLoadingStep_Training", "TabularPreprocessingStep_Training"),
-        ("TabularPreprocessingStep_Training", "PytorchTrainingStep"),
-        ("PytorchTrainingStep", "CreatePytorchModelStep"),
-        ("CreatePytorchModelStep", "PackagingStep"),
-        ("PackagingStep", "PayloadStep"),
-        ("PayloadStep", "RegistrationStep"),
-        ("CradleDataLoadingStep_Calibration", "TabularPreprocessingStep_Calibration"),
+        ("CradleDataLoading_Training", "TabularPreprocessing_Training"),
+        ("TabularPreprocessing_Training", "PytorchTraining"),
+        ("PytorchTraining", "PytorchModel"),
+        ("PytorchModel", "Package"),
+        ("Package", "Payload"),
+        ("Payload", "Registration"),
+        ("CradleDataLoading_Calibration", "TabularPreprocessing_Calibration"),
     ]
     
     # Create DAG

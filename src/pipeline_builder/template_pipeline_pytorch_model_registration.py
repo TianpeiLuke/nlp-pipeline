@@ -133,29 +133,29 @@ class TemplatePytorchPipelineBuilder:
         
         try:
             # Define the DAG structure
-            nodes = ["CreatePytorchModelStep", "PackagingStep", "PayloadStep", "RegistrationStep"]
+            nodes = ["PytorchModel", "Package", "Payload", "Registration"]
             edges = [
-                ("CreatePytorchModelStep", "PackagingStep"),
-                ("PackagingStep", "PayloadStep"),
-                ("PayloadStep", "RegistrationStep")
+                ("PytorchModel", "Package"),
+                ("Package", "Payload"),
+                ("Payload", "Registration")
             ]
             
             dag = PipelineDAG(nodes=nodes, edges=edges)
             
             # Create config map with prepared model config
             config_map = {
-                "CreatePytorchModelStep": self._prepare_model_config(model_s3_path),
-                "PackagingStep": self.package_config,
-                "PayloadStep": self.payload_config,
-                "RegistrationStep": self.registration_config
+                "PytorchModel": self._prepare_model_config(model_s3_path),
+                "Package": self.package_config,
+                "Payload": self.payload_config,
+                "Registration": self.registration_config
             }
             
             # Create step builder map
             step_builder_map = {
-                "CreatePytorchModelStep": PytorchModelStepBuilder,
-                "PackagingStep": MIMSPackagingStepBuilder,
-                "PayloadStep": MIMSPayloadStepBuilder,
-                "RegistrationStep": ModelRegistrationStepBuilder
+                "PytorchModel": PytorchModelStepBuilder,
+                "Package": MIMSPackagingStepBuilder,
+                "Payload": MIMSPayloadStepBuilder,
+                "Registration": ModelRegistrationStepBuilder
             }
             
             # Create the pipeline builder template

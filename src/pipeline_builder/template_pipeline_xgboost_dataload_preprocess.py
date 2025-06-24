@@ -35,8 +35,8 @@ VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
 
 # Map config classes to step builder classes
 BUILDER_MAP = {
-    "CradleDataLoadingStep": CradleDataLoadingStepBuilder,
-    "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
+    "CradleDataLoading": CradleDataLoadingStepBuilder,
+    "TabularPreprocessing": TabularPreprocessingStepBuilder,
 }
 
 def create_pipeline_from_template(
@@ -77,23 +77,23 @@ def create_pipeline_from_template(
     
     # Create config map
     config_map = {
-        "CradleDataLoadingStep_Training": configs[cradle_train_key],
-        "CradleDataLoadingStep_Testing": configs[cradle_test_key],
-        "TabularPreprocessingStep_Training": configs[tp_train_key],
-        "TabularPreprocessingStep_Testing": configs[tp_test_key],
+        "CradleDataLoading_Training": configs[cradle_train_key],
+        "CradleDataLoading_Testing": configs[cradle_test_key],
+        "TabularPreprocessing_Training": configs[tp_train_key],
+        "TabularPreprocessing_Testing": configs[tp_test_key],
     }
     
     # Define DAG nodes and edges
     nodes = [
-        "CradleDataLoadingStep_Training",
-        "TabularPreprocessingStep_Training",
-        "CradleDataLoadingStep_Testing",
-        "TabularPreprocessingStep_Testing",
+        "CradleDataLoading_Training",
+        "TabularPreprocessing_Training",
+        "CradleDataLoading_Testing",
+        "TabularPreprocessing_Testing",
     ]
     
     edges = [
-        ("CradleDataLoadingStep_Training", "TabularPreprocessingStep_Training"),
-        ("CradleDataLoadingStep_Testing", "TabularPreprocessingStep_Testing"),
+        ("CradleDataLoading_Training", "TabularPreprocessing_Training"),
+        ("CradleDataLoading_Testing", "TabularPreprocessing_Testing"),
     ]
     
     # Create DAG
