@@ -61,23 +61,18 @@ class HyperparameterPrepConfig(BasePipelineConfig):
     @model_validator(mode="after")
     def validate_hyperparameters_and_channels(self) -> "HyperparameterPrepConfig":
         """Validate hyperparameters and channel configurations."""
-        # Create update dictionary if needed
-        update_dict = {}
-        
+
         # Set default output names if None or empty
         if not self.output_names:
-            update_dict["output_names"] = {
+            self.output_names = {
                 "hyperparameters_output": "HyperparametersOutput"
             }
-        
-        # Create new model copy if updates are needed
-        model = self.model_copy(update=update_dict) if update_dict else self
 
         # Validate required output channel
-        if "hyperparameters_output" not in model.output_names:
+        if "hyperparameters_output" not in self.output_names:
             raise ValueError("output_names must contain key 'hyperparameters_output'")
 
-        return model
+        return self
 
     @model_validator(mode='before')
     @classmethod
