@@ -150,7 +150,7 @@ def create_pipeline_from_template(
         ("TabularPreprocessing_Training", "XGBoostTraining"),
         ("HyperparameterPrep", "XGBoostTraining"),
         ("XGBoostTraining", "XGBoostModel"),
-        ("XGBoostModel", "Package"),
+        ("XGBoostTraining", "Package"),  # Changed from XGBoostModel to XGBoostTraining
         ("Package", "Payload"),
         ("Payload", "Registration"),
         ("CradleDataLoading_Calibration", "TabularPreprocessing_Calibration"),

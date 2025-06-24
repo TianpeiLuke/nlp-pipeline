@@ -202,7 +202,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         
         This method extracts the inputs required by the MIMSPackagingStep from the dependency steps.
         Specifically, it looks for:
-        1. model_artifacts_input_source from a ModelStep
+        1. model_artifacts_input_source from a ModelStep or TrainingStep
         
         Args:
             dependency_steps: List of dependency steps
@@ -212,13 +212,13 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         inputs = {}
         
-        # Look for model_artifacts_input_source from a ModelStep
+        # Look for model_artifacts_input_source from a ModelStep or TrainingStep
         for prev_step in dependency_steps:
             # Check for model step output
             if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
                 try:
                     inputs["model_artifacts_input_source"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                    logger.info(f"Found model_artifacts_input_source from ModelStep: {prev_step.name}")
+                    logger.info(f"Found model_artifacts_input_source from ModelStep or TrainingStep: {prev_step.name}")
                     break
                 except AttributeError as e:
                     logger.warning(f"Could not extract model artifacts from step: {e}")
