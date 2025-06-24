@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Union
+from typing import Dict, Optional, List, Union, Any, Set
 from pathlib import Path
 import os
 import importlib
@@ -178,14 +178,62 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             output_props.update({k: v for k, v in self.config.output_names.items()})
         return output_props
         
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
+        """
+        Match custom properties specific to MIMS registration step.
+        
+        This method looks for:
+        1. packaging_step_output from a PackagingStep
+        2. payload_s3_key from a PayloadStep
+        
+        Args:
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
+            
+        Returns:
+            Set of input names that were successfully matched
+        """
+        matched_inputs = set()
+        
+        # Look for packaging_step_output from a PackagingStep
+        if (hasattr(prev_step, "properties") and 
+            hasattr(prev_step.properties, "ProcessingOutputConfig") and
+            hasattr(prev_step.properties.ProcessingOutputConfig, "Outputs") and
+            hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__")):
+            
+            try:
+                # Try string keys (dict-like)
+                if "packaged_model_output" in prev_step.properties.ProcessingOutputConfig.Outputs:
+                    output = prev_step.properties.ProcessingOutputConfig.Outputs["packaged_model_output"]
+                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                        s3_uri = output.S3Output.S3Uri
+                        if "packaging_step_output" in input_requirements:
+                            inputs["packaging_step_output"] = s3_uri
+                            matched_inputs.add("packaging_step_output")
+                            logger.info(f"Found packaging_step_output from PackagingStep: {getattr(prev_step, 'name', str(prev_step))}")
+            except (AttributeError, IndexError, KeyError) as e:
+                logger.warning(f"Could not extract packaged model output from step: {e}")
+        
+        # Look for payload_s3_key from a PayloadStep
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "payload_s3_key"):
+            try:
+                payload_s3_key = prev_step.properties.payload_s3_key
+                if "payload_s3_key" in input_requirements:
+                    inputs["payload_s3_key"] = payload_s3_key
+                    matched_inputs.add("payload_s3_key")
+                    logger.info(f"Found payload_s3_key from PayloadStep: {getattr(prev_step, 'name', str(prev_step))}")
+            except AttributeError as e:
+                logger.warning(f"Could not extract payload_s3_key from step: {e}")
+                
+        return matched_inputs
+        
     def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
         """
         Extract inputs from dependency steps.
         
-        This method extracts the inputs required by the ModelRegistrationStep from the dependency steps.
-        Specifically, it looks for:
-        1. packaging_step_output from a PackagingStep
-        2. payload_s3_key from a PayloadStep
+        This method uses the base class implementation and adds enable_caching.
         
         Args:
             dependency_steps: List of dependency steps
@@ -193,34 +241,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Returns:
             Dictionary of inputs extracted from dependency steps
         """
-        inputs = {}
-        
-        # Look for packaging_step_output from a PackagingStep
-        for prev_step in dependency_steps:
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
-                try:
-                    # Try to get the packaged model output
-                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
-                        # Try string keys (dict-like)
-                        if "packaged_model_output" in prev_step.properties.ProcessingOutputConfig.Outputs:
-                            output = prev_step.properties.ProcessingOutputConfig.Outputs["packaged_model_output"]
-                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                inputs["packaging_step_output"] = output.S3Output.S3Uri
-                                logger.info(f"Found packaging_step_output from PackagingStep: {prev_step.name}")
-                                break
-                except (AttributeError, IndexError) as e:
-                    logger.warning(f"Could not extract packaged model output from step: {e}")
-        
-        # Look for payload_s3_key from a PayloadStep
-        for prev_step in dependency_steps:
-            # Check if this is a payload step
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "payload_s3_key"):
-                try:
-                    inputs["payload_s3_key"] = prev_step.properties.payload_s3_key
-                    logger.info(f"Found payload_s3_key from PayloadStep: {prev_step.name}")
-                    break
-                except AttributeError as e:
-                    logger.warning(f"Could not extract payload_s3_key from step: {e}")
+        # Use the base class implementation to extract inputs
+        inputs = super().extract_inputs_from_dependencies(dependency_steps)
         
         # Add enable_caching
         inputs["enable_caching"] = True

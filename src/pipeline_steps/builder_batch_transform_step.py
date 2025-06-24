@@ -1,4 +1,4 @@
-from typing import Optional, List, Union, Dict
+from typing import Optional, List, Union, Dict, Any, Set
 from pathlib import Path
 import logging
 
@@ -84,13 +84,42 @@ class BatchTransformStepBuilder(StepBuilderBase):
             output_props.update({k: v for k, v in self.config.output_names.items()})
         return output_props
         
+    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
+                                prev_step: Step) -> Set[str]:
+        """
+        Match custom properties specific to BatchTransform step.
+        
+        This method looks for:
+        1. model_name from a ModelStep
+        
+        Args:
+            inputs: Dictionary to add matched inputs to
+            input_requirements: Dictionary of input requirements
+            prev_step: The dependency step
+            
+        Returns:
+            Set of input names that were successfully matched
+        """
+        matched_inputs = set()
+        
+        # Look for model_name from a ModelStep
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelName"):
+            try:
+                model_name = prev_step.properties.ModelName
+                if "model_name" in input_requirements:
+                    inputs["model_name"] = model_name
+                    matched_inputs.add("model_name")
+                    logger.info(f"Found model_name from ModelStep: {getattr(prev_step, 'name', str(prev_step))}")
+            except AttributeError as e:
+                logger.warning(f"Could not extract model_name from step: {e}")
+                
+        return matched_inputs
+        
     def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
         """
         Extract inputs from dependency steps.
         
-        This method extracts the inputs required by the BatchTransformStep from the dependency steps.
-        Specifically, it looks for:
-        1. model_name from a ModelStep
+        This method uses the base class implementation and adds enable_caching.
         
         Args:
             dependency_steps: List of dependency steps
@@ -98,18 +127,8 @@ class BatchTransformStepBuilder(StepBuilderBase):
         Returns:
             Dictionary of inputs extracted from dependency steps
         """
-        inputs = {}
-        
-        # Look for model_name from a ModelStep
-        for prev_step in dependency_steps:
-            # Check if this is a model step
-            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelName"):
-                try:
-                    inputs["model_name"] = prev_step.properties.ModelName
-                    logger.info(f"Found model_name from ModelStep: {prev_step.name}")
-                    break
-                except AttributeError as e:
-                    logger.warning(f"Could not extract model_name from step: {e}")
+        # Use the base class implementation to extract inputs
+        inputs = super().extract_inputs_from_dependencies(dependency_steps)
         
         # Add enable_caching
         inputs["enable_caching"] = True

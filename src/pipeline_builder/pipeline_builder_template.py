@@ -179,8 +179,8 @@ class PipelineBuilderTemplate:
         """
         Instantiate a pipeline step with appropriate inputs from dependencies.
         
-        This method uses the step builder's extract_inputs_from_dependencies method to determine
-        the inputs required by each step based on the outputs available from dependency steps.
+        This method uses the step builder's build method to create a step with the
+        appropriate inputs from dependency steps.
         
         Args:
             step_name: Name of the step to instantiate
@@ -194,36 +194,50 @@ class PipelineBuilderTemplate:
         # Gather dependencies
         dependency_steps = [self.step_instances[parent] for parent in self.dag.get_dependencies(step_name)]
         
-        # Start with basic dependencies
-        kwargs = {"dependencies": dependency_steps}
-        
-        # Add any configuration-provided inputs
+        # Add any configuration-provided inputs to the builder's config
         # This allows steps to get inputs directly from their config
-        self._add_config_inputs(kwargs, config)
+        self._add_config_inputs_to_builder(builder, config)
         
-        # Extract inputs from dependency steps using the step builder's extract_inputs_from_dependencies method
-        if dependency_steps:
-            try:
-                extracted_inputs = builder.extract_inputs_from_dependencies(dependency_steps)
-                kwargs.update(extracted_inputs)
-                logger.info(f"Extracted inputs for {step_name} using step builder's extract_inputs_from_dependencies method")
-            except Exception as e:
-                logger.warning(f"Error extracting inputs using step builder's method: {e}")
-                # Fallback to message passing results
-                self._extract_inputs_from_message_passing(kwargs, step_name, dependency_steps)
-        
-        # Create the step with extracted inputs
         try:
-            step = builder.create_step(**kwargs)
-        except TypeError as e:
-            logger.warning(f"Error creating step with extracted inputs: {e}")
-            # Fallback for builders that don't accept our kwargs
-            step = builder.create_step()
-            # If possible, add depends_on after creation
-            if hasattr(step, "add_depends_on"):
-                step.add_depends_on(dependency_steps)
-        
-        return step
+            # Use the builder's build method to create the step
+            step = builder.build(dependency_steps)
+            logger.info(f"Created step {step_name} using builder's build method")
+            return step
+        except Exception as e:
+            logger.warning(f"Error using builder's build method: {e}")
+            
+            # Fallback to the old approach if build method fails
+            logger.info(f"Falling back to legacy step instantiation for {step_name}")
+            
+            # Start with basic dependencies
+            kwargs = {"dependencies": dependency_steps}
+            
+            # Add any configuration-provided inputs
+            self._add_config_inputs(kwargs, config)
+            
+            # Extract inputs from dependency steps
+            if dependency_steps:
+                try:
+                    extracted_inputs = builder.extract_inputs_from_dependencies(dependency_steps)
+                    kwargs.update(extracted_inputs)
+                    logger.info(f"Extracted inputs for {step_name} using step builder's extract_inputs_from_dependencies method")
+                except Exception as extract_error:
+                    logger.warning(f"Error extracting inputs using step builder's method: {extract_error}")
+                    # Fallback to message passing results
+                    self._extract_inputs_from_message_passing(kwargs, step_name, dependency_steps)
+            
+            # Create the step with extracted inputs
+            try:
+                step = builder.create_step(**kwargs)
+            except TypeError as type_error:
+                logger.warning(f"Error creating step with extracted inputs: {type_error}")
+                # Fallback for builders that don't accept our kwargs
+                step = builder.create_step()
+                # If possible, add depends_on after creation
+                if hasattr(step, "add_depends_on"):
+                    step.add_depends_on(dependency_steps)
+            
+            return step
         
     def _add_config_inputs(self, kwargs: dict, config: BasePipelineConfig) -> None:
         """
@@ -245,6 +259,30 @@ class PipelineBuilderTemplate:
         for input_param in common_inputs:
             if hasattr(config, input_param) and getattr(config, input_param) is not None:
                 kwargs[input_param] = getattr(config, input_param)
+    
+    def _add_config_inputs_to_builder(self, builder: StepBuilderBase, config: BasePipelineConfig) -> None:
+        """
+        Add inputs from the step's configuration to the builder's config.
+        
+        Args:
+            builder: Step builder to add inputs to
+            config: Step configuration
+        """
+        # Common input parameters that might be in configs
+        common_inputs = [
+            "model_data", 
+            "data_uri", 
+            "input_data", 
+            "model_uri",
+            "training_data"
+        ]
+        
+        # Add inputs to the builder's config if they're not already set
+        for input_param in common_inputs:
+            if hasattr(config, input_param) and getattr(config, input_param) is not None:
+                # Only set the attribute if it doesn't already exist or is None
+                if not hasattr(builder.config, input_param) or getattr(builder.config, input_param) is None:
+                    setattr(builder.config, input_param, getattr(config, input_param))
     
     def _extract_inputs_from_message_passing(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
         """
