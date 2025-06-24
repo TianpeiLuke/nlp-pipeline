@@ -1,7 +1,23 @@
 """
 Example of using the PipelineBuilderTemplate to reconstruct the XGBoost end-to-end pipeline.
+
+This template creates a complete XGBoost training and deployment pipeline with the following steps:
+1. Data loading from Cradle (training data)
+2. Tabular preprocessing (training data)
+3. Hyperparameter preparation
+4. XGBoost model training
+5. XGBoost model creation
+6. Model packaging
+7. Payload testing
+8. Model registration
+9. Data loading from Cradle (calibration data)
+10. Tabular preprocessing (calibration data)
+
+The pipeline is defined using a DAG structure and step builders, which are orchestrated
+by the PipelineBuilderTemplate.
 """
 import logging
+import time
 from pathlib import Path
 from typing import Dict, Type, List, Any
 
@@ -64,7 +80,13 @@ def create_pipeline_from_template(
     notebook_root: Path = None
 ) -> Pipeline:
     """
-    Create a pipeline using the PipelineBuilderTemplate.
+    Create an XGBoost end-to-end pipeline using the PipelineBuilderTemplate.
+    
+    This function:
+    1. Loads configurations from the specified config file
+    2. Identifies the required configurations for each step
+    3. Creates a DAG defining the pipeline structure
+    4. Uses the PipelineBuilderTemplate to generate the pipeline
     
     Args:
         config_path: Path to the configuration file
@@ -74,7 +96,12 @@ def create_pipeline_from_template(
         
     Returns:
         SageMaker pipeline
+        
+    Raises:
+        ValueError: If required configurations are missing or if there are duplicate configurations
     """
+    start_time = time.time()
+    
     # Load configurations
     logger.info(f"Loading configs from: {config_path}")
     config_classes = {
@@ -88,34 +115,38 @@ def create_pipeline_from_template(
         'ModelRegistrationConfig': ModelRegistrationConfig,
         'PayloadConfig': PayloadConfig,
     }
-    configs = load_configs(config_path, config_classes)
+    
+    try:
+        configs = load_configs(config_path, config_classes)
+    except Exception as e:
+        logger.error(f"Error loading configurations: {e}")
+        raise ValueError(f"Failed to load configurations from {config_path}: {e}") from e
+    
+    logger.info(f"Loaded {len(configs)} configurations")
     
     # Extract base config
+    if 'Base' not in configs:
+        raise ValueError("Base configuration not found in config file")
     base_config = configs['Base']
     
     # Find configs by type and job type
-    cradle_train_key = _find_config_key(configs, 'CradleDataLoadConfig', job_type='training')
-    cradle_test_key = _find_config_key(configs, 'CradleDataLoadConfig', job_type='calibration')
-    tp_train_key = _find_config_key(configs, 'TabularPreprocessingConfig', job_type='training')
-    tp_test_key = _find_config_key(configs, 'TabularPreprocessingConfig', job_type='calibration')
-    
-    # Find hyperparameter prep config
-    hyperparameter_prep_config = _find_config_by_type(configs, HyperparameterPrepConfig)
-    
-    # Find XGBoost training config
-    xgb_train_config = _find_config_by_type(configs, XGBoostTrainingConfig)
-    
-    # Find XGBoost model creation config
-    xgb_model_config = _find_config_by_type(configs, XGBoostModelCreationConfig)
-    
-    # Find packaging config
-    package_config = _find_config_by_type(configs, PackageStepConfig)
-    
-    # Find registration config
-    registration_config = _find_config_by_type(configs, ModelRegistrationConfig)
-    
-    # Find payload config
-    payload_config = _find_config_by_type(configs, PayloadConfig)
+    try:
+        # Find data loading and preprocessing configs
+        cradle_train_key = _find_config_key(configs, 'CradleDataLoadConfig', job_type='training')
+        cradle_test_key = _find_config_key(configs, 'CradleDataLoadConfig', job_type='calibration')
+        tp_train_key = _find_config_key(configs, 'TabularPreprocessingConfig', job_type='training')
+        tp_test_key = _find_config_key(configs, 'TabularPreprocessingConfig', job_type='calibration')
+        
+        # Find other configs
+        hyperparameter_prep_config = _find_config_by_type(configs, HyperparameterPrepConfig)
+        xgb_train_config = _find_config_by_type(configs, XGBoostTrainingConfig)
+        xgb_model_config = _find_config_by_type(configs, XGBoostModelCreationConfig)
+        package_config = _find_config_by_type(configs, PackageStepConfig)
+        registration_config = _find_config_by_type(configs, ModelRegistrationConfig)
+        payload_config = _find_config_by_type(configs, PayloadConfig)
+    except ValueError as e:
+        logger.error(f"Error finding required configurations: {e}")
+        raise
     
     # Create config map
     config_map = {
@@ -130,6 +161,8 @@ def create_pipeline_from_template(
         "CradleDataLoading_Calibration": configs[cradle_test_key],
         "TabularPreprocessing_Calibration": configs[tp_test_key],
     }
+    
+    logger.info(f"Created config map with {len(config_map)} entries")
     
     # Define DAG nodes and edges
     nodes = [
@@ -150,15 +183,15 @@ def create_pipeline_from_template(
         ("TabularPreprocessing_Training", "XGBoostTraining"),
         ("HyperparameterPrep", "XGBoostTraining"),
         ("XGBoostTraining", "XGBoostModel"),
-        ("XGBoostTraining", "Package"),  # Changed from XGBoostModel to XGBoostTraining
-        # Removed dependency between Package and Payload as Payload doesn't depend on any step
-        ("Package", "Registration"),  # Added dependency from Package to Registration
-        ("Payload", "Registration"),  # Registration depends on both Package and Payload
+        ("XGBoostTraining", "Package"),  # Training outputs model artifacts directly to packaging
+        ("Package", "Registration"),  # Registration depends on packaging
+        ("Payload", "Registration"),  # Registration also depends on payload testing
         ("CradleDataLoading_Calibration", "TabularPreprocessing_Calibration"),
     ]
     
     # Create DAG
     dag = PipelineDAG(nodes=nodes, edges=edges)
+    logger.info(f"Created DAG with {len(nodes)} nodes and {len(edges)} edges")
     
     # Create pipeline parameters
     pipeline_parameters = [
@@ -169,24 +202,46 @@ def create_pipeline_from_template(
     ]
     
     # Create template
-    template = PipelineBuilderTemplate(
-        dag=dag,
-        config_map=config_map,
-        step_builder_map=BUILDER_MAP,
-        sagemaker_session=sagemaker_session,
-        role=role,
-        pipeline_parameters=pipeline_parameters,
-        notebook_root=notebook_root,
-    )
+    try:
+        template = PipelineBuilderTemplate(
+            dag=dag,
+            config_map=config_map,
+            step_builder_map=BUILDER_MAP,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            pipeline_parameters=pipeline_parameters,
+            notebook_root=notebook_root,
+        )
+    except Exception as e:
+        logger.error(f"Error creating pipeline template: {e}")
+        raise ValueError(f"Failed to create pipeline template: {e}") from e
     
     # Generate pipeline
     pipeline_name = f"{base_config.pipeline_name}-xgb-e2e"
-    return template.generate_pipeline(pipeline_name)
+    try:
+        pipeline = template.generate_pipeline(pipeline_name)
+        elapsed_time = time.time() - start_time
+        logger.info(f"Generated pipeline {pipeline_name} in {elapsed_time:.2f} seconds")
+        return pipeline
+    except Exception as e:
+        logger.error(f"Error generating pipeline: {e}")
+        raise ValueError(f"Failed to generate pipeline {pipeline_name}: {e}") from e
 
 def _find_config_key(configs: Dict[str, BasePipelineConfig], class_name: str, **attrs) -> str:
     """
     Find the unique step_name for configs of type `class_name`
     that have all of the given attribute=value pairs in their suffix.
+    
+    Args:
+        configs: Dictionary of configurations
+        class_name: Name of the configuration class to find
+        **attrs: Attribute-value pairs to match in the configuration suffix
+        
+    Returns:
+        Step name of the matching configuration
+        
+    Raises:
+        ValueError: If no matching configuration is found or if multiple matching configurations are found
     """
     base = BasePipelineConfig.get_step_name(class_name)
     candidates = []
