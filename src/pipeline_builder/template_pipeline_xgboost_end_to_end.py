@@ -17,6 +17,7 @@ from src.pipeline_builder.pipeline_builder_template import PipelineBuilderTempla
 from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
 from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_hyperparameter_prep_step import HyperparameterPrepConfig
 from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
 from src.pipeline_steps.config_model_step_xgboost import XGBoostModelCreationConfig
 from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
@@ -27,6 +28,7 @@ from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 from src.pipeline_steps.builder_step_base import StepBuilderBase
 from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.builder_hyperparameter_prep_step import HyperparameterPrepStepBuilder
 from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
 from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
@@ -47,6 +49,7 @@ VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
 BUILDER_MAP = {
     "CradleDataLoading": CradleDataLoadingStepBuilder,
     "TabularPreprocessing": TabularPreprocessingStepBuilder,
+    "HyperparameterPrep": HyperparameterPrepStepBuilder,
     "XGBoostTraining": XGBoostTrainingStepBuilder,
     "XGBoostModel": XGBoostModelStepBuilder,
     "Package": MIMSPackagingStepBuilder,
@@ -78,6 +81,7 @@ def create_pipeline_from_template(
         'BasePipelineConfig': BasePipelineConfig,
         'CradleDataLoadConfig': CradleDataLoadConfig,
         'TabularPreprocessingConfig': TabularPreprocessingConfig,
+        'HyperparameterPrepConfig': HyperparameterPrepConfig,
         'XGBoostTrainingConfig': XGBoostTrainingConfig,
         'XGBoostModelCreationConfig': XGBoostModelCreationConfig,
         'PackageStepConfig': PackageStepConfig,
@@ -94,6 +98,9 @@ def create_pipeline_from_template(
     cradle_test_key = _find_config_key(configs, 'CradleDataLoadConfig', job_type='calibration')
     tp_train_key = _find_config_key(configs, 'TabularPreprocessingConfig', job_type='training')
     tp_test_key = _find_config_key(configs, 'TabularPreprocessingConfig', job_type='calibration')
+    
+    # Find hyperparameter prep config
+    hyperparameter_prep_config = _find_config_by_type(configs, HyperparameterPrepConfig)
     
     # Find XGBoost training config
     xgb_train_config = _find_config_by_type(configs, XGBoostTrainingConfig)
@@ -114,6 +121,7 @@ def create_pipeline_from_template(
     config_map = {
         "CradleDataLoading_Training": configs[cradle_train_key],
         "TabularPreprocessing_Training": configs[tp_train_key],
+        "HyperparameterPrep": hyperparameter_prep_config,
         "XGBoostTraining": xgb_train_config,
         "XGBoostModel": xgb_model_config,
         "Package": package_config,
@@ -127,6 +135,7 @@ def create_pipeline_from_template(
     nodes = [
         "CradleDataLoading_Training",
         "TabularPreprocessing_Training",
+        "HyperparameterPrep",
         "XGBoostTraining",
         "XGBoostModel",
         "Package",
@@ -139,6 +148,7 @@ def create_pipeline_from_template(
     edges = [
         ("CradleDataLoading_Training", "TabularPreprocessing_Training"),
         ("TabularPreprocessing_Training", "XGBoostTraining"),
+        ("HyperparameterPrep", "XGBoostTraining"),
         ("XGBoostTraining", "XGBoostModel"),
         ("XGBoostModel", "Package"),
         ("Package", "Payload"),
