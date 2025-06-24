@@ -52,47 +52,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         if missing_attrs:
             raise ValueError(f"XGBoostTrainingConfig missing required attributes: {', '.join(missing_attrs)}")
 
-    def _prepare_hyperparameters_file(self) -> str:
-        """
-        Serializes the hyperparameters to JSON, uploads it as
-        `<hyperparameters_s3_uri>/hyperparameters.json`, and
-        returns that full S3 URI.
-        """
-        hyperparams_dict = self.config.hyperparameters.model_dump()
-        local_dir = Path(tempfile.mkdtemp())
-        local_file = local_dir / "hyperparameters.json"
-        
-        try:
-            local_file.write_text(json.dumps(hyperparams_dict, indent=2))
-
-            prefix = self.config.hyperparameters_s3_uri or ""
-            prefix = prefix.rstrip("/")
-            target_s3_uri = f"{prefix}/hyperparameters.json"
-
-            s3_parts = target_s3_uri.replace('s3://', '').split('/', 1)
-            bucket = s3_parts[0]
-            key = s3_parts[1]
-            
-            s3_client = self.session.boto_session.client('s3')
-            try:
-                s3_client.head_object(Bucket=bucket, Key=key)
-                logger.info(f"Found existing hyperparameters file at {target_s3_uri}, deleting it...")
-                s3_client.delete_object(Bucket=bucket, Key=key)
-                logger.info("Existing hyperparameters file deleted successfully")
-            except ClientError as e: # <-- FIX: Catch the real ClientError
-                if e.response['Error']['Code'] == '404':
-                    logger.info(f"No existing hyperparameters file found at {target_s3_uri}")
-                else:
-                    logger.warning(f"Error checking/deleting existing file: {str(e)}")
-
-            logger.info(f"Uploading hyperparameters from {local_file} to {target_s3_uri}")
-            S3Uploader.upload(str(local_file), target_s3_uri, sagemaker_session=self.session)
-            
-            logger.info(f"Hyperparameters successfully uploaded to {target_s3_uri}")
-            return target_s3_uri
-            
-        finally:
-            shutil.rmtree(local_dir)
+    # The _prepare_hyperparameters_file method has been removed and replaced by a separate step
 
 
     def _create_xgboost_estimator(self) -> XGBoost:
@@ -129,6 +89,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         input_reqs = {k: v for k, v in self.config.input_names.items()}
         input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        input_reqs["hyperparameters_s3_uri"] = "S3 URI to the hyperparameters.json file"
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -140,12 +101,17 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         return {k: v for k, v in self.config.output_names.items()}
     
-    def create_step(self, dependencies: Optional[List[Step]] = None) -> TrainingStep:
+    def create_step(self, dependencies: Optional[List[Step]] = None, hyperparameters_s3_uri: Optional[str] = None) -> TrainingStep:
         """
         Create XGBoost training step with data and config inputs.
+        
+        Args:
+            dependencies: Optional list of steps this step depends on
+            hyperparameters_s3_uri: S3 URI to the hyperparameters.json file
         """
-        # 1. Upload the hyperparameters to S3 and get the URI
-        hparam_s3_uri = self._prepare_hyperparameters_file()
+        # Validate hyperparameters_s3_uri
+        if not hyperparameters_s3_uri:
+            raise ValueError("hyperparameters_s3_uri must be provided")
         
         # Define the S3 prefixes for each data channel using Join
         train_data_prefix = Join(on='/', values=[self.config.input_path, "train/"])
@@ -156,14 +122,15 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         logger.info(f"Train data path expression: {train_data_prefix.expr}")
         logger.info(f"Validation data path expression: {val_data_prefix.expr}")
         logger.info(f"Test data path expression: {test_data_prefix.expr}")
+        logger.info(f"Hyperparameters S3 URI: {hyperparameters_s3_uri}")
 
-        # 2. Define the input channels
+        # Define the input channels
         inputs = {
             "train": TrainingInput(s3_data=train_data_prefix),
             "val": TrainingInput(s3_data=val_data_prefix),
             "test": TrainingInput(s3_data=test_data_prefix),
             # Channel for the hyperparameter file
-            "config": TrainingInput(s3_data=hparam_s3_uri)
+            "config": TrainingInput(s3_data=hyperparameters_s3_uri)
         }
 
         logger.info(f"Training inputs configured: {inputs}")

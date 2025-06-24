@@ -20,6 +20,7 @@ STEP_REGISTRY = {
         'BatchTransformStepConfig':   'BatchTransform',
         'XGBoostModelEvalConfig':     'XGBoostModelEval',
         'PytorchModelEvalConfig':     'PytorchModelEval',
+        'HyperparameterPrepConfig':   'HyperparameterPrep',
     }
 
 

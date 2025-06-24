@@ -14,6 +14,7 @@ from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
 from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
 from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_hyperparameter_prep_step import HyperparameterPrepConfig
 from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig 
 from src.pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
 from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
@@ -24,6 +25,7 @@ from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 from src.pipeline_steps.builder_step_base import StepBuilderBase
 from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.builder_hyperparameter_prep_step import HyperparameterPrepStepBuilder
 from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from src.pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
 from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
@@ -66,6 +68,7 @@ CONFIG_CLASSES = {
     'CradleDataLoadConfig':       CradleDataLoadConfig,
     'ProcessingStepConfigBase':   ProcessingStepConfigBase,
     'TabularPreprocessingConfig': TabularPreprocessingConfig,
+    'HyperparameterPrepConfig':   HyperparameterPrepConfig,
     'XGBoostTrainingConfig':      XGBoostTrainingConfig,
     'XGBoostModelEvalConfig':     XGBoostModelEvalConfig,
     'PackageStepConfig':          PackageStepConfig,
@@ -148,6 +151,16 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         self.tp_train_cfg = self.configs[self._find_config_key('TabularPreprocessingConfig', job_type='training')]
         self.tp_calib_cfg = self.configs[self._find_config_key('TabularPreprocessingConfig', job_type='calibration')]
         
+        # Hyperparameter Prep config
+        hyperparameter_prep_config_instance = None
+        for key, cfg in self.configs.items():
+            if isinstance(cfg, HyperparameterPrepConfig):
+                hyperparameter_prep_config_instance = cfg
+                break
+        if not hyperparameter_prep_config_instance:
+            raise ValueError("Could not find a configuration of type HyperparameterPrepConfig in the config file.")
+        self.hyperparameter_prep_cfg = hyperparameter_prep_config_instance
+        
         # XGBoost Training config
         xgb_train_config_instance = None
         for key, cfg in self.configs.items():
@@ -203,6 +216,8 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             raise TypeError("Expected CradleDataLoadConfig for both training and calibration")
         if not all(isinstance(c, TabularPreprocessingConfig) for c in [self.tp_train_cfg, self.tp_calib_cfg]):
             raise TypeError("Expected TabularPreprocessingConfig for both data types")
+        if not isinstance(self.hyperparameter_prep_cfg, HyperparameterPrepConfig):
+            raise TypeError("Expected HyperparameterPrepConfig")
         if not isinstance(self.xgb_train_cfg, XGBoostTrainingConfig):
             raise TypeError("Expected XGBoostTrainingConfig")
         if not isinstance(self.package_cfg, PackageStepConfig):
@@ -228,6 +243,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         return {
             "CradleDataLoading": CradleDataLoadingStepBuilder,
             "TabularPreprocessing": TabularPreprocessingStepBuilder,
+            "HyperparameterPrep": HyperparameterPrepStepBuilder,
             "XGBoostTraining": XGBoostTrainingStepBuilder,
             "Package": MIMSPackagingStepBuilder,
             "Payload": MIMSPayloadStepBuilder,
@@ -248,6 +264,9 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             self.tp_train_cfg.input_names = self.tp_train_cfg.get_input_names()
         if not hasattr(self.tp_train_cfg, 'output_names'):
             self.tp_train_cfg.output_names = self.tp_train_cfg.get_output_names()
+        
+        # Add hyperparameter prep step
+        config_map["hyperparameter_prep"] = self.hyperparameter_prep_cfg
             
         config_map["xgboost_train"] = self.xgb_train_cfg
         config_map["model_packaging"] = self.package_cfg
@@ -282,6 +301,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         # Add nodes
         dag.add_node("train_data_load")
         dag.add_node("train_preprocess")
+        dag.add_node("hyperparameter_prep")
         dag.add_node("xgboost_train")
         dag.add_node("model_packaging")
         dag.add_node("model_registration")
@@ -293,6 +313,7 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         # Add edges for training flow
         dag.add_edge("train_data_load", "train_preprocess")
         dag.add_edge("train_preprocess", "xgboost_train")
+        dag.add_edge("hyperparameter_prep", "xgboost_train")
         dag.add_edge("xgboost_train", "model_packaging")
         dag.add_edge("model_packaging", "payload_test")
         dag.add_edge("payload_test", "model_registration")

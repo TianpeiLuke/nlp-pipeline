@@ -28,6 +28,7 @@ STEP_NAMES = {
     'BatchTransform':       'BatchTransformStep',
     'XGBoostModelEval':     'XGBoostModelEvaluationStep',
     'PytorchModelEval':     'PytorchModelEvaluationStep',
+    'HyperparameterPrep':   'HyperparameterPrepStep',
     }
 
 

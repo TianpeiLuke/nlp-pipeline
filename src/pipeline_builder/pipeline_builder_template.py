@@ -308,6 +308,8 @@ class PipelineBuilderTemplate:
             self._handle_packaging_step(kwargs, step_name, dependency_steps)
         elif step_type == "Registration":
             self._handle_registration_step(kwargs, step_name, dependency_steps)
+        elif step_type == "HyperparameterPrep":
+            self._handle_hyperparameter_prep_step(kwargs, step_name, dependency_steps)
     
     def _extract_common_outputs(self, kwargs: dict, prev_step: Step, step_name: str, step_type: str) -> None:
         """
@@ -475,6 +477,23 @@ class PipelineBuilderTemplate:
                     except (AttributeError, IndexError) as e:
                         logger.warning(f"Could not extract processed data output from step: {e}")
         
+        # If hyperparameters_s3_uri is not already set, try to set it
+        if "hyperparameters_s3_uri" not in kwargs and step_type == "XGBoostTraining":
+            # Look for hyperparameter prep step in the dependency steps
+            for prev_step in dependency_steps:
+                if hasattr(prev_step, "hyperparameters_s3_uri"):
+                    # For LambdaStep, the output is in properties.Outputs
+                    if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
+                        if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
+                            kwargs["hyperparameters_s3_uri"] = prev_step.properties.Outputs["hyperparameters_s3_uri"]
+                            logger.info(f"Found hyperparameters_s3_uri from Lambda step: {prev_step.name}")
+                            break
+                    # For direct property access (backward compatibility)
+                    else:
+                        kwargs["hyperparameters_s3_uri"] = prev_step.hyperparameters_s3_uri
+                        logger.info(f"Found hyperparameters_s3_uri from step: {prev_step.name}")
+                        break
+        
         # If output_path is not already set, try to set it
         if "output_path" not in kwargs and hasattr(config, "pipeline_s3_loc"):
             # Set the output path based on the config and step type
@@ -524,6 +543,26 @@ class PipelineBuilderTemplate:
                         break
                     except AttributeError as e:
                         logger.warning(f"Could not extract model artifacts from step: {e}")
+    
+    def _handle_hyperparameter_prep_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
+        """
+        Special handling for hyperparameter preparation steps.
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            step_name: Name of the current step
+            dependency_steps: List of dependency steps
+        """
+        # No special handling needed for inputs, as the hyperparameter prep step doesn't require
+        # any inputs from previous steps. It gets its hyperparameters from its config.
+        
+        # However, we need to ensure that the step's output (hyperparameters_s3_uri) is properly
+        # accessible to downstream steps, especially XGBoostTraining steps.
+        config = self.config_map[step_name]
+        
+        # If enable_caching is not already set, set it to True
+        if "enable_caching" not in kwargs:
+            kwargs["enable_caching"] = True
     
     def _handle_registration_step(self, kwargs: dict, step_name: str, dependency_steps: List[Step]) -> None:
         """
