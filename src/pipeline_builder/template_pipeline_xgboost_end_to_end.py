@@ -151,8 +151,9 @@ def create_pipeline_from_template(
         ("HyperparameterPrep", "XGBoostTraining"),
         ("XGBoostTraining", "XGBoostModel"),
         ("XGBoostTraining", "Package"),  # Changed from XGBoostModel to XGBoostTraining
-        ("Package", "Payload"),
-        ("Payload", "Registration"),
+        # Removed dependency between Package and Payload as Payload doesn't depend on any step
+        ("Package", "Registration"),  # Added dependency from Package to Registration
+        ("Payload", "Registration"),  # Registration depends on both Package and Payload
         ("CradleDataLoading_Calibration", "TabularPreprocessing_Calibration"),
     ]
     
