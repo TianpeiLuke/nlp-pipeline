@@ -170,21 +170,64 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
             "processed_data_output": "S3 URI of the processed data output"
         }
     
-    def create_step(
-        self,
-        data_input: Union[str, Properties],
-        dependencies: Optional[List[Step]] = None
-    ) -> ProcessingStep:
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the CurrencyConversionStep from the dependency steps.
+        Specifically, it looks for:
+        1. data_input from a DataLoadStep or other processing steps
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for data_input from a DataLoadStep or other processing steps
+        for prev_step in dependency_steps:
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    # Try to get the data output
+                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                        # Try string keys (dict-like)
+                        for key in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                # If this is a data load step, use it as data_input
+                                if key == "DATA" or key == "RawData" or key == "ProcessedTabularData":
+                                    inputs["data_input"] = output.S3Output.S3Uri
+                                    logger.info(f"Found data_input from step: {prev_step.name}")
+                                    break
+                except (AttributeError, IndexError) as e:
+                    logger.warning(f"Could not extract data output from step: {e}")
+        
+        # Add enable_caching
+        inputs["enable_caching"] = getattr(self.config, 'enable_caching', True)
+        
+        return inputs
+    
+    def create_step(self, **kwargs) -> ProcessingStep:
         """
         Create currency conversion processing step.
         
         Args:
-            data_input: Input data source
-            dependencies: Optional list of dependent steps
+            **kwargs: Keyword arguments for configuring the step, including:
+                - data_input: Input data source (S3 path or Properties object)
+                - dependencies: Optional list of dependent steps
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             ProcessingStep for currency conversion
         """
+        # Extract parameters
+        data_input = self._extract_param(kwargs, 'data_input')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        enable_caching = self._extract_param(kwargs, 'enable_caching', 
+                                            getattr(self.config, 'enable_caching', True))
+        
         logger.info("Creating currency conversion processing step")
 
         # Create processor
@@ -217,19 +260,18 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
                    f"and {len(processing_outputs)} outputs")
         return step
 
-    def create_conversion_step(
-        self,
-        data_input: str,
-        dependencies: Optional[List] = None
-    ) -> ProcessingStep:
+    def create_conversion_step(self, **kwargs) -> ProcessingStep:
         """
         Backwards compatible method for creating conversion step.
         
         Args:
-            data_input: Input data path
-            dependencies: Optional list of dependencies
+            **kwargs: Keyword arguments for configuring the step, including:
+                - data_input: Input data source (S3 path or Properties object)
+                - dependencies: Optional list of dependent steps
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             ProcessingStep
         """
-        return self.create_step(data_input, dependencies)
+        logger.warning("create_conversion_step is deprecated, use create_step instead.")
+        return self.create_step(**kwargs)

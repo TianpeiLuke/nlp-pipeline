@@ -89,20 +89,40 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             output_props.update({k: v for k, v in self.config.output_names.items()})
         return output_props
     
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the MIMSPayloadStep from the dependency steps.
+        For this step, we don't typically need to extract inputs from dependencies as it generates
+        payloads based on its configuration, but we include this method for consistency.
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        # This step doesn't typically need inputs from dependencies
+        # as it generates payloads based on its configuration
+        return {}
+    
 
-    def create_step(
-        self,
-        dependencies: Optional[List[Step]] = None
-    ) -> LambdaStep:
+    def create_step(self, **kwargs) -> LambdaStep:
         """
         Creates a LambdaStep that calls generate_and_upload_payloads from the config.
         
         Args:
-            dependencies: Optional list of step dependencies
+            **kwargs: Keyword arguments for configuring the step, including:
+                - dependencies: Optional list of step dependencies
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             LambdaStep object
         """
+        # Extract parameters
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        
         step_name = self._get_step_name('Payload')
         logger.info(f"Creating {step_name} step")
 
@@ -156,17 +176,17 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         
         return step
 
-    def create_payload_step(
-        self,
-        dependencies: Optional[List[Step]] = None
-    ) -> LambdaStep:
+    def create_payload_step(self, **kwargs) -> LambdaStep:
         """
         Convenience method for creating payload step.
         
         Args:
-            dependencies: Optional list of step dependencies
+            **kwargs: Keyword arguments for configuring the step, including:
+                - dependencies: Optional list of step dependencies
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             LambdaStep object
         """
-        return self.create_step(dependencies)
+        logger.warning("create_payload_step is deprecated, use create_step instead.")
+        return self.create_step(**kwargs)

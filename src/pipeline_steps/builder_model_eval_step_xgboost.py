@@ -173,14 +173,104 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         """
         # Get output properties from config's output_names
         return {k: v for k, v in (self.config.output_names or {}).items()}
+        
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the XGBoostModelEvalStep from the dependency steps.
+        Specifically, it looks for:
+        1. model_input from a ModelStep
+        2. eval_data_input from a TabularPreprocessingStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        outputs = {}
+        
+        # Look for model_input from a ModelStep
+        for prev_step in dependency_steps:
+            # Check for model step output
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+                try:
+                    if "model_input" in self.config.input_names:
+                        input_key = self.config.input_names["model_input"]
+                        if "inputs" not in inputs:
+                            inputs = {"inputs": {}}
+                        inputs["inputs"][input_key] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                        logger.info(f"Found model_input from ModelStep: {prev_step.name}")
+                except AttributeError as e:
+                    logger.warning(f"Could not extract model artifacts from step: {e}")
+            
+            # Look for eval_data_input from a TabularPreprocessingStep
+            elif hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    # Try to get the processed data output
+                    if hasattr(prev_step.properties.ProcessingOutputConfig.Outputs, "__getitem__"):
+                        # Try string keys (dict-like)
+                        for key in prev_step.properties.ProcessingOutputConfig.Outputs:
+                            output = prev_step.properties.ProcessingOutputConfig.Outputs[key]
+                            if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                # If this is a processed data output, use it as eval_data_input
+                                if key == "ProcessedTabularData":
+                                    if "eval_data_input" in self.config.input_names:
+                                        input_key = self.config.input_names["eval_data_input"]
+                                        if "inputs" not in inputs:
+                                            inputs = {"inputs": {}}
+                                        inputs["inputs"][input_key] = output.S3Output.S3Uri
+                                        logger.info(f"Found eval_data_input from step: {prev_step.name}")
+                except (AttributeError, IndexError) as e:
+                    logger.warning(f"Could not extract processed data output from step: {e}")
+        
+        # Set up outputs if not already set
+        if not outputs and hasattr(self.config, "pipeline_s3_loc") and hasattr(self.config, "job_type"):
+            base_output_path = f"{self.config.pipeline_s3_loc}/xgboost_model_eval/{self.config.job_type}"
+            if "eval_output" in self.config.output_names and "metrics_output" in self.config.output_names:
+                eval_key = self.config.output_names["eval_output"]
+                metrics_key = self.config.output_names["metrics_output"]
+                outputs = {
+                    "outputs": {
+                        eval_key: f"{base_output_path}/eval",
+                        metrics_key: f"{base_output_path}/metrics"
+                    }
+                }
+                logger.info(f"Set up output paths: {outputs}")
+        
+        result = {}
+        if "inputs" in inputs:
+            result["inputs"] = inputs["inputs"]
+        if "outputs" in outputs:
+            result["outputs"] = outputs["outputs"]
+        
+        # Add enable_caching
+        result["enable_caching"] = True
+        
+        return result
 
-    def create_step(
-        self,
-        inputs: Dict[str, Any],
-        outputs: Dict[str, Any],
-        dependencies: Optional[List[Step]] = None,
-        enable_caching: bool = True
-    ) -> ProcessingStep:
+    def create_step(self, **kwargs) -> ProcessingStep:
+        """
+        Creates a ProcessingStep for XGBoost model evaluation.
+        
+        Args:
+            **kwargs: Keyword arguments for configuring the step, including:
+                - inputs: Dictionary containing model_input and eval_data_input S3 paths
+                - outputs: Dictionary containing eval_output and metrics_output S3 paths
+                - dependencies: Optional list of step dependencies
+                - enable_caching: Whether to enable caching for this step (default: True)
+            
+        Returns:
+            ProcessingStep object
+        """
+        # Extract parameters
+        inputs = self._extract_param(kwargs, 'inputs')
+        outputs = self._extract_param(kwargs, 'outputs')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
+        
         logger.info("Creating XGBoost Model Evaluation ProcessingStep...")
 
         processor = self._create_processor()

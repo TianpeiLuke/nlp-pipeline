@@ -196,21 +196,63 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         return {k: v for k, v in self.config.output_names.items()}
     
-    def create_step(
-        self,
-        model_artifacts_input_source: Union[str, Properties],
-        dependencies: Optional[List[Step]] = None
-    ) -> ProcessingStep:
+    def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+        """
+        Extract inputs from dependency steps.
+        
+        This method extracts the inputs required by the MIMSPackagingStep from the dependency steps.
+        Specifically, it looks for:
+        1. model_artifacts_input_source from a ModelStep
+        
+        Args:
+            dependency_steps: List of dependency steps
+            
+        Returns:
+            Dictionary of inputs extracted from dependency steps
+        """
+        inputs = {}
+        
+        # Look for model_artifacts_input_source from a ModelStep
+        for prev_step in dependency_steps:
+            # Check for model step output
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
+                try:
+                    inputs["model_artifacts_input_source"] = prev_step.properties.ModelArtifacts.S3ModelArtifacts
+                    logger.info(f"Found model_artifacts_input_source from ModelStep: {prev_step.name}")
+                    break
+                except AttributeError as e:
+                    logger.warning(f"Could not extract model artifacts from step: {e}")
+            
+            # Check for model_artifacts_path attribute (used by some model steps)
+            elif hasattr(prev_step, "model_artifacts_path"):
+                inputs["model_artifacts_input_source"] = prev_step.model_artifacts_path
+                logger.info(f"Found model_artifacts_input_source from step's model_artifacts_path: {prev_step.name}")
+                break
+        
+        # Add enable_caching
+        inputs["enable_caching"] = getattr(self.config, 'enable_caching_package_step', True)
+        
+        return inputs
+    
+    def create_step(self, **kwargs) -> ProcessingStep:
         """
         Creates a ProcessingStep for MIMS model packaging.
         
         Args:
-            model_artifacts_input_source: Source location of model artifacts
-            dependencies: Optional list of step dependencies
+            **kwargs: Keyword arguments for configuring the step, including:
+                - model_artifacts_input_source: Source location of model artifacts
+                - dependencies: Optional list of step dependencies
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             ProcessingStep object
         """
+        # Extract parameters
+        model_artifacts_input_source = self._extract_param(kwargs, 'model_artifacts_input_source')
+        dependencies = self._extract_param(kwargs, 'dependencies')
+        enable_caching = self._extract_param(kwargs, 'enable_caching', 
+                                            getattr(self.config, 'enable_caching_package_step', True))
+        
         step_name = self._get_step_name('Package')
 
         effective_source_dir = self.config.get_effective_source_dir()
@@ -245,19 +287,23 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             cache_config=cache_config
         )
 
-    def create_packaging_step(
-        self,
-        model_data: str,
-        dependencies: Optional[List] = None
-    ) -> ProcessingStep:
+    def create_packaging_step(self, **kwargs) -> ProcessingStep:
         """
         Backwards compatible method for creating packaging step.
         
         Args:
-            model_data: Location of model data
-            dependencies: Optional list of step dependencies
+            **kwargs: Keyword arguments for configuring the step, including:
+                - model_data: Location of model data (alias for model_artifacts_input_source)
+                - dependencies: Optional list of step dependencies
+                - enable_caching: Whether to enable caching for this step (default: True)
             
         Returns:
             ProcessingStep object
         """
-        return self.create_step(model_data, dependencies)
+        logger.warning("create_packaging_step is deprecated, use create_step instead.")
+        
+        # Handle model_data parameter (alias for model_artifacts_input_source)
+        if 'model_data' in kwargs and 'model_artifacts_input_source' not in kwargs:
+            kwargs['model_artifacts_input_source'] = kwargs.pop('model_data')
+            
+        return self.create_step(**kwargs)
