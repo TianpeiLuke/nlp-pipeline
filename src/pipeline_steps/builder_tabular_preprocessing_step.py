@@ -60,17 +60,25 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         
         # Validate required attributes
         required_attrs = [
-            'processing_instance_type',
             'processing_instance_count',
             'processing_volume_size',
             'processing_entry_point',
             'processing_source_dir',
+            'processing_framework_version',
             'job_type'
         ]
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"TabularPreprocessingConfig missing required attribute: {attr}")
+        
+        # Validate instance type settings
+        if not hasattr(self.config, 'processing_instance_type_large'):
+            raise ValueError("Missing required attribute: processing_instance_type_large")
+        if not hasattr(self.config, 'processing_instance_type_small'):
+            raise ValueError("Missing required attribute: processing_instance_type_small")
+        if not hasattr(self.config, 'use_large_processing_instance'):
+            raise ValueError("Missing required attribute: use_large_processing_instance")
         
         # Validate job type
         if self.config.job_type not in ["training", "validation", "testing", "calibration"]:
@@ -82,8 +90,12 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         if "data_input" not in (self.config.input_names or {}):
             raise ValueError("input_names must contain key 'data_input'")
         
-        if "preprocessed_data" not in (self.config.output_names or {}):
-            raise ValueError("output_names must contain key 'preprocessed_data'")
+        if "processed_data" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'processed_data'")
+        
+        # full_data is now optional
+        # if "full_data" not in (self.config.output_names or {}):
+        #    raise ValueError("output_names must contain key 'full_data'")
         
         logger.info("TabularPreprocessingConfig validation succeeded.")
 
@@ -96,10 +108,13 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             An instance of sagemaker.sklearn.SKLearnProcessor.
         """
+        # Get the appropriate instance type based on use_large_processing_instance
+        instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
+        
         return SKLearnProcessor(
             framework_version=self.config.processing_framework_version,
             role=self.role,
-            instance_type=self.config.processing_instance_type,
+            instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
             base_job_name=self._sanitize_name_for_sagemaker(
@@ -118,14 +133,17 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             A dictionary of environment variables.
         """
+        # Set the required environment variables for tabular_preprocess.py script:
+        # - LABEL_FIELD: required by the script
+        # - TRAIN_RATIO: used for splitting in training mode
+        # - TEST_VAL_RATIO: used for splitting test vs validation
         env_vars = {
-            "JOB_TYPE": self.config.job_type,
+            "LABEL_FIELD": self.config.hyperparameters.label_name,
+            "TRAIN_RATIO": str(self.config.train_ratio),
+            "TEST_VAL_RATIO": str(self.config.test_val_ratio),
         }
         
         # Add optional environment variables if they exist
-        if hasattr(self.config, "target_column") and self.config.target_column:
-            env_vars["TARGET_COLUMN"] = self.config.target_column
-            
         if hasattr(self.config, "categorical_columns") and self.config.categorical_columns:
             env_vars["CATEGORICAL_COLUMNS"] = ",".join(self.config.categorical_columns)
             
@@ -198,27 +216,48 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
     def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
         """
         Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 location where the results of the processing job will be stored.
+        This defines the S3 locations where the results of the processing job will be stored.
+
+        The tabular_preprocess.py script creates processed data in split-specific subdirectories
+        (train, test, val) under /opt/ml/processing/output. We map these outputs to the
+        appropriate S3 destinations.
 
         Args:
-            outputs: A dictionary mapping the logical output channel name ('preprocessed_data')
-                     to its S3 destination URI.
+            outputs: A dictionary mapping the logical output channel names to S3 destination URIs.
+                    At minimum, must include the "processed_data" key.
 
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        key_out = self.config.output_names["preprocessed_data"]
-        if not outputs or key_out not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        processed_data_key = self.config.output_names["processed_data"]
+        full_data_key = self.config.output_names["full_data"]
         
-        # Define the output for preprocessed data
+        if not outputs:
+            raise ValueError(f"Outputs dictionary is empty. Must supply an S3 URI for '{processed_data_key}'")
+        
+        if processed_data_key not in outputs:
+            raise ValueError(f"Must supply an S3 URI for '{processed_data_key}' in 'outputs'")
+        
+        # Define the outputs for processed data
+        # The script creates files in split-specific subfolders (train, test, val) 
+        # under /opt/ml/processing/output
         processing_outputs = [
             ProcessingOutput(
-                output_name=key_out,
-                source="/opt/ml/processing/output",
-                destination=outputs[key_out]
+                output_name=processed_data_key,
+                source="/opt/ml/processing/output", 
+                destination=outputs[processed_data_key]
             )
         ]
+        
+        # Only add the full_data output if it's provided
+        if full_data_key in outputs:
+            processing_outputs.append(
+                ProcessingOutput(
+                    output_name=full_data_key,
+                    source="/opt/ml/processing/output",
+                    destination=outputs[full_data_key]
+                )
+            )
         
         return processing_outputs
 

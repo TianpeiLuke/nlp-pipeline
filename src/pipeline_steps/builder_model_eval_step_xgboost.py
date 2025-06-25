@@ -60,26 +60,37 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         
         # Validate required attributes
         required_attrs = [
-            'processing_instance_type',
             'processing_instance_count',
             'processing_volume_size',
             'processing_entry_point',
-            'processing_source_dir'
+            'processing_source_dir',
+            'processing_framework_version'
         ]
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"XGBoostModelEvalConfig missing required attribute: {attr}")
         
+        # Validate instance type settings
+        if not hasattr(self.config, 'processing_instance_type_large'):
+            raise ValueError("Missing required attribute: processing_instance_type_large")
+        if not hasattr(self.config, 'processing_instance_type_small'):
+            raise ValueError("Missing required attribute: processing_instance_type_small")
+        if not hasattr(self.config, 'use_large_processing_instance'):
+            raise ValueError("Missing required attribute: use_large_processing_instance")
+        
         # Validate input and output names
         if "model_input" not in (self.config.input_names or {}):
             raise ValueError("input_names must contain key 'model_input'")
         
-        if "validation_data" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'validation_data'")
+        if "eval_data_input" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'eval_data_input'")
         
-        if "evaluation_output" not in (self.config.output_names or {}):
-            raise ValueError("output_names must contain key 'evaluation_output'")
+        if "eval_output" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'eval_output'")
+        
+        if "metrics_output" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'metrics_output'")
         
         logger.info("XGBoostModelEvalConfig validation succeeded.")
 
@@ -92,10 +103,13 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             An instance of sagemaker.sklearn.SKLearnProcessor.
         """
+        # Get the appropriate instance type based on use_large_processing_instance
+        instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
+        
         return SKLearnProcessor(
             framework_version=self.config.processing_framework_version,
             role=self.role,
-            instance_type=self.config.processing_instance_type,
+            instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
             base_job_name=self._sanitize_name_for_sagemaker(
@@ -136,7 +150,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         to local directories inside the container.
 
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'model_input', 'validation_data')
+            inputs: A dictionary mapping logical input channel names (e.g., 'model_input', 'eval_data_input')
                     to their S3 URIs or dynamic Step properties.
 
         Returns:
@@ -144,17 +158,17 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         """
         # Get the input keys from config
         model_key = self.config.input_names["model_input"]
-        validation_key = self.config.input_names["validation_data"]
+        eval_data_key = self.config.input_names["eval_data_input"]
         
         # Check if inputs is empty or doesn't contain the required keys
         if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_key}' and '{validation_key}'")
+            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_key}' and '{eval_data_key}'")
         
         if model_key not in inputs:
             raise ValueError(f"Must supply an S3 URI for '{model_key}' in 'inputs'")
         
-        if validation_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{validation_key}' in 'inputs'")
+        if eval_data_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{eval_data_key}' in 'inputs'")
 
         # Define the input channels
         processing_inputs = [
@@ -164,8 +178,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
                 destination="/opt/ml/processing/input/model"
             ),
             ProcessingInput(
-                input_name=validation_key,
-                source=inputs[validation_key],
+                input_name=eval_data_key,
+                source=inputs[eval_data_key],
                 destination="/opt/ml/processing/input/validation"
             )
         ]
@@ -188,22 +202,35 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         This defines the S3 location where the results of the processing job will be stored.
 
         Args:
-            outputs: A dictionary mapping the logical output channel name ('evaluation_output')
-                     to its S3 destination URI.
+            outputs: A dictionary mapping the logical output channel names ('eval_output', 'metrics_output')
+                     to their S3 destination URIs.
 
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        key_out = self.config.output_names["evaluation_output"]
-        if not outputs or key_out not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        eval_out_key = self.config.output_names["eval_output"]
+        metrics_out_key = self.config.output_names["metrics_output"]
         
-        # Define the output for the evaluation
+        if not outputs:
+            raise ValueError(f"Outputs dictionary is empty. Must supply S3 URIs for '{eval_out_key}' and '{metrics_out_key}'")
+        
+        if eval_out_key not in outputs:
+            raise ValueError(f"Must supply an S3 URI for '{eval_out_key}' in 'outputs'")
+            
+        if metrics_out_key not in outputs:
+            raise ValueError(f"Must supply an S3 URI for '{metrics_out_key}' in 'outputs'")
+        
+        # Define the outputs for evaluation results and metrics
         processing_outputs = [
             ProcessingOutput(
-                output_name=key_out,
-                source="/opt/ml/processing/output",
-                destination=outputs[key_out]
+                output_name=eval_out_key,
+                source="/opt/ml/processing/output/evaluation",
+                destination=outputs[eval_out_key]
+            ),
+            ProcessingOutput(
+                output_name=metrics_out_key,
+                source="/opt/ml/processing/output/metrics",
+                destination=outputs[metrics_out_key]
             )
         ]
         
@@ -278,20 +305,20 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         # Look for validation data from a ProcessingStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our validation_data input
-                validation_key = self.config.input_names.get("validation_data")
-                if validation_key:
-                    # Look for an output with a name that might contain validation data
+                # Check if the step has an output that matches our eval_data_input
+                eval_data_key = self.config.input_names.get("eval_data_input")
+                if eval_data_key:
+                    # Look for an output with a name that might contain evaluation data
                     for output in prev_step.outputs:
                         if hasattr(output, "output_name") and any(term in output.output_name.lower() 
                                                                 for term in ["valid", "test", "eval"]):
                             if "inputs" not in inputs:
                                 inputs["inputs"] = {}
                             
-                            if validation_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][validation_key] = output.destination
+                            if eval_data_key not in inputs.get("inputs", {}):
+                                inputs["inputs"][eval_data_key] = output.destination
                                 matched_inputs.add("inputs")
-                                logger.info(f"Found validation data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                logger.info(f"Found evaluation data from step: {getattr(prev_step, 'name', str(prev_step))}")
                                 break
             except AttributeError as e:
                 logger.warning(f"Could not extract validation data from step: {e}")

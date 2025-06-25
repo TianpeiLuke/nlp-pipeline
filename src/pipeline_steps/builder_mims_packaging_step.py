@@ -58,28 +58,36 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         logger.info("Validating PackageStepConfig...")
         
-        # Validate required attributes
+        # Validate processing attributes from the base class
         required_attrs = [
-            'processing_instance_type',
             'processing_instance_count',
             'processing_volume_size',
             'processing_entry_point',
             'processing_source_dir',
-            'model_name',
-            'model_version',
-            'model_package_group_name'
+            'processing_framework_version',
         ]
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"PackageStepConfig missing required attribute: {attr}")
         
+        # Validate instance type settings
+        if not hasattr(self.config, 'processing_instance_type_large'):
+            raise ValueError("Missing required attribute: processing_instance_type_large")
+        if not hasattr(self.config, 'processing_instance_type_small'):
+            raise ValueError("Missing required attribute: processing_instance_type_small")
+        if not hasattr(self.config, 'use_large_processing_instance'):
+            raise ValueError("Missing required attribute: use_large_processing_instance")
+        
         # Validate input and output names
         if "model_input" not in (self.config.input_names or {}):
             raise ValueError("input_names must contain key 'model_input'")
         
-        if "model_package" not in (self.config.output_names or {}):
-            raise ValueError("output_names must contain key 'model_package'")
+        if "inference_scripts_input" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'inference_scripts_input'")
+        
+        if "packaged_model_output" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'packaged_model_output'")
         
         logger.info("PackageStepConfig validation succeeded.")
 
@@ -87,57 +95,26 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
         This defines the execution environment for the script, including the instance
-        type, framework version, and environment variables.
+        type and framework version.
 
         Returns:
             An instance of sagemaker.sklearn.SKLearnProcessor.
         """
+        # Get the appropriate instance type based on use_large_processing_instance
+        instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
+        
         return SKLearnProcessor(
             framework_version=self.config.processing_framework_version,
             role=self.role,
-            instance_type=self.config.processing_instance_type,
+            instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
             base_job_name=self._sanitize_name_for_sagemaker(
                 f"{self._get_step_name('MIMSPackaging')}"
             ),
             sagemaker_session=self.session,
-            env=self._get_environment_variables(),
+            env={},  # No environment variables needed for this script
         )
-
-    def _get_environment_variables(self) -> Dict[str, str]:
-        """
-        Constructs a dictionary of environment variables to be passed to the processing job.
-        These variables are used to control the behavior of the packaging script
-        without needing to pass them as command-line arguments.
-
-        Returns:
-            A dictionary of environment variables.
-        """
-        env_vars = {
-            "MODEL_NAME": self.config.model_name,
-            "MODEL_VERSION": self.config.model_version,
-            "MODEL_PACKAGE_GROUP_NAME": self.config.model_package_group_name,
-        }
-        
-        # Add optional environment variables if they exist
-        if hasattr(self.config, "model_description") and self.config.model_description:
-            env_vars["MODEL_DESCRIPTION"] = self.config.model_description
-            
-        if hasattr(self.config, "domain") and self.config.domain:
-            env_vars["DOMAIN"] = self.config.domain
-            
-        if hasattr(self.config, "task") and self.config.task:
-            env_vars["TASK"] = self.config.task
-            
-        if hasattr(self.config, "framework") and self.config.framework:
-            env_vars["FRAMEWORK"] = self.config.framework
-            
-        if hasattr(self.config, "framework_version") and self.config.framework_version:
-            env_vars["FRAMEWORK_VERSION"] = self.config.framework_version
-            
-        logger.info(f"Processing environment variables: {env_vars}")
-        return env_vars
 
     def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
@@ -152,22 +129,31 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the model input key from config
-        key_in = self.config.input_names["model_input"]
+        # Get the input keys from config
+        model_key = self.config.input_names["model_input"]
+        scripts_key = self.config.input_names["inference_scripts_input"]
         
-        # Check if inputs is empty or doesn't contain the required key
+        # Check if inputs is empty or doesn't contain the required keys
         if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply an S3 URI for '{key_in}'")
+            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_key}' and '{scripts_key}'")
         
-        if key_in not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_in}' in 'inputs'")
+        if model_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{model_key}' in 'inputs'")
+            
+        if scripts_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for '{scripts_key}' in 'inputs'")
 
-        # Define the model input channel
+        # Define the input channels
         processing_inputs = [
             ProcessingInput(
-                input_name=key_in,
-                source=inputs[key_in],
+                input_name=model_key,
+                source=inputs[model_key],
                 destination="/opt/ml/processing/input/model"
+            ),
+            ProcessingInput(
+                input_name=scripts_key,
+                source=inputs[scripts_key],
+                destination="/opt/ml/processing/input/script"
             )
         ]
         
@@ -179,13 +165,13 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         This defines the S3 location where the results of the processing job will be stored.
 
         Args:
-            outputs: A dictionary mapping the logical output channel name ('model_package')
+            outputs: A dictionary mapping the logical output channel name ('packaged_model_output')
                      to its S3 destination URI.
 
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        key_out = self.config.output_names["model_package"]
+        key_out = self.config.output_names["packaged_model_output"]
         if not outputs or key_out not in outputs:
             raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
         
@@ -200,15 +186,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         
         return processing_outputs
 
-    def _get_job_arguments(self) -> List[str]:
-        """
-        Constructs the list of command-line arguments to be passed to the processing script.
-        This allows for parameterizing the script's execution at runtime.
-
-        Returns:
-            A list of strings representing the command-line arguments.
-        """
-        return []  # No command-line arguments needed, using environment variables instead
         
     def get_input_requirements(self) -> Dict[str, str]:
         """
@@ -302,7 +279,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         processor = self._create_processor()
         proc_inputs = self._get_processor_inputs(inputs)
         proc_outputs = self._get_processor_outputs(outputs)
-        job_args = self._get_job_arguments()
+        job_args = []  # No command-line arguments needed for this script
 
         step_name = self._get_step_name('MIMSPackaging')
         

@@ -113,141 +113,77 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
 
     def validate_configuration(self) -> None:
         """
-        Validates the provided configuration to ensure all required fields for this
-        specific step are present and valid before attempting to build the step.
+        Called by StepBuilderBase.__init__(). Ensures required fields are set
+        and in the correct format.
 
-        Raises:
-            ValueError: If any required configuration is missing or invalid.
+        In particular:
+          - job_type ∈ {'training','validation','testing','calibration'}
+          - At least one data source in data_sources_spec
+          - Each MDS/EDX/ANDES config is present if indicated
+          - start_date and end_date must exactly match 'YYYY-mm-DDTHH:MM:SS'
+          - start_date < end_date
         """
         logger.info("Validating CradleDataLoadConfig…")
-        
-        # Validate required attributes
-        required_attrs = [
-            'processing_instance_type',
-            'processing_instance_count',
-            'processing_volume_size',
-            'processing_entry_point',
-            'processing_source_dir',
-            'job_type'
-        ]
-        
-        for attr in required_attrs:
-            if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
-                raise ValueError(f"CradleDataLoadConfig missing required attribute: {attr}")
-        
-        # Validate job type
-        if self.config.job_type not in ["training", "validation", "testing", "calibration"]:
-            raise ValueError(
-                f"job_type must be one of 'training', 'validation', 'testing', 'calibration', got '{self.config.job_type}'"
-            )
-        
-        # Validate output names
-        if not self.config.output_names:
-            raise ValueError("output_names must be provided and non-empty")
-        
-        # Ensure required output channels are present
-        required_outputs = ["data_output"]
-        missing_outputs = [out for out in required_outputs if out not in self.config.output_names]
-        if missing_outputs:
-            raise ValueError(f"output_names missing required keys: {missing_outputs}")
-        
-        logger.info("CradleDataLoadConfig validation succeeded.")
 
-    def _create_processor(self) -> SKLearnProcessor:
-        """
-        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
-        This defines the execution environment for the script, including the instance
-        type, framework version, and environment variables.
+        # (1) job_type is already validated by Pydantic, but double-check presence:
+        valid_job_types = {'training', 'validation', 'testing', 'calibration'}
+        if not self.config.job_type:
+            raise ValueError("job_type must be provided (e.g. 'training','validation','testing','calibration').")
+        if self.config.job_type.lower() not in valid_job_types:
+            raise ValueError(f"job_type must be one of: {valid_job_types}")
 
-        Returns:
-            An instance of sagemaker.sklearn.SKLearnProcessor.
-        """
-        return SKLearnProcessor(
-            framework_version=self.config.processing_framework_version,
-            role=self.role,
-            instance_type=self.config.processing_instance_type,
-            instance_count=self.config.processing_instance_count,
-            volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type}"
-            ),
-            sagemaker_session=self.session,
-            env=self._get_environment_variables(),
-        )
 
-    def _get_environment_variables(self) -> Dict[str, str]:
-        """
-        Constructs a dictionary of environment variables to be passed to the processing job.
-        These variables are used to control the behavior of the data loading script
-        without needing to pass them as command-line arguments.
+        # (2) data_sources_spec must have at least one entry
+        ds_list = self.config.data_sources_spec.data_sources
+        if not ds_list or len(ds_list) == 0:
+            raise ValueError("At least one DataSourceConfig must be provided in data_sources_spec.data_sources")
 
-        Returns:
-            A dictionary of environment variables.
-        """
-        env_vars = {
-            "JOB_TYPE": self.config.job_type,
-        }
-        
-        # Add optional environment variables if they exist
-        if hasattr(self.config, "cradle_request") and self.config.cradle_request:
-            env_vars["CRADLE_REQUEST"] = json.dumps(self.config.cradle_request)
-            
-        logger.info(f"Processing environment variables: {env_vars}")
-        return env_vars
+        # (3) For each data_source, check that required subfields are present
+        for idx, ds_cfg in enumerate(ds_list):
+            if ds_cfg.data_source_type == "MDS":
+                mds_props: MdsDataSourceConfig = ds_cfg.mds_data_source_properties  # type: ignore
+                if mds_props is None:
+                    raise ValueError(f"DataSource #{idx} is MDS but mds_data_source_properties was not provided.")
+                # MdsDataSourceConfig validators have already run.
+            elif ds_cfg.data_source_type == "EDX":
+                edx_props: EdxDataSourceConfig = ds_cfg.edx_data_source_properties  # type: ignore
+                if edx_props is None:
+                    raise ValueError(f"DataSource #{idx} is EDX but edx_data_source_properties was not provided.")
+                # Check EDX manifest
+                if not edx_props.edx_manifest:
+                    raise ValueError(f"DataSource #{idx} EDX manifest must be a nonempty string.")
+            elif ds_cfg.data_source_type == "ANDES":
+                andes_props: AndesDataSourceConfig = ds_cfg.andes_data_source_properties  # type: ignore
+                if andes_props is None:
+                    raise ValueError(f"DataSource #{idx} is ANDES but andes_data_source_properties was not provided.")
+            else:
+                raise ValueError(f"DataSource #{idx} has invalid type: {ds_cfg.data_source_type}")
 
-    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        """
-        Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 location where the results of the processing job will be stored.
-
-        Args:
-            outputs: A dictionary mapping the logical output channel names to their S3 destination URIs.
-
-        Returns:
-            A list containing sagemaker.processing.ProcessingOutput objects.
-        """
-        # Validate outputs
-        if not outputs:
-            raise ValueError("outputs must be provided and non-empty")
-        
-        # Ensure required output channels are present
-        required_outputs = ["data_output"]
-        missing_outputs = [out for out in required_outputs if out not in outputs]
-        if missing_outputs:
-            raise ValueError(f"outputs missing required keys: {missing_outputs}")
-        
-        # Define the outputs
-        processing_outputs = []
-        
-        # Map output names to their destinations in the container
-        output_destinations = {
-            "data_output": "/opt/ml/processing/output/data",
-            "metadata_output": "/opt/ml/processing/output/metadata",
-            "signature_output": "/opt/ml/processing/output/signature"
-        }
-        
-        # Create ProcessingOutput objects for each output channel
-        for output_name, output_key in self.config.output_names.items():
-            if output_key in outputs and output_name in output_destinations:
-                processing_outputs.append(
-                    ProcessingOutput(
-                        output_name=output_key,
-                        source=output_destinations[output_name],
-                        destination=outputs[output_key]
-                    )
+        # (4) Check that start_date & end_date match exact format YYYY-mm-DDTHH:MM:SS
+        for field_name in ("start_date", "end_date"):
+            value = getattr(self.config.data_sources_spec, field_name)
+            try:
+                parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S")
+            except Exception:
+                raise ValueError(
+                    f"'{field_name}' must be in format YYYY-mm-DD'T'HH:MM:SS "
+                    f"(e.g. '2025-01-01T00:00:00'), got: {value!r}"
                 )
-        
-        return processing_outputs
+            if parsed.strftime("%Y-%m-%dT%H:%M:%S") != value:
+                raise ValueError(
+                    f"'{field_name}' does not match the required format exactly; got {value!r}"
+                )
 
-    def _get_job_arguments(self) -> List[str]:
-        """
-        Constructs the list of command-line arguments to be passed to the processing script.
-        This allows for parameterizing the script's execution at runtime.
+        # (5) Also ensure start_date < end_date
+        s = datetime.strptime(self.config.data_sources_spec.start_date, "%Y-%m-%dT%H:%M:%S")
+        e = datetime.strptime(self.config.data_sources_spec.end_date, "%Y-%m-%dT%H:%M:%S")
+        if s >= e:
+            raise ValueError("start_date must be strictly before end_date.")
 
-        Returns:
-            A list of strings representing the command-line arguments.
-        """
-        return ["--job_type", self.config.job_type]
+        # (6) Everything else (output_path S3 URI, output_format, cluster_type, etc.) 
+        #     is validated by Pydantic already.
+
+        logger.info("CradleDataLoadConfig validation succeeded.")
         
     def get_input_requirements(self) -> Dict[str, str]:
         """
@@ -334,14 +270,6 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If there's an error creating the CradleDataLoadingStep.
         """
-        # Extract parameters
-        outputs = self._extract_param(kwargs, 'outputs')
-        dependencies = self._extract_param(kwargs, 'dependencies')
-        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
-        
-        # Validate required parameters
-        if not outputs:
-            raise ValueError("outputs must be provided")
             
         # Create the step name
         step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
@@ -354,10 +282,6 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 role=self.role,
                 sagemaker_session=self.session
             )
-            
-            # Set dependencies if provided
-            if dependencies:
-                step.add_depends_on(dependencies)
             
             logger.info(f"Created CradleDataLoadingStep with name: {step.name}")
             

@@ -59,13 +59,12 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         
         # Validate required attributes
         required_attrs = [
-            'instance_type',
-            'instance_count',
-            'volume_size',
-            'entry_point',
+            'training_instance_type',
+            'training_instance_count',
+            'training_volume_size',
+            'training_entry_point',
             'source_dir',
             'framework_version',
-            'job_name'
         ]
         
         for attr in required_attrs:
@@ -73,9 +72,12 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 raise ValueError(f"XGBoostTrainingConfig missing required attribute: {attr}")
         
         # Validate input and output names
-        if "training_data" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'training_data'")
+        if "train" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'train'")
         
+        if "val" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'val'")
+            
         logger.info("XGBoostTrainingConfig validation succeeded.")
 
     def _create_estimator(self) -> XGBoost:
@@ -87,29 +89,29 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         Returns:
             An instance of sagemaker.xgboost.XGBoost.
         """
+        # Extract hyperparameters from XGBoostModelHyperparameters object
         hyperparameters = {}
         if hasattr(self.config, "hyperparameters") and self.config.hyperparameters:
-            hyperparameters.update(self.config.hyperparameters)
+            # Extract XGBoost parameters
+            if hasattr(self.config.hyperparameters, "xgb_params"):
+                hyperparameters.update(self.config.hyperparameters.xgb_params)
         
         return XGBoost(
-            entry_point=self.config.entry_point,
+            entry_point=self.config.training_entry_point,
             source_dir=self.config.source_dir,
             framework_version=self.config.framework_version,
             py_version=self.config.py_version,
             role=self.role,
-            instance_type=self.config.instance_type,
-            instance_count=self.config.instance_count,
-            volume_size=self.config.volume_size,
-            max_run=self.config.max_run,
-            keep_alive_period_in_seconds=self.config.keep_alive_period,
+            instance_type=self.config.training_instance_type,
+            instance_count=self.config.training_instance_count,
+            volume_size=self.config.training_volume_size,
             base_job_name=self._sanitize_name_for_sagemaker(
                 f"{self._get_step_name('XGBoostTraining')}"
             ),
             hyperparameters=hyperparameters,
             sagemaker_session=self.session,
-            enable_sagemaker_metrics=self.config.enable_sagemaker_metrics,
-            debugger_hook_config=self.config.debugger_hook_config,
-            tensorboard_output_config=self.config.tensorboard_output_config,
+            output_path=self.config.output_path,
+            checkpoint_s3_uri=self.config.get_checkpoint_uri(),
             environment=self._get_environment_variables(),
         )
 
@@ -174,47 +176,60 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         
-        # Look for preprocessed data from a ProcessingStep
+        # Look for train data from a ProcessingStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our training_data input
-                training_key = self.config.input_names.get("training_data")
-                if training_key:
-                    # Look for an output with a name that might contain training data
-                    for output in prev_step.outputs:
-                        if hasattr(output, "output_name") and any(term in output.output_name.lower() 
-                                                                for term in ["train", "preprocess"]):
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                            
-                            if training_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][training_key] = output.destination
-                                matched_inputs.add("inputs")
-                                logger.info(f"Found training data from step: {getattr(prev_step, 'name', str(prev_step))}")
-                                break
+                # Look for an output with a name that might contain training data
+                for output in prev_step.outputs:
+                    if hasattr(output, "output_name") and "train" in output.output_name.lower():
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                        
+                        # Use 'train' key as defined in config
+                        if "train" not in inputs.get("inputs", {}):
+                            inputs["inputs"]["train"] = output.destination
+                            matched_inputs.add("inputs")
+                            logger.info(f"Found training data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                            break
             except AttributeError as e:
                 logger.warning(f"Could not extract training data from step: {e}")
                 
         # Look for validation data from a ProcessingStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our validation_data input
-                validation_key = self.config.input_names.get("validation_data")
-                if validation_key:
-                    # Look for an output with a name that might contain validation data
-                    for output in prev_step.outputs:
-                        if hasattr(output, "output_name") and any(term in output.output_name.lower() 
-                                                                for term in ["valid", "val", "test"]):
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                            
-                            if validation_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][validation_key] = output.destination
-                                matched_inputs.add("inputs")
-                                logger.info(f"Found validation data from step: {getattr(prev_step, 'name', str(prev_step))}")
-                                break
+                # Look for an output with a name that might contain validation data
+                for output in prev_step.outputs:
+                    if hasattr(output, "output_name") and any(term in output.output_name.lower() 
+                                                            for term in ["valid", "val"]):
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                        
+                        # Use 'val' key as defined in config
+                        if "val" not in inputs.get("inputs", {}):
+                            inputs["inputs"]["val"] = output.destination
+                            matched_inputs.add("inputs")
+                            logger.info(f"Found validation data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                            break
             except AttributeError as e:
                 logger.warning(f"Could not extract validation data from step: {e}")
+                
+        # Look for test data from a ProcessingStep
+        if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+            try:
+                # Look for an output with a name that might contain test data
+                for output in prev_step.outputs:
+                    if hasattr(output, "output_name") and "test" in output.output_name.lower():
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                        
+                        # Use 'test' key as defined in config
+                        if "test" not in inputs.get("inputs", {}):
+                            inputs["inputs"]["test"] = output.destination
+                            matched_inputs.add("inputs")
+                            logger.info(f"Found test data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                            break
+            except AttributeError as e:
+                logger.warning(f"Could not extract test data from step: {e}")
                 
         # Look for hyperparameters from a HyperparameterPrepStep
         if hasattr(prev_step, "hyperparameters_s3_uri"):
@@ -249,14 +264,26 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         logger.info("Creating XGBoost TrainingStep...")
 
         # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs')
+        inputs = self._extract_param(kwargs, 'inputs', {})
         hyperparameters_s3_uri = self._extract_param(kwargs, 'hyperparameters_s3_uri')
         dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Validate required parameters
+        # Try to extract inputs from dependencies if no inputs were provided
+        if not inputs and dependencies:
+            logger.info("No inputs provided, attempting to auto-detect inputs from dependencies")
+            input_requirements = self.get_input_requirements()
+            inputs = {}
+            
+            for dep_step in dependencies:
+                # Try to match outputs from this dependency step to our input requirements
+                matched = self._match_custom_properties(inputs, input_requirements, dep_step)
+                if matched:
+                    logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', str(dep_step))}")
+        
+        # Still validate inputs after auto-detection attempt
         if not inputs:
-            raise ValueError("inputs must be provided")
+            raise ValueError("No inputs provided and could not extract inputs from dependencies")
 
         estimator = self._create_estimator()
 
@@ -279,7 +306,6 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             name=step_name,
             estimator=estimator,
             inputs=estimator_inputs,
-            job_name=self.config.job_name,
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching)
         )

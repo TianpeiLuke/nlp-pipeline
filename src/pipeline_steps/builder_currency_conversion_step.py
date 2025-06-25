@@ -60,17 +60,25 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         
         # Validate required attributes
         required_attrs = [
-            'processing_instance_type',
             'processing_instance_count',
             'processing_volume_size',
             'processing_entry_point',
             'processing_source_dir',
+            'processing_framework_version',
             'job_type'
         ]
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"CurrencyConversionConfig missing required attribute: {attr}")
+        
+        # Validate instance type settings
+        if not hasattr(self.config, 'processing_instance_type_large'):
+            raise ValueError("Missing required attribute: processing_instance_type_large")
+        if not hasattr(self.config, 'processing_instance_type_small'):
+            raise ValueError("Missing required attribute: processing_instance_type_small")
+        if not hasattr(self.config, 'use_large_processing_instance'):
+            raise ValueError("Missing required attribute: use_large_processing_instance")
         
         # Validate job type
         if self.config.job_type not in ["training", "validation", "testing"]:
@@ -98,10 +106,13 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         Returns:
             An instance of sagemaker.sklearn.SKLearnProcessor.
         """
+        # Get the appropriate instance type based on use_large_processing_instance
+        instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
+        
         return SKLearnProcessor(
             framework_version=self.config.processing_framework_version,
             role=self.role,
-            instance_type=self.config.processing_instance_type,
+            instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
             base_job_name=self._sanitize_name_for_sagemaker(
