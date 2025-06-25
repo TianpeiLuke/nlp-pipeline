@@ -6,7 +6,6 @@ import json
 
 from sagemaker.workflow.steps import Step
 from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput, LambdaOutputTypeEnum
-from sagemaker.lambda_helper import LambdaFunction
 
 from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
