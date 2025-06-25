@@ -1,8 +1,6 @@
 from typing import Dict, Optional, Any, List, Set, Union
 from pathlib import Path
 import logging
-import os
-import importlib
 
 from sagemaker.workflow.steps import Step
 from sagemaker.processing import ProcessingInput
@@ -65,16 +63,18 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         logger.info("Validating ModelRegistrationConfig...")
         
-        # Validate required attributes
+        # Validate required attributes that are actually defined in the config
         required_attrs = [
-            'processing_instance_type',
-            'processing_instance_count',
-            'processing_volume_size',
-            'processing_entry_point',
-            'processing_source_dir',
             'region',
-            'model_name',
-            'model_version'
+            'model_registration_domain',
+            'model_registration_objective',
+            'framework',
+            'inference_instance_type',
+            'inference_entry_point',
+            'source_model_inference_content_types',
+            'source_model_inference_response_types',
+            'source_model_inference_input_variable_list',
+            'source_model_inference_output_variable_list'
         ]
         
         for attr in required_attrs:
@@ -82,17 +82,24 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
         
         # Validate input and output names
-        if "model_package_input" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'model_package_input'")
+        if "packaging_step_output" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'packaging_step_output'")
         
-        if "payload_input" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'payload_input'")
+        if "payload_s3_key" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'payload_s3_key'")
         
-        if "registration_output" not in (self.config.output_names or {}):
-            raise ValueError("output_names must contain key 'registration_output'")
+        # Check output names without requiring specific keys
+        if not self.config.output_names:
+            raise ValueError("output_names must be provided")
+        
+        # Verify output_names contains "model_package_arn" and "registration_status" 
+        output_names = self.config.output_names
+        if "model_package_arn" not in output_names:
+            raise ValueError("output_names must contain key 'model_package_arn'")
+        if "registration_status" not in output_names:
+            raise ValueError("output_names must contain key 'registration_status'")
         
         logger.info("ModelRegistrationConfig validation succeeded.")
-
 
     def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
@@ -101,15 +108,15 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         to local directories inside the container.
 
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'model_package_input', 'payload_input')
+            inputs: A dictionary mapping logical input channel names (e.g., 'packaging_step_output', 'payload_s3_key')
                     to their S3 URIs or dynamic Step properties.
 
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
         # Get the input keys from config
-        model_package_key = self.config.input_names["model_package_input"]
-        payload_key = self.config.input_names["payload_input"]
+        model_package_key = "packaging_step_output"
+        payload_key = "payload_s3_key"
         
         # Check if inputs is empty or doesn't contain the required keys
         if not inputs:
@@ -143,7 +150,6 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             )
         
         return processing_inputs
-
         
     def get_input_requirements(self) -> Dict[str, str]:
         """
@@ -164,11 +170,16 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         Get the output properties this step provides.
         
+        Note: Although the ModelRegistrationConfig defines output names like model_package_arn 
+        and registration_status, the MimsModelRegistrationProcessingStep doesn't actually create 
+        property files that can be accessed through step properties. These outputs are primarily 
+        used for documentation purposes and are not directly accessible from other steps.
+        
         Returns:
-            Dictionary mapping output property names to descriptions
+            Empty dictionary since this step doesn't produce accessible outputs
         """
-        # Get output properties from config's output_names
-        return {k: v for k, v in (self.config.output_names or {}).items()}
+        # This step doesn't have property files, so it doesn't have accessible outputs
+        return {}
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
@@ -188,8 +199,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Look for model package output from a MIMSPackagingStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our model_package_input
-                model_package_key = self.config.input_names.get("model_package_input")
+                # Check if the step has an output that matches our packaging_step_output
+                model_package_key = "packaging_step_output"
                 if model_package_key:
                     # Look for an output with a name that contains 'model_package'
                     for output in prev_step.outputs:
@@ -208,8 +219,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Look for payload output from a MIMSPayloadStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our payload_input
-                payload_key = self.config.input_names.get("payload_input")
+                # Check if the step has an output that matches our payload_s3_key
+                payload_key = "payload_s3_key"
                 if payload_key:
                     # Look for an output with a name that contains 'payload'
                     for output in prev_step.outputs:
@@ -233,15 +244,23 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         This method orchestrates the assembly of the inputs and configuration
         into a single, executable pipeline step.
 
+        Note: The MimsModelRegistrationProcessingStep does not define property files (outputs)
+        that can be referenced by subsequent steps in the pipeline. It registers the model in MIMS
+        as a side effect but doesn't produce output artifacts that can be accessed through properties.
+
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                - OR individual parameters:
+                  - packaging_step_output: S3 URI of the packaged model
+                  - payload_s3_key: S3 key for the payload
                 - dependencies: Optional list of steps that this step depends on.
                 - performance_metadata_location: Optional S3 location of performance metadata file.
                   If not provided, no performance metadata will be used.
+                - regions: Optional list of regions to register the model in.
 
         Returns:
-            A configured MimsModelRegistrationProcessingStep instance.
+            A configured MimsModelRegistrationProcessingStep instance that registers the model in MIMS.
         """
         logger.info("Creating MimsModelRegistrationProcessingStep...")
 
@@ -250,9 +269,21 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         dependencies = self._extract_param(kwargs, 'dependencies')
         performance_metadata_location = self._extract_param(kwargs, 'performance_metadata_location')
         
+        # Check if individual input parameters were provided instead of 'inputs' dictionary
+        packaging_step_output = self._extract_param(kwargs, 'packaging_step_output')
+        payload_s3_key = self._extract_param(kwargs, 'payload_s3_key')
+        
+        # If individual parameters were provided, build the inputs dictionary
+        if not inputs and (packaging_step_output or payload_s3_key):
+            inputs = {}
+            if packaging_step_output:
+                inputs["packaging_step_output"] = packaging_step_output
+            if payload_s3_key:
+                inputs["payload_s3_key"] = payload_s3_key
+        
         # Validate required parameters
         if not inputs:
-            raise ValueError("inputs must be provided")
+            raise ValueError("Either 'inputs' dictionary or individual 'packaging_step_output' and 'payload_s3_key' must be provided")
 
         # Get processing inputs
         processing_inputs = self._get_processing_inputs(inputs)
@@ -266,7 +297,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 step_name=step_name,
                 role=self.role,
                 sagemaker_session=self.session,
-                processing_input=processing_inputs,
+                processing_input=processing_inputs,  # This parameter name matches the expected signature
                 performance_metadata_location=performance_metadata_location,
                 depends_on=dependencies or []
             )
