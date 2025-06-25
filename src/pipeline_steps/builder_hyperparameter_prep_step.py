@@ -202,7 +202,6 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
             name=step_name,
             lambda_func=dummy_function,
             inputs={
-                "hyperparameters":        self.config.hyperparameters.model_dump(),
                 "hyperparameters_s3_uri": target_s3_uri,
             },
             outputs=[
