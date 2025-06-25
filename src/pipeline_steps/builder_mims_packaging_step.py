@@ -279,7 +279,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         processor = self._create_processor()
         proc_inputs = self._get_processor_inputs(inputs)
         proc_outputs = self._get_processor_outputs(outputs)
-        job_args = []  # No command-line arguments needed for this script
+        # Remove job_arguments completely as the script doesn't need any arguments
 
         step_name = self._get_step_name('MIMSPackaging')
         
@@ -289,7 +289,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             inputs=proc_inputs,
             outputs=proc_outputs,
             code=self.config.get_script_path(),
-            job_arguments=job_args,
+            # job_arguments parameter removed
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching)
         )

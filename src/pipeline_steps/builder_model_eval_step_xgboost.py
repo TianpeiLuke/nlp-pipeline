@@ -239,12 +239,16 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
     def _get_job_arguments(self) -> List[str]:
         """
         Constructs the list of command-line arguments to be passed to the processing script.
-        This allows for parameterizing the script's execution at runtime.
+        Passes the job_type from the configuration to the script, which requires this argument.
 
         Returns:
             A list of strings representing the command-line arguments.
         """
-        return []  # No command-line arguments needed, using environment variables instead
+        # Pass the job_type from the configuration to satisfy the script requirement
+        # and the SageMaker validation requirement for at least one command-line argument
+        job_type = self.config.job_type
+        logger.info(f"Setting job_type argument to: {job_type}")
+        return ["--job_type", job_type]
         
     def get_input_requirements(self) -> Dict[str, str]:
         """

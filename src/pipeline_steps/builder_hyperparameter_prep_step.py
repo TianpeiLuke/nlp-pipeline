@@ -129,7 +129,7 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         `<hyperparameters_s3_uri>/hyperparameters.json`, and
         returns that full S3 URI.
         """
-        hyperparams_dict = self.config.hyperparameters.serialize_config()
+        hyperparams_dict = self.config.hyperparameters.model_dump()
         local_dir = Path(tempfile.mkdtemp())
         local_file = local_dir / "hyperparameters.json"
         
