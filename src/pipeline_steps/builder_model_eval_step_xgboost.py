@@ -156,9 +156,9 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the input keys from config
-        model_key = self.config.input_names["model_input"]
-        eval_data_key = self.config.input_names["eval_data_input"]
+        # Get the input keys - use the keys directly
+        model_key = "model_input"
+        eval_data_key = "eval_data_input"
         
         # Check if inputs is empty or doesn't contain the required keys
         if not inputs:
@@ -208,8 +208,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        eval_out_key = self.config.output_names["eval_output"]
-        metrics_out_key = self.config.output_names["metrics_output"]
+        eval_out_key = "eval_output"
+        metrics_out_key = "metrics_output"
         
         if not outputs:
             raise ValueError(f"Outputs dictionary is empty. Must supply S3 URIs for '{eval_out_key}' and '{metrics_out_key}'")
@@ -293,9 +293,9 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
                 if "inputs" not in inputs:
                     inputs["inputs"] = {}
                 
-                # Get the model input key from config
-                model_key = self.config.input_names.get("model_input")
-                if model_key and model_key not in inputs.get("inputs", {}):
+                # Use the hardcoded model_input key
+                model_key = "model_input"
+                if model_key not in inputs.get("inputs", {}):
                     inputs["inputs"][model_key] = model_artifacts
                     matched_inputs.add("inputs")
                     logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
@@ -305,11 +305,10 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         # Look for validation data from a ProcessingStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our eval_data_input
-                eval_data_key = self.config.input_names.get("eval_data_input")
-                if eval_data_key:
-                    # Look for an output with a name that might contain evaluation data
-                    for output in prev_step.outputs:
+                # Use the hardcoded eval_data_input key
+                eval_data_key = "eval_data_input"
+                # Look for an output with a name that might contain evaluation data
+                for output in prev_step.outputs:
                         if hasattr(output, "output_name") and any(term in output.output_name.lower() 
                                                                 for term in ["valid", "test", "eval"]):
                             if "inputs" not in inputs:
@@ -330,9 +329,9 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
                 if "inputs" not in inputs:
                     inputs["inputs"] = {}
                 
-                # Get the hyperparameters input key from config
-                hyperparams_key = self.config.input_names.get("hyperparameters_input")
-                if hyperparams_key and hyperparams_key not in inputs.get("inputs", {}):
+                # Use the hardcoded hyperparameters_input key if available
+                hyperparams_key = "hyperparameters_input"
+                if hyperparams_key not in inputs.get("inputs", {}):
                     inputs["inputs"][hyperparams_key] = hyperparameters_s3_uri
                     matched_inputs.add("inputs")
                     logger.info(f"Found hyperparameters from step: {getattr(prev_step, 'name', str(prev_step))}")
