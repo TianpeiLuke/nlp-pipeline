@@ -143,6 +143,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         # Get input requirements from config's input_names
         input_reqs = {
             "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
+            "hyperparameters_s3_uri": "S3 URI of the hyperparameters.json file",
             "dependencies": self.COMMON_PROPERTIES["dependencies"],
             "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
@@ -231,16 +232,30 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             except AttributeError as e:
                 logger.warning(f"Could not extract test data from step: {e}")
                 
-        # Look for hyperparameters from a HyperparameterPrepStep
-        if hasattr(prev_step, "hyperparameters_s3_uri"):
+        # Look for hyperparameters from a step with standard SageMaker Pipeline output
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
             try:
-                hyperparameters_s3_uri = prev_step.hyperparameters_s3_uri
-                if "hyperparameters_s3_uri" not in inputs:
-                    inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-                    matched_inputs.add("hyperparameters_s3_uri")
-                    logger.info(f"Found hyperparameters from step: {getattr(prev_step, 'name', str(prev_step))}")
-            except AttributeError as e:
-                logger.warning(f"Could not extract hyperparameters from step: {e}")
+                # Try to get the hyperparameters_s3_uri from standard SageMaker Pipeline output
+                if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
+                    hyperparameters_s3_uri = prev_step.properties.Outputs["hyperparameters_s3_uri"]
+                    
+                    # First set the hyperparameters_s3_uri for direct use in the estimator
+                    if "hyperparameters_s3_uri" not in inputs:
+                        inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
+                        matched_inputs.add("hyperparameters_s3_uri")
+                        logger.info(f"Found hyperparameters S3 URI from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
+                    
+                    # Also connect to the "config" input channel if defined in config's input_names
+                    if "config" in self.config.input_names:
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                        
+                        if "config" not in inputs.get("inputs", {}):
+                            inputs["inputs"]["config"] = hyperparameters_s3_uri
+                            matched_inputs.add("inputs")
+                            logger.info(f"Connected hyperparameters to input channel: {self.config.input_names['config']}")
+            except (AttributeError, KeyError) as e:
+                logger.warning(f"Could not extract hyperparameters from step outputs: {e}")
                 
         return matched_inputs
     
@@ -269,36 +284,55 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Try to extract inputs from dependencies if no inputs were provided
-        if not inputs and dependencies:
-            logger.info("No inputs provided, attempting to auto-detect inputs from dependencies")
+        # Auto-detect inputs from dependencies if needed
+        if dependencies:
             input_requirements = self.get_input_requirements()
-            inputs = {}
             
+            # Initialize inputs dictionary if not provided
+            if not inputs:
+                inputs = {}
+                
+            # Extract both regular inputs and hyperparameters_s3_uri from dependencies
             for dep_step in dependencies:
-                # Try to match outputs from this dependency step to our input requirements
                 matched = self._match_custom_properties(inputs, input_requirements, dep_step)
                 if matched:
                     logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', str(dep_step))}")
+            
+            # If hyperparameters_s3_uri was found in inputs during matching, add it to the config channel
+            if not hyperparameters_s3_uri and 'hyperparameters_s3_uri' in inputs:
+                # Extract the URI
+                hyperparameters_s3_uri = inputs.pop('hyperparameters_s3_uri')
+                logger.info(f"Found hyperparameters_s3_uri in inputs: {hyperparameters_s3_uri}")
+                
+                # Create inputs structure if needed
+                if "inputs" not in inputs:
+                    inputs["inputs"] = {}
+                    
+                # Add to config channel directly
+                if "config" not in inputs["inputs"]:
+                    inputs["inputs"]["config"] = hyperparameters_s3_uri
+                    logger.info(f"Added hyperparameters to config input channel")
         
-        # Still validate inputs after auto-detection attempt
-        if not inputs:
-            raise ValueError("No inputs provided and could not extract inputs from dependencies")
+        # Validate we have required inputs
+        if not inputs or not any(k in inputs for k in ['train', 'inputs']):
+            raise ValueError("No training data inputs provided and could not extract them from dependencies")
 
+        # Create and configure the estimator
         estimator = self._create_estimator()
 
-        # If hyperparameters_s3_uri is provided, add it to the estimator
-        if hyperparameters_s3_uri:
-            estimator.hyperparameters_file_s3_uri = hyperparameters_s3_uri
+        # Note: We don't set estimator.hyperparameters_file_s3_uri because our script
+        # reads hyperparameters directly from the "config" input channel 
 
-        # Prepare the inputs for the estimator
+        # Handle the inputs format - they might be direct or nested under 'inputs'
         estimator_inputs = {}
-        for logical_name, s3_uri in inputs.items():
-            # Map the logical name to the actual channel name expected by the estimator
-            channel_name = logical_name
-            if logical_name in self.config.input_names:
-                channel_name = self.config.input_names[logical_name]
-            estimator_inputs[channel_name] = s3_uri
+        
+        # If 'inputs' is a nested dictionary, use that
+        if 'inputs' in inputs and isinstance(inputs['inputs'], dict):
+            for logical_name, s3_uri in inputs['inputs'].items():
+                estimator_inputs[logical_name] = s3_uri
+        else:
+            # Otherwise use the top-level inputs
+            estimator_inputs = inputs
 
         step_name = self._get_step_name('XGBoostTraining')
         

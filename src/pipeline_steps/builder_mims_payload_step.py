@@ -3,9 +3,12 @@ from pathlib import Path
 import logging
 import boto3
 import json
+import tempfile
+import os
 
 from sagemaker.workflow.steps import Step
 from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput, LambdaOutputTypeEnum
+from sagemaker.lambda_helper import Lambda
 
 from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
@@ -130,97 +133,55 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # No custom properties to match for this step
         return set()
     
-    def _generate_payload(self):
-        """
-        Generate payload file and upload to S3 directly.
-        
-        This is a lightweight alternative that generates the payload directly 
-        rather than through a Lambda function, which simplifies the implementation.
-        
-        Returns:
-            tuple: (s3_uri, s3_key) of uploaded payload
-        """
-        # Generate payload and upload to S3
-        s3_uri = self.config.generate_and_upload_payloads()
-        
-        # Return the S3 URI and key
-        s3_key = self.config.sample_payload_s3_key
-        
-        return s3_uri, s3_key
 
-    def _create_parameter_lambda_step(self, s3_uri, s3_key):
-        """
-        Create a simple Lambda step that just returns static values.
-        This is much simpler than creating a full Lambda function for payload generation.
-        
-        Args:
-            s3_uri: The S3 URI of the generated payload
-            s3_key: The S3 key of the generated payload
-            
-        Returns:
-            LambdaStep: A LambdaStep that returns the provided values
-        """
-        from sagemaker.workflow.parameters import ParameterString
-        from sagemaker.workflow.functions import Join
-        
-        # Create parameter strings for output values
-        payload_s3_uri = ParameterString(
-            name=f"payload_s3_uri_{self._sanitize_name_for_sagemaker(self.config.pipeline_name)}",
-            default_value=s3_uri
-        )
-        
-        payload_s3_key = ParameterString(
-            name=f"payload_s3_key_{self._sanitize_name_for_sagemaker(self.config.pipeline_name)}",
-            default_value=s3_key
-        )
-        
-        # Return parameter values directly
-        return payload_s3_uri, payload_s3_key
-    
     def create_step(self, **kwargs) -> LambdaStep:
         """
-        Creates a lightweight SageMaker LambdaStep for payload generation.
-        This implementation generates the payload directly and creates a simple
-        step that just returns the file locations.
+        Creates a SageMaker LambdaStep for the pipeline.
+        
+        Instead of creating a real Lambda function, this generates payloads directly 
+        during pipeline construction and creates a lightweight dummy Lambda step
+        that simply returns the pre-generated values.
         
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - dependencies: Optional list of steps that this step depends on.
                 
         Returns:
-            A configured sagemaker.workflow.steps.LambdaStep instance.
+            A configured LambdaStep instance with necessary outputs.
         """
-        logger.info("Creating MIMSPayload LambdaStep...")
+        # Extract common parameters
+        dependencies = self._extract_param(kwargs, 'dependencies', None)
+        logger.info("Creating MIMSPayload Step...")
+
+        step_name = self._get_step_name('Payload')
         
-        # Extract parameters
-        dependencies = self._extract_param(kwargs, 'dependencies')
+        # Generate the payload directly during pipeline construction
+        s3_uri = self.config.generate_and_upload_payloads()
+        s3_key = self.config.sample_payload_s3_key
         
-        # Generate payload directly
-        s3_uri, s3_key = self._generate_payload()
-        
-        # Create parameters for the outputs
-        s3_uri_param, s3_key_param = self._create_parameter_lambda_step(s3_uri, s3_key)
-        
-        # Create a simple function that returns the values
-        def return_payload_info(event):
+        logger.info(f"Generated payload at: {s3_uri}")
+                
+        # Create a simple dummy function that returns pre-generated values
+        # This avoids complex Lambda creation and deployment
+        def dummy_function(event, context=None):
             return {
-                "payload_s3_uri": s3_uri,
-                "payload_s3_key": s3_key
+                'payload_s3_uri': s3_uri,
+                'payload_s3_key': s3_key
             }
         
-        # Create the LambdaStep with the simple function
-        step_name = self._get_step_name('MIMSPayload')
-        
-        payload_step = LambdaStep(
+        # Create Lambda step with the dummy function
+        lambda_step = LambdaStep(
             name=step_name,
-            lambda_func=return_payload_info,  # Simple function that returns static values
-            inputs={},  # No inputs needed
+            lambda_func=dummy_function,
             outputs=[
                 LambdaOutput(output_name="payload_s3_uri", output_type=LambdaOutputTypeEnum.String),
                 LambdaOutput(output_name="payload_s3_key", output_type=LambdaOutputTypeEnum.String)
             ],
-            depends_on=dependencies or []
+            depends_on=dependencies
         )
         
-        logger.info(f"Created LambdaStep with name: {payload_step.name}")
-        return payload_step
+        # Monkey patch to avoid Lambda client access entirely
+        lambda_step._get_function_arn = lambda: "arn:aws:lambda:us-east-1:123456789012:function:dummy-function"
+        
+        logger.info(f"Created dummy LambdaStep with name: {lambda_step.name}")
+        return lambda_step

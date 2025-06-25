@@ -21,17 +21,14 @@ class PayloadConfig(ModelRegistrationConfig):
     
     # Override input_names and output_names from parent class with specific defaults
     input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-            "payload_s3_key": "S3 key for payload data"
-        },
+        default_factory=lambda: {},  # Payload step doesn't need any inputs from previous steps
         description="Mapping of input channel names to their descriptions."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_package_arn": "ARN of the registered model package",
-            "registration_status": "Status of the model registration"
+            "payload_s3_uri": "S3 URI of the generated payload",
+            "payload_s3_key": "S3 key of the generated payload"
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -145,19 +142,17 @@ class PayloadConfig(ModelRegistrationConfig):
         self = self.model_copy(update={"sample_payload_s3_key": self.sample_payload_s3_key})
         
         # Set default input names if not provided or empty
-        if self.input_names is None or not self.input_names:
-            input_names = {
-                "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-                "payload_s3_key": "S3 key for payload data"
-            }
+        if self.input_names is None:
+            # Payload step doesn't need any inputs from previous steps
+            input_names = {}
             # Use self.model_copy to avoid triggering validators recursively
             self = self.model_copy(update={"input_names": input_names})
         
         # Set default output names if not provided or empty
         if self.output_names is None or not self.output_names:
             output_names = {
-                "model_package_arn": "ARN of the registered model package",
-                "registration_status": "Status of the model registration"
+                "payload_s3_uri": "S3 URI of the generated payload",
+                "payload_s3_key": "S3 key of the generated payload"
             }
             # Use self.model_copy to avoid triggering validators recursively
             self = self.model_copy(update={"output_names": output_names})

@@ -37,7 +37,7 @@ class HyperparameterPrepConfig(BasePipelineConfig):
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "hyperparameters_output": "HyperparametersOutput"
+            "hyperparameters_s3_uri": "S3 URI to the hyperparameters JSON file"
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -65,12 +65,12 @@ class HyperparameterPrepConfig(BasePipelineConfig):
         # Set default output names if None or empty
         if not self.output_names:
             self.output_names = {
-                "hyperparameters_output": "HyperparametersOutput"
+                "hyperparameters_s3_uri": "S3 URI to the hyperparameters JSON file"
             }
 
         # Validate required output channel
-        if "hyperparameters_output" not in self.output_names:
-            raise ValueError("output_names must contain key 'hyperparameters_output'")
+        if "hyperparameters_s3_uri" not in self.output_names:
+            raise ValueError("output_names must contain key 'hyperparameters_s3_uri'")
 
         return self
 

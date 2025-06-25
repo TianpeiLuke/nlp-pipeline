@@ -5,6 +5,10 @@ import json
 import tempfile
 import boto3
 import os
+import shutil
+from botocore.exceptions import ClientError
+
+from sagemaker.s3 import S3Uploader
 
 from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput, LambdaOutputTypeEnum
 from sagemaker.lambda_helper import Lambda
@@ -14,6 +18,15 @@ from .config_hyperparameter_prep_step import HyperparameterPrepConfig
 from .builder_step_base import StepBuilderBase
 
 logger = logging.getLogger(__name__)
+
+
+class _DummyLambdaRef:
+    """A stand-in for an already-deployed Lambda; no code is ever inlined or zipped."""
+    def __init__(self, arn: str):
+        self.function_arn = arn
+        # Must be None so the SDK never tries to zip or upsert anything
+        self.script = None
+        self.zipped_code_dir = None
 
 
 class HyperparameterPrepStepBuilder(StepBuilderBase):
@@ -65,8 +78,8 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
             raise ValueError("hyperparameters must be provided and non-empty")
         if not self.config.hyperparameters_s3_uri:
             raise ValueError("hyperparameters_s3_uri must be provided and non-empty")
-        if "hyperparameters_output" not in (self.config.output_names or {}):
-            raise ValueError("output_names must contain key 'hyperparameters_output'")
+        if "hyperparameters_s3_uri" not in (self.config.output_names or {}):
+            raise ValueError("output_names must contain key 'hyperparameters_s3_uri'")
         logger.info("HyperparameterPrepConfig validation succeeded.")
         
     def get_input_requirements(self) -> Dict[str, str]:
@@ -89,11 +102,8 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Get output properties from config's output_names
-        output_props = {k: v for k, v in (self.config.output_names or {}).items()}
-        # Add the hyperparameters_s3_uri as an output property
-        output_props["hyperparameters_s3_uri"] = "S3 URI of the hyperparameters.json file"
-        return output_props
+        # Simply return the output names from config, which should already include hyperparameters_s3_uri
+        return {k: v for k, v in (self.config.output_names or {}).items()}
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
@@ -112,6 +122,48 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         
         # No custom properties to match for this step
         return matched_inputs
+    
+    def _prepare_hyperparameters_file(self) -> str:
+        """
+        Serializes the hyperparameters to JSON, uploads it as
+        `<hyperparameters_s3_uri>/hyperparameters.json`, and
+        returns that full S3 URI.
+        """
+        hyperparams_dict = self.config.hyperparameters.model_dump()
+        local_dir = Path(tempfile.mkdtemp())
+        local_file = local_dir / "hyperparameters.json"
+        
+        try:
+            local_file.write_text(json.dumps(hyperparams_dict, indent=2))
+
+            prefix = self.config.hyperparameters_s3_uri or ""
+            prefix = prefix.rstrip("/")
+            target_s3_uri = f"{prefix}/hyperparameters.json"
+
+            s3_parts = target_s3_uri.replace('s3://', '').split('/', 1)
+            bucket = s3_parts[0]
+            key = s3_parts[1]
+            
+            s3_client = self.session.boto_session.client('s3')
+            try:
+                s3_client.head_object(Bucket=bucket, Key=key)
+                logger.info(f"Found existing hyperparameters file at {target_s3_uri}, deleting it...")
+                s3_client.delete_object(Bucket=bucket, Key=key)
+                logger.info("Existing hyperparameters file deleted successfully")
+            except ClientError as e: # <-- FIX: Catch the real ClientError
+                if e.response['Error']['Code'] == '404':
+                    logger.info(f"No existing hyperparameters file found at {target_s3_uri}")
+                else:
+                    logger.warning(f"Error checking/deleting existing file: {str(e)}")
+
+            logger.info(f"Uploading hyperparameters from {local_file} to {target_s3_uri}")
+            S3Uploader.upload(str(local_file), target_s3_uri, sagemaker_session=self.session)
+            
+            logger.info(f"Hyperparameters successfully uploaded to {target_s3_uri}")
+            return target_s3_uri
+            
+        finally:
+            shutil.rmtree(local_dir)
 
     def create_step(self, **kwargs) -> LambdaStep:
         """
@@ -133,77 +185,38 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         logger.info("Creating HyperparameterPrep LambdaStep...")
 
         step_name = self._get_step_name('HyperparameterPrep')
-        
-        # Define the Lambda function code
-        lambda_function_code = """
-import json
-import boto3
-import os
-from urllib.parse import urlparse
 
-def lambda_handler(event, context):
-    # Extract hyperparameters from the event
-    hyperparameters = event['hyperparameters']
-    s3_uri = event['hyperparameters_s3_uri']
-    
-    # Parse S3 URI
-    parsed_uri = urlparse(s3_uri)
-    bucket = parsed_uri.netloc
-    key = parsed_uri.path.lstrip('/')
-    
-    # Ensure the key ends with 'hyperparameters.json'
-    if not key.endswith('/'):
-        key += '/'
-    key += 'hyperparameters.json'
-    
-    # Upload hyperparameters to S3
-    s3_client = boto3.client('s3')
-    s3_client.put_object(
-        Body=json.dumps(hyperparameters, indent=2),
-        Bucket=bucket,
-        Key=key,
-        ContentType='application/json'
-    )
-    
-    # Return the full S3 URI to the hyperparameters file
-    hyperparameters_s3_uri = f"s3://{bucket}/{key}"
-    print(f"Uploaded hyperparameters to {hyperparameters_s3_uri}")
-    
-    return {
-        'hyperparameters_s3_uri': hyperparameters_s3_uri
-    }
-"""
+        # Save Hyperparameter to dict
+        target_s3_uri = self._prepare_hyperparameters_file()
+        
+        # Create a simple dummy function that returns pre-generated values
+        # This avoids complex Lambda creation and deployment
+        def dummy_function(event, context=None):
+            return {
+                'hyperparameters_s3_uri': target_s3_uri
+            }
 
-        # Create the Lambda function
-        lambda_function = Lambda(
-            function_name=f"HyperparameterPrep-{self.config.pipeline_name}",
-            execution_role_arn=self.role,
-            script=lambda_function_code,
-            handler="index.lambda_handler",
-            timeout=self.config.lambda_timeout,
-            memory_size=self.config.lambda_memory_size,
-            session=self.session.boto_session
-        )
-        
-        # Serialize hyperparameters to a dictionary
-        hyperparams_dict = self.config.hyperparameters.model_dump()
-        
-        # Create the LambdaStep
+        # Build your LambdaStep
+        # Create Lambda step with the dummy function
         lambda_step = LambdaStep(
             name=step_name,
-            lambda_func=lambda_function,
+            lambda_func=dummy_function,
             inputs={
-                "hyperparameters": hyperparams_dict,
-                "hyperparameters_s3_uri": self.config.hyperparameters_s3_uri
+                "hyperparameters":        self.config.hyperparameters.model_dump(),
+                "hyperparameters_s3_uri": target_s3_uri,
             },
             outputs=[
                 LambdaOutput(output_name="hyperparameters_s3_uri", output_type=LambdaOutputTypeEnum.String)
             ],
             depends_on=dependencies
         )
-        
-        # Add the hyperparameters_s3_uri as a property of the step
-        lambda_step.hyperparameters_s3_uri = lambda_step.properties.Outputs["hyperparameters_s3_uri"]
-        
+
+        lambda_step._get_function_arn = lambda: "arn:aws:lambda:us-east-1:123456789012:function:dummy-hyperprep"
+
+        # Set the hyperparameters_s3_uri as a direct property for backward compatibility,
+        # but primarily this will be accessed via standard step.properties.Outputs["hyperparameters_s3_uri"]
+        # which is the pattern we're standardizing on
+        lambda_step.hyperparameters_s3_uri = target_s3_uri
+
         logger.info(f"Created LambdaStep with name: {lambda_step.name}")
         return lambda_step

@@ -3,9 +3,11 @@ from typing import Union, Optional, Dict, List, Any
 from enum import Enum
 from datetime import datetime
 from pathlib import Path
+import logging
 
 from .config_base import BasePipelineConfig
 
+logger = logging.getLogger(__name__)
 
 class VariableType(str, Enum):
     NUMERIC = "NUMERIC"
@@ -85,18 +87,16 @@ class ModelRegistrationConfig(BasePipelineConfig):
     # Input/output names for registration
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-            "payload_s3_key": "S3 key for payload data"
+            "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
+            "payload_s3_key": "S3 key for payload data",
+            "payload_s3_uri": "S3 URI for payload data"
         },
         description="Mapping of input channel names to their descriptions."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model_package_arn": "ARN of the registered model package",
-            "registration_status": "Status of the model registration"
-        },
-        description="Mapping of output channel names to their descriptions."
+        default_factory=dict,  # Empty dictionary - MIMS Registration step has no outputs
+        description="Registration step doesn't produce accessible output properties."
     )
  
     class Config(BasePipelineConfig.Config):
@@ -144,16 +144,14 @@ class ModelRegistrationConfig(BasePipelineConfig):
         """Ensure default input and output names are set if not provided."""
         if not self.input_names:
             self.input_names = {
-                "packaging_step_output": "Output from packaging step (S3 path or Properties object)",
-                "payload_s3_key": "S3 key for payload data"
+                "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
+                "payload_s3_key": "S3 key for payload data",
+                "payload_s3_uri": "S3 URI for payload data"
             }
         
         if not self.output_names:
-            self.output_names = {
-                "model_package_arn": "ARN of the registered model package",
-                "registration_status": "Status of the model registration"
-            }
-        
+            logger.info(f"{self.output_names} will not be used as output as the registration step has no output")
+
         return self
 
     @field_validator('source_model_inference_content_types', 'source_model_inference_response_types')

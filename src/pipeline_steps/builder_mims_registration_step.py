@@ -81,23 +81,14 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
         
-        # Validate input and output names
-        if "packaging_step_output" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'packaging_step_output'")
+        # Validate input names
+        if "packaged_model_output" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'packaged_model_output'")
         
-        if "payload_s3_key" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'payload_s3_key'")
+        if "payload_s3_key" not in (self.config.input_names or {}) and "payload_s3_uri" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'payload_s3_key' or 'payload_s3_uri'")
         
-        # Check output names without requiring specific keys
-        if not self.config.output_names:
-            raise ValueError("output_names must be provided")
-        
-        # Verify output_names contains "model_package_arn" and "registration_status" 
-        output_names = self.config.output_names
-        if "model_package_arn" not in output_names:
-            raise ValueError("output_names must contain key 'model_package_arn'")
-        if "registration_status" not in output_names:
-            raise ValueError("output_names must contain key 'registration_status'")
+        # Registration step has no outputs, so no validation needed for output_names
         
         logger.info("ModelRegistrationConfig validation succeeded.")
 
@@ -108,25 +99,28 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         to local directories inside the container.
 
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'packaging_step_output', 'payload_s3_key')
+            inputs: A dictionary mapping logical input channel names (e.g., 'packaged_model_output', 'payload_s3_key')
                     to their S3 URIs or dynamic Step properties.
 
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
         # Get the input keys from config
-        model_package_key = "packaging_step_output"
-        payload_key = "payload_s3_key"
+        model_package_key = "packaged_model_output"
+        payload_key = "payload_s3_key"  
+        payload_uri_key = "payload_s3_uri"
         
-        # Check if inputs is empty or doesn't contain the required keys
+        # Check if inputs is empty
         if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_package_key}' and '{payload_key}'")
+            raise ValueError(f"Inputs dictionary is empty. Must supply '{model_package_key}' and either '{payload_key}' or '{payload_uri_key}'")
         
+        # Validate required model package input
         if model_package_key not in inputs:
             raise ValueError(f"Must supply an S3 URI for '{model_package_key}' in 'inputs'")
         
-        if payload_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{payload_key}' in 'inputs'")
+        # Validate we have at least one form of payload input
+        if payload_key not in inputs and payload_uri_key not in inputs:
+            raise ValueError(f"Must supply an S3 URI for either '{payload_key}' or '{payload_uri_key}' in 'inputs'")
 
         # Define the input channels
         processing_inputs = [
@@ -138,11 +132,20 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             )
         ]
         
-        # Add payload input if available
+        # Add payload input - prefer payload_s3_key if available
         if payload_key in inputs:
             processing_inputs.append(
                 ProcessingInput(
                     source=inputs[payload_key],
+                    destination="/opt/ml/processing/mims_payload",
+                    s3_data_distribution_type="FullyReplicated",
+                    s3_input_mode="File"
+                )
+            )
+        elif payload_uri_key in inputs:
+            processing_inputs.append(
+                ProcessingInput(
+                    source=inputs[payload_uri_key],
                     destination="/opt/ml/processing/mims_payload",
                     s3_data_distribution_type="FullyReplicated",
                     s3_input_mode="File"
@@ -170,15 +173,14 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         Get the output properties this step provides.
         
-        Note: Although the ModelRegistrationConfig defines output names like model_package_arn 
-        and registration_status, the MimsModelRegistrationProcessingStep doesn't actually create 
-        property files that can be accessed through step properties. These outputs are primarily 
-        used for documentation purposes and are not directly accessible from other steps.
+        Note: The MimsModelRegistrationProcessingStep does not produce any accessible outputs.
+        The step registers the model in MIMS as a side effect but doesn't create any
+        output properties that can be referenced by subsequent steps.
         
         Returns:
-            Empty dictionary since this step doesn't produce accessible outputs
+            Empty dictionary since this step doesn't produce any outputs
         """
-        # This step doesn't have property files, so it doesn't have accessible outputs
+        # Registration step has no outputs
         return {}
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
@@ -199,8 +201,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Look for model package output from a MIMSPackagingStep
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our packaging_step_output
-                model_package_key = "packaging_step_output"
+                # Check if the step has an output that matches our packaged_model_output
+                model_package_key = "packaged_model_output"
                 if model_package_key:
                     # Look for an output with a name that contains 'model_package'
                     for output in prev_step.outputs:
@@ -216,7 +218,30 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             except AttributeError as e:
                 logger.warning(f"Could not extract model package from step: {e}")
                 
-        # Look for payload output from a MIMSPayloadStep
+        # Look for payload outputs from a PayloadStep through Properties.Outputs
+        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
+            try:
+                # First try to get payload_s3_key
+                if "payload_s3_key" in prev_step.properties.Outputs:
+                    if "inputs" not in inputs:
+                        inputs["inputs"] = {}
+                    
+                    inputs["inputs"]["payload_s3_key"] = prev_step.properties.Outputs["payload_s3_key"]
+                    matched_inputs.add("inputs")
+                    logger.info(f"Found payload_s3_key from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
+                
+                # Also try to get payload_s3_uri if available
+                if "payload_s3_uri" in prev_step.properties.Outputs:
+                    if "inputs" not in inputs:
+                        inputs["inputs"] = {}
+                    
+                    inputs["inputs"]["payload_s3_uri"] = prev_step.properties.Outputs["payload_s3_uri"]
+                    matched_inputs.add("inputs")
+                    logger.info(f"Found payload_s3_uri from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
+            except (AttributeError, KeyError) as e:
+                logger.warning(f"Could not extract payload from step outputs: {e}")
+                
+        # Fallback to old method of looking through outputs for payload 
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
                 # Check if the step has an output that matches our payload_s3_key
@@ -231,10 +256,10 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                             if payload_key not in inputs.get("inputs", {}):
                                 inputs["inputs"][payload_key] = output.destination
                                 matched_inputs.add("inputs")
-                                logger.info(f"Found payload from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                logger.info(f"Found payload from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
                                 break
             except AttributeError as e:
-                logger.warning(f"Could not extract payload from step: {e}")
+                logger.warning(f"Could not extract payload from step outputs: {e}")
                 
         return matched_inputs
     
@@ -252,8 +277,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             **kwargs: Keyword arguments for configuring the step, including:
                 - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
                 - OR individual parameters:
-                  - packaging_step_output: S3 URI of the packaged model
+                  - packaged_model_output: S3 URI of the packaged model
                   - payload_s3_key: S3 key for the payload
+                  - payload_s3_uri: S3 URI for the payload (alternative to payload_s3_key)
                 - dependencies: Optional list of steps that this step depends on.
                 - performance_metadata_location: Optional S3 location of performance metadata file.
                   If not provided, no performance metadata will be used.
@@ -270,20 +296,23 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         performance_metadata_location = self._extract_param(kwargs, 'performance_metadata_location')
         
         # Check if individual input parameters were provided instead of 'inputs' dictionary
-        packaging_step_output = self._extract_param(kwargs, 'packaging_step_output')
+        packaged_model_output = self._extract_param(kwargs, 'packaged_model_output')
         payload_s3_key = self._extract_param(kwargs, 'payload_s3_key')
+        payload_s3_uri = self._extract_param(kwargs, 'payload_s3_uri')
         
         # If individual parameters were provided, build the inputs dictionary
-        if not inputs and (packaging_step_output or payload_s3_key):
+        if not inputs and (packaged_model_output or payload_s3_key or payload_s3_uri):
             inputs = {}
-            if packaging_step_output:
-                inputs["packaging_step_output"] = packaging_step_output
+            if packaged_model_output:
+                inputs["packaged_model_output"] = packaged_model_output
             if payload_s3_key:
                 inputs["payload_s3_key"] = payload_s3_key
+            if payload_s3_uri:
+                inputs["payload_s3_uri"] = payload_s3_uri
         
         # Validate required parameters
         if not inputs:
-            raise ValueError("Either 'inputs' dictionary or individual 'packaging_step_output' and 'payload_s3_key' must be provided")
+            raise ValueError("Either 'inputs' dictionary or individual 'packaged_model_output' and 'payload_s3_key'/'payload_s3_uri' must be provided")
 
         # Get processing inputs
         processing_inputs = self._get_processing_inputs(inputs)

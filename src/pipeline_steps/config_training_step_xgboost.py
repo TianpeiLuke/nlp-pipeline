@@ -14,13 +14,13 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     This version is adapted to pass hyperparameters as a single config file
     via an S3 input channel, avoiding character limits.
     """
-    # Update input/output names with default values
+    # Update input/output names with default values matching train_xgb.py expectations
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "train": "Training data input",
-            "val": "Validation data input",
-            "test": "Test data input",
-            "hyperparameters": "Hyperparameters configuration input"
+            "train": "Training data input channel",
+            "val": "Validation data input channel",
+            "test": "Test data input channel",
+            "config": "Hyperparameters configuration input channel"
         },
         description="Mapping of input channel names to their descriptions."
     )
@@ -180,10 +180,10 @@ class XGBoostTrainingConfig(BasePipelineConfig):
         """Ensure default input and output names are set if not provided."""
         if not self.input_names:
             self.input_names = {
-                "train": "Training data input",
-                "val": "Validation data input",
-                "test": "Test data input",
-                "hyperparameters": "Hyperparameters configuration input"
+                "train": "Training data input channel",
+                "val": "Validation data input channel",
+                "test": "Test data input channel",
+                "config": "Hyperparameters configuration input channel"
             }
         
         if not self.output_names:
