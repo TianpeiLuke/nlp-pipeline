@@ -1,10 +1,12 @@
-from typing import Dict, Optional, Any, List, Set
+from typing import Dict, Optional, Any, Set
 from pathlib import Path
 import logging
+import boto3
+import json
 
-from sagemaker.workflow.steps import ProcessingStep, Step
-from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.sklearn import SKLearnProcessor
+from sagemaker.workflow.steps import Step
+from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput, LambdaOutputTypeEnum
+from sagemaker.lambda_helper import LambdaFunction
 
 from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
@@ -14,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 class MIMSPayloadStepBuilder(StepBuilderBase):
     """
-    Builder for a MIMS Payload ProcessingStep.
-    This class is responsible for configuring and creating a SageMaker ProcessingStep
-    that creates a payload for MIMS model registration.
+    Builder for a MIMS Payload LambdaStep.
+    This class is responsible for configuring and creating a SageMaker Lambda Step
+    that generates and uploads payload samples for MIMS model registration.
     """
 
     def __init__(
@@ -32,9 +34,8 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Args:
             config: A PayloadConfig instance containing all necessary settings.
             sagemaker_session: The SageMaker session object to manage interactions with AWS.
-            role: The IAM role ARN to be used by the SageMaker Processing Job.
-            notebook_root: The root directory of the notebook environment, used for resolving
-                         local paths if necessary.
+            role: The IAM role ARN to be used by the Lambda.
+            notebook_root: The root directory of the notebook environment (not used for Lambda steps).
         """
         if not isinstance(config, PayloadConfig):
             raise ValueError(
@@ -60,117 +61,34 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         
         # Validate required attributes
         required_attrs = [
-            'processing_instance_type',
-            'processing_instance_count',
-            'processing_volume_size',
-            'processing_entry_point',
-            'processing_source_dir',
-            'model_name',
-            'model_version'
+            'expected_tps', 
+            'max_latency_in_millisecond',
+            'max_acceptable_error_rate',
+            'model_registration_domain',
+            'model_registration_objective',
+            'source_model_inference_content_types',
+            'source_model_inference_response_types',
+            'source_model_inference_input_variable_list',
+            'source_model_inference_output_variable_list'
         ]
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"PayloadConfig missing required attribute: {attr}")
         
-        # Validate output names
-        if "payload_output" not in (self.config.output_names or {}):
-            raise ValueError("output_names must contain key 'payload_output'")
+        # Validate bucket and ensure S3 path for payload exists
+        if not hasattr(self.config, 'bucket') or not self.config.bucket:
+            raise ValueError("PayloadConfig must have a 'bucket' attribute")
+        
+        # Make sure sample_payload_s3_key is set or can be constructed
+        if not hasattr(self.config, 'sample_payload_s3_key') or not self.config.sample_payload_s3_key:
+            try:
+                self.config.ensure_payload_path()
+            except Exception as e:
+                raise ValueError(f"Could not construct payload path: {e}")
         
         logger.info("PayloadConfig validation succeeded.")
 
-    def _create_processor(self) -> SKLearnProcessor:
-        """
-        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
-        This defines the execution environment for the script, including the instance
-        type, framework version, and environment variables.
-
-        Returns:
-            An instance of sagemaker.sklearn.SKLearnProcessor.
-        """
-        return SKLearnProcessor(
-            framework_version=self.config.processing_framework_version,
-            role=self.role,
-            instance_type=self.config.processing_instance_type,
-            instance_count=self.config.processing_instance_count,
-            volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('MIMSPayload')}"
-            ),
-            sagemaker_session=self.session,
-            env=self._get_environment_variables(),
-        )
-
-    def _get_environment_variables(self) -> Dict[str, str]:
-        """
-        Constructs a dictionary of environment variables to be passed to the processing job.
-        These variables are used to control the behavior of the payload script
-        without needing to pass them as command-line arguments.
-
-        Returns:
-            A dictionary of environment variables.
-        """
-        env_vars = {
-            "MODEL_NAME": self.config.model_name,
-            "MODEL_VERSION": self.config.model_version,
-        }
-        
-        # Add optional environment variables if they exist
-        if hasattr(self.config, "model_description") and self.config.model_description:
-            env_vars["MODEL_DESCRIPTION"] = self.config.model_description
-            
-        if hasattr(self.config, "domain") and self.config.domain:
-            env_vars["DOMAIN"] = self.config.domain
-            
-        if hasattr(self.config, "task") and self.config.task:
-            env_vars["TASK"] = self.config.task
-            
-        if hasattr(self.config, "framework") and self.config.framework:
-            env_vars["FRAMEWORK"] = self.config.framework
-            
-        if hasattr(self.config, "framework_version") and self.config.framework_version:
-            env_vars["FRAMEWORK_VERSION"] = self.config.framework_version
-            
-        logger.info(f"Processing environment variables: {env_vars}")
-        return env_vars
-
-    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        """
-        Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 location where the results of the processing job will be stored.
-
-        Args:
-            outputs: A dictionary mapping the logical output channel name ('payload_output')
-                     to its S3 destination URI.
-
-        Returns:
-            A list containing sagemaker.processing.ProcessingOutput objects.
-        """
-        key_out = self.config.output_names["payload_output"]
-        if not outputs or key_out not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
-        
-        # Define the output for the payload
-        processing_outputs = [
-            ProcessingOutput(
-                output_name=key_out,
-                source="/opt/ml/processing/output",
-                destination=outputs[key_out]
-            )
-        ]
-        
-        return processing_outputs
-
-    def _get_job_arguments(self) -> List[str]:
-        """
-        Constructs the list of command-line arguments to be passed to the processing script.
-        This allows for parameterizing the script's execution at runtime.
-
-        Returns:
-            A list of strings representing the command-line arguments.
-        """
-        return []  # No command-line arguments needed, using environment variables instead
-        
     def get_input_requirements(self) -> Dict[str, str]:
         """
         Get the input requirements for this step builder.
@@ -180,7 +98,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         """
         # This step doesn't require any inputs from previous steps
         input_reqs = {
-            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
+            "dependencies": self.COMMON_PROPERTIES["dependencies"],
             "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
         }
         return input_reqs
@@ -192,8 +110,10 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Get output properties from config's output_names
-        return {k: v for k, v in (self.config.output_names or {}).items()}
+        return {
+            "payload_s3_uri": "S3 URI of the generated payload",
+            "payload_s3_key": "S3 key of the generated payload"
+        }
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
@@ -208,53 +128,83 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Returns:
             Set of input names that were successfully matched
         """
-        matched_inputs = set()
-        
         # No custom properties to match for this step
-        return matched_inputs
+        return set()
     
-    def create_step(self, **kwargs) -> ProcessingStep:
+    def _generate_payloads_lambda_function(self) -> callable:
         """
-        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
-        This method orchestrates the assembly of the processor, inputs, outputs, and
-        script arguments into a single, executable pipeline step.
-
+        Create a lambda function that will generate and upload payloads using the config.
+        
+        Returns:
+            A callable function that will be executed by the Lambda step
+        """
+        config = self.config
+        
+        def generate_payloads_function(step_properties):
+            """
+            Lambda function to generate and upload payloads.
+            
+            Args:
+                step_properties: Properties passed to the Lambda step
+                
+            Returns:
+                Dictionary with payload S3 URI and key
+            """
+            try:
+                # Generate and upload payloads
+                s3_uri = config.generate_and_upload_payloads()
+                
+                # Return the S3 URI and key
+                bucket = config.bucket
+                key = config.sample_payload_s3_key
+                
+                return {
+                    "payload_s3_uri": s3_uri,
+                    "payload_s3_key": key,
+                    "status": "success"
+                }
+            except Exception as e:
+                return {
+                    "error": str(e),
+                    "status": "error"
+                }
+        
+        return generate_payloads_function
+    
+    def create_step(self, **kwargs) -> LambdaStep:
+        """
+        Creates a SageMaker LambdaStep that generates and uploads payloads for MIMS model registration.
+        
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - outputs: A dictionary mapping output channel names to their S3 destinations.
                 - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache the results of this step
-                                to speed up subsequent pipeline runs with the same inputs.
-
+                - enable_caching: A boolean indicating whether to cache this step.
+                
         Returns:
-            A configured sagemaker.workflow.steps.ProcessingStep instance.
+            A configured sagemaker.workflow.steps.LambdaStep instance.
         """
-        logger.info("Creating MIMSPayload ProcessingStep...")
-
+        logger.info("Creating MIMSPayload LambdaStep...")
+        
         # Extract parameters
-        outputs = self._extract_param(kwargs, 'outputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Validate required parameters
-        if not outputs:
-            raise ValueError("outputs must be provided")
-
-        processor = self._create_processor()
-        proc_outputs = self._get_processor_outputs(outputs)
-        job_args = self._get_job_arguments()
-
+        # Create the lambda function
+        lambda_func = self._generate_payloads_lambda_function()
+        
+        # Create the LambdaStep
         step_name = self._get_step_name('MIMSPayload')
         
-        processing_step = ProcessingStep(
+        payload_step = LambdaStep(
             name=step_name,
-            processor=processor,
-            inputs=[],  # No inputs for payload generation
-            outputs=proc_outputs,
-            code=self.config.get_script_path(),
-            job_arguments=job_args,
-            depends_on=dependencies or [],
-            cache_config=self._get_cache_config(enable_caching)
+            lambda_func=lambda_func,
+            inputs={},  # No inputs needed for payload generation
+            outputs=[
+                LambdaOutput(output_name="payload_s3_uri", output_type=LambdaOutputTypeEnum.String),
+                LambdaOutput(output_name="payload_s3_key", output_type=LambdaOutputTypeEnum.String)
+            ],
+            depends_on=dependencies or []
         )
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
-        return processing_step
+        
+        logger.info(f"Created LambdaStep with name: {payload_step.name}")
+        return payload_step
