@@ -94,40 +94,6 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         logger.info("ModelRegistrationConfig validation succeeded.")
 
 
-    def _get_environment_variables(self) -> Dict[str, str]:
-        """
-        Constructs a dictionary of environment variables to be passed to the processing job.
-        These variables are used to control the behavior of the registration script
-        without needing to pass them as command-line arguments.
-
-        Returns:
-            A dictionary of environment variables.
-        """
-        env_vars = {
-            "MODEL_NAME": self.config.model_name,
-            "MODEL_VERSION": self.config.model_version,
-            "REGION": self.config.region,
-        }
-        
-        # Add optional environment variables if they exist
-        if hasattr(self.config, "model_description") and self.config.model_description:
-            env_vars["MODEL_DESCRIPTION"] = self.config.model_description
-            
-        if hasattr(self.config, "domain") and self.config.domain:
-            env_vars["DOMAIN"] = self.config.domain
-            
-        if hasattr(self.config, "task") and self.config.task:
-            env_vars["TASK"] = self.config.task
-            
-        if hasattr(self.config, "framework") and self.config.framework:
-            env_vars["FRAMEWORK"] = self.config.framework
-            
-        if hasattr(self.config, "framework_version") and self.config.framework_version:
-            env_vars["FRAMEWORK_VERSION"] = self.config.framework_version
-            
-        logger.info(f"Processing environment variables: {env_vars}")
-        return env_vars
-
     def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
         Constructs a list of ProcessingInput objects from the provided inputs dictionary.
@@ -178,16 +144,6 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         
         return processing_inputs
 
-
-    def _get_job_arguments(self) -> List[str]:
-        """
-        Constructs the list of command-line arguments to be passed to the processing script.
-        This allows for parameterizing the script's execution at runtime.
-
-        Returns:
-            A list of strings representing the command-line arguments.
-        """
-        return []  # No command-line arguments needed, using environment variables instead
         
     def get_input_requirements(self) -> Dict[str, str]:
         """
