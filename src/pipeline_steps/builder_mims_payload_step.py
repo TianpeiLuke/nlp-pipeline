@@ -6,6 +6,7 @@ import json
 
 from sagemaker.workflow.steps import Step
 from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput, LambdaOutputTypeEnum
+from sagemaker.lambda_helper import LambdaFunction
 
 from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
@@ -130,54 +131,62 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # No custom properties to match for this step
         return set()
     
-    def _generate_payloads_lambda_function(self) -> callable:
+    def _generate_payload(self):
         """
-        Create a lambda function that will generate and upload payloads using the config.
+        Generate payload file and upload to S3 directly.
+        
+        This is a lightweight alternative that generates the payload directly 
+        rather than through a Lambda function, which simplifies the implementation.
         
         Returns:
-            A callable function that will be executed by the Lambda step
+            tuple: (s3_uri, s3_key) of uploaded payload
         """
-        config = self.config
+        # Generate payload and upload to S3
+        s3_uri = self.config.generate_and_upload_payloads()
         
-        def generate_payloads_function(step_properties):
-            """
-            Lambda function to generate and upload payloads.
+        # Return the S3 URI and key
+        s3_key = self.config.sample_payload_s3_key
+        
+        return s3_uri, s3_key
+
+    def _create_parameter_lambda_step(self, s3_uri, s3_key):
+        """
+        Create a simple Lambda step that just returns static values.
+        This is much simpler than creating a full Lambda function for payload generation.
+        
+        Args:
+            s3_uri: The S3 URI of the generated payload
+            s3_key: The S3 key of the generated payload
             
-            Args:
-                step_properties: Properties passed to the Lambda step
-                
-            Returns:
-                Dictionary with payload S3 URI and key
-            """
-            try:
-                # Generate and upload payloads
-                s3_uri = config.generate_and_upload_payloads()
-                
-                # Return the S3 URI and key
-                bucket = config.bucket
-                key = config.sample_payload_s3_key
-                
-                return {
-                    "payload_s3_uri": s3_uri,
-                    "payload_s3_key": key,
-                    "status": "success"
-                }
-            except Exception as e:
-                return {
-                    "error": str(e),
-                    "status": "error"
-                }
+        Returns:
+            LambdaStep: A LambdaStep that returns the provided values
+        """
+        from sagemaker.workflow.parameters import ParameterString
+        from sagemaker.workflow.functions import Join
         
-        return generate_payloads_function
+        # Create parameter strings for output values
+        payload_s3_uri = ParameterString(
+            name=f"payload_s3_uri_{self._sanitize_name_for_sagemaker(self.config.pipeline_name)}",
+            default_value=s3_uri
+        )
+        
+        payload_s3_key = ParameterString(
+            name=f"payload_s3_key_{self._sanitize_name_for_sagemaker(self.config.pipeline_name)}",
+            default_value=s3_key
+        )
+        
+        # Return parameter values directly
+        return payload_s3_uri, payload_s3_key
     
     def create_step(self, **kwargs) -> LambdaStep:
         """
-        Creates a SageMaker LambdaStep that generates and uploads payloads for MIMS model registration.
+        Creates a lightweight SageMaker LambdaStep for payload generation.
+        This implementation generates the payload directly and creates a simple
+        step that just returns the file locations.
         
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache this step.
                 
         Returns:
             A configured sagemaker.workflow.steps.LambdaStep instance.
@@ -186,18 +195,27 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         
         # Extract parameters
         dependencies = self._extract_param(kwargs, 'dependencies')
-        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Create the lambda function
-        lambda_func = self._generate_payloads_lambda_function()
+        # Generate payload directly
+        s3_uri, s3_key = self._generate_payload()
         
-        # Create the LambdaStep
+        # Create parameters for the outputs
+        s3_uri_param, s3_key_param = self._create_parameter_lambda_step(s3_uri, s3_key)
+        
+        # Create a simple function that returns the values
+        def return_payload_info(event):
+            return {
+                "payload_s3_uri": s3_uri,
+                "payload_s3_key": s3_key
+            }
+        
+        # Create the LambdaStep with the simple function
         step_name = self._get_step_name('MIMSPayload')
         
         payload_step = LambdaStep(
             name=step_name,
-            lambda_func=lambda_func,
-            inputs={},  # No inputs needed for payload generation
+            lambda_func=return_payload_info,  # Simple function that returns static values
+            inputs={},  # No inputs needed
             outputs=[
                 LambdaOutput(output_name="payload_s3_uri", output_type=LambdaOutputTypeEnum.String),
                 LambdaOutput(output_name="payload_s3_key", output_type=LambdaOutputTypeEnum.String)
