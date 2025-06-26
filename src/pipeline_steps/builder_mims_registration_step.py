@@ -85,8 +85,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if "packaged_model_output" not in (self.config.input_names or {}):
             raise ValueError("input_names must contain key 'packaged_model_output'")
         
-        if "payload_s3_key" not in (self.config.input_names or {}) and "payload_s3_uri" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'payload_s3_key' or 'payload_s3_uri'")
+        if "payload_sample" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'payload_sample'")
         
         # Registration step has no outputs, so no validation needed for output_names
         
@@ -107,20 +107,24 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         # Get the input keys from config
         model_package_key = "packaged_model_output"
-        payload_key = "payload_s3_key"  
+        payload_sample_key = "payload_sample"  
+        
+        # For backward compatibility
+        payload_key = "payload_s3_key"
         payload_uri_key = "payload_s3_uri"
         
         # Check if inputs is empty
         if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply '{model_package_key}' and either '{payload_key}' or '{payload_uri_key}'")
+            raise ValueError(f"Inputs dictionary is empty. Must supply '{model_package_key}' and '{payload_sample_key}'")
         
         # Validate required model package input
         if model_package_key not in inputs:
             raise ValueError(f"Must supply an S3 URI for '{model_package_key}' in 'inputs'")
         
         # Validate we have at least one form of payload input
-        if payload_key not in inputs and payload_uri_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for either '{payload_key}' or '{payload_uri_key}' in 'inputs'")
+        if (payload_sample_key not in inputs and 
+            payload_key not in inputs and payload_uri_key not in inputs):
+            raise ValueError(f"Must supply an S3 URI for either '{payload_sample_key}', '{payload_key}', or '{payload_uri_key}' in 'inputs'")
 
         # Define the input channels
         processing_inputs = [
@@ -132,8 +136,18 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             )
         ]
         
-        # Add payload input - prefer payload_s3_key if available
-        if payload_key in inputs:
+        # Add payload input - prefer new payload_sample key if available
+        if payload_sample_key in inputs:
+            processing_inputs.append(
+                ProcessingInput(
+                    source=inputs[payload_sample_key],
+                    destination="/opt/ml/processing/mims_payload",
+                    s3_data_distribution_type="FullyReplicated",
+                    s3_input_mode="File"
+                )
+            )
+        # Fallback to old keys for backward compatibility
+        elif payload_key in inputs:
             processing_inputs.append(
                 ProcessingInput(
                     source=inputs[payload_key],
@@ -221,7 +235,18 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Look for payload outputs from a PayloadStep through Properties.Outputs
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
             try:
-                # First try to get payload_s3_key
+                # First try to get payload_sample
+                if "payload_sample" in prev_step.properties.Outputs:
+                    if "inputs" not in inputs:
+                        inputs["inputs"] = {}
+                    
+                    inputs["inputs"]["payload_sample"] = prev_step.properties.Outputs["payload_sample"]
+                    matched_inputs.add("inputs")
+                    logger.info(f"Found payload_sample from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
+                
+                # We no longer need payload_metadata for registration
+                
+                # Fallback to old output names for backward compatibility
                 if "payload_s3_key" in prev_step.properties.Outputs:
                     if "inputs" not in inputs:
                         inputs["inputs"] = {}
@@ -244,20 +269,26 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Fallback to old method of looking through outputs for payload 
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
-                # Check if the step has an output that matches our payload_s3_key
-                payload_key = "payload_s3_key"
-                if payload_key:
-                    # Look for an output with a name that contains 'payload'
-                    for output in prev_step.outputs:
-                        if hasattr(output, "output_name") and "payload" in output.output_name.lower():
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                            
-                            if payload_key not in inputs.get("inputs", {}):
-                                inputs["inputs"][payload_key] = output.destination
-                                matched_inputs.add("inputs")
-                                logger.info(f"Found payload from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
-                                break
+                # Check if the step has an output that matches our payload key
+                payload_sample_key = "payload_sample"
+                
+                # Look for an output with a name that contains 'payload'
+                for output in prev_step.outputs:
+                    if hasattr(output, "output_name") and "payload" in output.output_name.lower():
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                        
+                        # Try to match to a specific output name
+                        if "sample" in output.output_name.lower() and payload_sample_key not in inputs.get("inputs", {}):
+                            inputs["inputs"][payload_sample_key] = output.destination
+                            matched_inputs.add("inputs")
+                            logger.info(f"Found payload sample from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
+                        # Fallback to using the first payload output found
+                        elif payload_sample_key not in inputs.get("inputs", {}):
+                            inputs["inputs"][payload_sample_key] = output.destination
+                            matched_inputs.add("inputs")
+                            logger.info(f"Found generic payload from step outputs: {getattr(prev_step, 'name', str(prev_step))}")
+                            break
             except AttributeError as e:
                 logger.warning(f"Could not extract payload from step outputs: {e}")
                 
@@ -300,11 +331,16 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         payload_s3_key = self._extract_param(kwargs, 'payload_s3_key')
         payload_s3_uri = self._extract_param(kwargs, 'payload_s3_uri')
         
+        # Extract new payload parameter
+        payload_sample = self._extract_param(kwargs, 'payload_sample')
+        
         # If individual parameters were provided, build the inputs dictionary
-        if not inputs and (packaged_model_output or payload_s3_key or payload_s3_uri):
+        if not inputs and (packaged_model_output or payload_sample or payload_s3_key or payload_s3_uri):
             inputs = {}
             if packaged_model_output:
                 inputs["packaged_model_output"] = packaged_model_output
+            if payload_sample:
+                inputs["payload_sample"] = payload_sample
             if payload_s3_key:
                 inputs["payload_s3_key"] = payload_s3_key
             if payload_s3_uri:
