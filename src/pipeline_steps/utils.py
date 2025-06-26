@@ -9,13 +9,46 @@ from collections import defaultdict
 from .config_base import BasePipelineConfig
 from .config_processing_step_base import ProcessingStepConfigBase
 
+# Dictionary fields should have empty dict defaults
+DICT_FIELDS = {
+    "input_names", 
+    "output_names", 
+    "training_input_channels", 
+    "eval_input_channels",
+    "special_field_values"
+}
+
+# String fields should have empty string defaults
+STRING_FIELDS = {
+    "processing_source_dir", 
+    "payload_source_dir"
+}
+
+# All fields that should be kept specific to each config
+ALWAYS_KEEP_SPECIFIC = DICT_FIELDS.union(STRING_FIELDS)
+
+def should_keep_specific(config, field_name):
+    """
+    Determine if a field should be kept specific to this config.
+    """
+    # Dictionary fields should always be kept specific if they belong to the config
+    if field_name in DICT_FIELDS and hasattr(config, field_name):
+        return True
+    
+    # String path fields that some configs use
+    if field_name in STRING_FIELDS and hasattr(config, field_name):
+        return True
+        
+    # Everything else can be shared if values match
+    return False
+
 
 def serialize_config(config: BaseModel) -> Dict[str, Any]:
     """
     Serialize a single Pydantic config to a JSON‐serializable dict,
     embedding metadata including a unique 'step_name'.
     Supports multiple instantiations distinguished by job_type, data_type, or mode.
-    Ensures critical fields are preserved even if they're empty dictionaries.
+    Ensures critical fields are preserved with proper default values.
     """
     # Dump model to plain dict
     config_dict = config.model_dump() if hasattr(config, "model_dump") else config.dict()
@@ -36,19 +69,15 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
         "config_type": config.__class__.__name__,
     }
     
-    # Always preserve fields - ensure these fields are included even if they're empty
-    ALWAYS_PRESERVE_FIELDS = {
-        "input_names", 
-        "output_names", 
-        "training_input_channels", 
-        "eval_input_channels",
-        "source_dir",
-        "processing_source_dir",
-        "payload_source_dir"
-    }
-    for field_name in ALWAYS_PRESERVE_FIELDS:
+    # Handle dictionary fields
+    for field_name in DICT_FIELDS:
         if hasattr(config, field_name) and field_name not in config_dict:
             config_dict[field_name] = getattr(config, field_name) or {}
+            
+    # Handle string fields
+    for field_name in STRING_FIELDS:
+        if hasattr(config, field_name) and field_name not in config_dict:
+            config_dict[field_name] = getattr(config, field_name) or ""
 
     # Recursive serializer for complex types
     def _serialize(val: Any) -> Any:
@@ -80,17 +109,6 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
 
     Finally, under "metadata" → "config_types" we map each unique step_name → config class name.
     """
-    # Fields that should always be kept specific to each class, even if values are identical
-    ALWAYS_KEEP_SPECIFIC = {
-        "input_names", 
-        "output_names", 
-        "training_input_channels", 
-        "eval_input_channels",
-        "source_dir",
-        "processing_source_dir",
-        "payload_source_dir", 
-        "special_field_values"
-    }
     
     merged = {"shared": {}, "processing": defaultdict(dict), "specific": defaultdict(dict)}
     field_values = defaultdict(set)
@@ -116,8 +134,8 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
     for k, vals in field_values.items():
         sources = field_sources['all'][k]
         
-        # Special handling for fields that should never be shared
-        is_special_field = k in ALWAYS_KEEP_SPECIFIC
+        # Check each config to see if this field should be kept specific for any of them
+        is_special_field = any(should_keep_specific(cfg, k) for cfg in config_list if hasattr(cfg, k))
         
         if len(vals) == 1 and len(sources) > 1 and not is_special_field:
             # Shared fields (identical values across configs and not a special field)
@@ -136,8 +154,17 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
                 if k in d:
                     merged['specific'][step][k] = d[k]
     
-    # Double-check that ALWAYS_KEEP_SPECIFIC fields are never in shared section
-    for field_name in ALWAYS_KEEP_SPECIFIC:
+    # Double-check that special fields are never in shared section
+    # Get all fields that any config needs to keep specific
+    all_special_fields = set()
+    for cfg in config_list:
+        if hasattr(cfg.__class__, 'model_fields'):
+            for field_name in cfg.__class__.model_fields.keys():
+                if should_keep_specific(cfg, field_name):
+                    all_special_fields.add(field_name)
+    
+    # Move any special fields from shared to their specific configs
+    for field_name in all_special_fields:
         if field_name in merged['shared']:
             # Move this field from shared to all specific configs
             shared_value = merged['shared'].pop(field_name)
@@ -180,17 +207,6 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
     
     We rebuild each config under its step_name, ensuring proper initialization of special fields.
     """
-    # Fields that should always have values
-    ALWAYS_KEEP_SPECIFIC = {
-        "input_names", 
-        "output_names", 
-        "training_input_channels", 
-        "eval_input_channels",
-        "source_dir",
-        "processing_source_dir",
-        "payload_source_dir", 
-        "special_field_values"
-    }
     
     with open(input_file) as f:
         data = json.load(f)
@@ -211,9 +227,9 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
             if k in valid:
                 fields[k] = v
                 
-        # Then add shared values (only if not already set and not in ALWAYS_KEEP_SPECIFIC)
+        # Then add shared values (only if not already set and not one that should remain specific)
         for k, v in cfgs['shared'].items():
-            if k in valid and k not in fields and k not in ALWAYS_KEEP_SPECIFIC:
+            if k in valid and k not in fields and not should_keep_specific(cls, k):
                 fields[k] = v
                 
         # Add processing values (only if not already set)
@@ -222,10 +238,16 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
                 if k in valid and k not in fields:
                     fields[k] = v
         
-        # Add empty dictionaries for required fields if missing
-        for field_name in ALWAYS_KEEP_SPECIFIC:
+        # Add appropriate defaults for required fields if missing
+        # Dictionary fields get empty dict defaults
+        for field_name in DICT_FIELDS:
             if field_name in valid and field_name not in fields:
                 fields[field_name] = {}
+                
+        # String fields get empty string defaults
+        for field_name in STRING_FIELDS:
+            if field_name in valid and field_name not in fields:
+                fields[field_name] = ""
         
         # Create the instance with collected fields
         instance = cls(**fields)
