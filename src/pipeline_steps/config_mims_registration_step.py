@@ -88,8 +88,8 @@ class ModelRegistrationConfig(BasePipelineConfig):
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
             "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
-            "payload_s3_key": "S3 key for payload data",
-            "payload_s3_uri": "S3 URI for payload data"
+            "payload_sample": "Directory containing the generated payload samples",
+            "payload_metadata": "Directory containing the payload metadata"
         },
         description="Mapping of input channel names to their descriptions."
     )
@@ -145,8 +145,8 @@ class ModelRegistrationConfig(BasePipelineConfig):
         if not self.input_names:
             self.input_names = {
                 "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
-                "payload_s3_key": "S3 key for payload data",
-                "payload_s3_uri": "S3 URI for payload data"
+                "payload_sample": "Directory containing the generated payload samples",
+                "payload_metadata": "Directory containing the payload metadata"
             }
         
         if not self.output_names:
