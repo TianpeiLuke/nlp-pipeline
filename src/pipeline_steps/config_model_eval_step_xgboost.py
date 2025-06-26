@@ -2,7 +2,7 @@ from pydantic import Field, model_validator
 from typing import Optional, Dict
 
 from .config_processing_step_base import ProcessingStepConfigBase
-from .hyperparameters_base import ModelHyperparameters
+from .hyperparameters_xgboost import XGBoostModelHyperparameters
 
 
 class XGBoostModelEvalConfig(ProcessingStepConfigBase):
@@ -37,9 +37,9 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         description="Which split to evaluate on (e.g., 'training', 'calibration', 'validation', 'test')."
     )
 
-    hyperparameters: ModelHyperparameters = Field(
+    hyperparameters: XGBoostModelHyperparameters = Field(
         ...,
-        description="Model hyperparameters config, including id_name, label_name, field lists, etc."
+        description="XGBoost model hyperparameters config, including id_name, label_name, field lists, etc."
     )
 
     eval_metric_choices: Optional[list] = Field(
@@ -66,8 +66,8 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         if self.job_type not in valid_job_types:
             raise ValueError(f"job_type must be one of {valid_job_types}, got '{self.job_type}'")
         
-        if not isinstance(self.hyperparameters, ModelHyperparameters):
-            raise ValueError("hyperparameters must be an instance of ModelHyperparameters")
+        if not isinstance(self.hyperparameters, XGBoostModelHyperparameters):
+            raise ValueError("hyperparameters must be an instance of XGBoostModelHyperparameters")
         
         return self
 
