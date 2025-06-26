@@ -318,7 +318,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         processing_inputs = self._get_processing_inputs(inputs)
 
         # Create step name
-        step_name = f"{self._get_step_name('ModelRegistration')}-{self.config.region}"
+        step_name = f"{self._get_step_name('Registration')}-{self.config.region}"
         
         # Create the specialized step
         try:

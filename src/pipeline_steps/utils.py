@@ -15,6 +15,7 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
     Serialize a single Pydantic config to a JSON‐serializable dict,
     embedding metadata including a unique 'step_name'.
     Supports multiple instantiations distinguished by job_type, data_type, or mode.
+    Ensures critical fields are preserved even if they're empty dictionaries.
     """
     # Dump model to plain dict
     config_dict = config.model_dump() if hasattr(config, "model_dump") else config.dict()
@@ -34,6 +35,20 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
         "step_name": step_name,
         "config_type": config.__class__.__name__,
     }
+    
+    # Always preserve fields - ensure these fields are included even if they're empty
+    ALWAYS_PRESERVE_FIELDS = {
+        "input_names", 
+        "output_names", 
+        "training_input_channels", 
+        "eval_input_channels",
+        "source_dir",
+        "processing_source_dir",
+        "payload_source_dir"
+    }
+    for field_name in ALWAYS_PRESERVE_FIELDS:
+        if hasattr(config, field_name) and field_name not in config_dict:
+            config_dict[field_name] = getattr(config, field_name) or {}
 
     # Recursive serializer for complex types
     def _serialize(val: Any) -> Any:
@@ -55,6 +70,7 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
 def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Dict[str, Any]:
     """
     Merge and save multiple configs to JSON. Handles multiple instantiations with unique step_name.
+    Better handles class hierarchy for fields like input_names that should be kept specific.
 
     We build three sections:
       - "shared": fields that appear (with identical values) in two or more configs
@@ -64,6 +80,18 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
 
     Finally, under "metadata" → "config_types" we map each unique step_name → config class name.
     """
+    # Fields that should always be kept specific to each class, even if values are identical
+    ALWAYS_KEEP_SPECIFIC = {
+        "input_names", 
+        "output_names", 
+        "training_input_channels", 
+        "eval_input_channels",
+        "source_dir",
+        "processing_source_dir",
+        "payload_source_dir", 
+        "special_field_values"
+    }
+    
     merged = {"shared": {}, "processing": defaultdict(dict), "specific": defaultdict(dict)}
     field_values = defaultdict(set)
     field_sources = defaultdict(lambda: defaultdict(list))
@@ -87,7 +115,12 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
     # Distribute into shared/processing/specific
     for k, vals in field_values.items():
         sources = field_sources['all'][k]
-        if len(vals) == 1 and len(sources) > 1:
+        
+        # Special handling for fields that should never be shared
+        is_special_field = k in ALWAYS_KEEP_SPECIFIC
+        
+        if len(vals) == 1 and len(sources) > 1 and not is_special_field:
+            # Shared fields (identical values across configs and not a special field)
             merged['shared'][k] = json.loads(next(iter(vals)))
         elif k in field_sources['processing']:
             for cfg in config_list:
@@ -102,6 +135,25 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
                 step = d['_metadata']['step_name']
                 if k in d:
                     merged['specific'][step][k] = d[k]
+    
+    # Double-check that ALWAYS_KEEP_SPECIFIC fields are never in shared section
+    for field_name in ALWAYS_KEEP_SPECIFIC:
+        if field_name in merged['shared']:
+            # Move this field from shared to all specific configs
+            shared_value = merged['shared'].pop(field_name)
+            
+            # Add to all configs that need it
+            for cfg in config_list:
+                if hasattr(cfg, field_name):
+                    step = serialize_config(cfg)["_metadata"]["step_name"]
+                    # Either use the config's specific value or the shared value
+                    value = getattr(cfg, field_name, shared_value)
+                    
+                    # Add to the right section based on config type
+                    if isinstance(cfg, ProcessingStepConfigBase) and field_name in ProcessingStepConfigBase.model_fields:
+                        merged['processing'][step][field_name] = value
+                    else:
+                        merged['specific'][step][field_name] = value
 
     metadata = {
         'created_at': datetime.now().isoformat(),
@@ -120,11 +172,26 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
 def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) -> Dict[str, BaseModel]:
     """
     Load multiple Pydantic configs from JSON, reconstructing each instantiation uniquely.
+    Enhanced to better handle class hierarchy and special fields that need proper default values.
+    
     Expects:
       - metadata.config_types: maps each unique step_name → Pydantic class name
       - configuration.shared, configuration.processing, configuration.specific
-    We rebuild each config under its step_name.
+    
+    We rebuild each config under its step_name, ensuring proper initialization of special fields.
     """
+    # Fields that should always have values
+    ALWAYS_KEEP_SPECIFIC = {
+        "input_names", 
+        "output_names", 
+        "training_input_channels", 
+        "eval_input_channels",
+        "source_dir",
+        "processing_source_dir",
+        "payload_source_dir", 
+        "special_field_values"
+    }
+    
     with open(input_file) as f:
         data = json.load(f)
     meta = data['metadata']
@@ -138,20 +205,64 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
         cls = config_classes[cls_name]
         valid = set(cls.model_fields.keys())
         fields = {}
-        # shared
-        for k, v in cfgs['shared'].items():
-            if k in valid:
-                fields[k] = v
-        # processing
-        if issubclass(cls, ProcessingStepConfigBase):
-            for k, v in cfgs['processing'].get(step, {}).items():
-                if k in valid:
-                    fields[k] = v
-        # specific
+        
+        # Prioritize specific values first
         for k, v in cfgs['specific'].get(step, {}).items():
             if k in valid:
                 fields[k] = v
-        rebuilt[step] = cls(**fields)
+                
+        # Then add shared values (only if not already set and not in ALWAYS_KEEP_SPECIFIC)
+        for k, v in cfgs['shared'].items():
+            if k in valid and k not in fields and k not in ALWAYS_KEEP_SPECIFIC:
+                fields[k] = v
+                
+        # Add processing values (only if not already set)
+        if issubclass(cls, ProcessingStepConfigBase):
+            for k, v in cfgs['processing'].get(step, {}).items():
+                if k in valid and k not in fields:
+                    fields[k] = v
+        
+        # Add empty dictionaries for required fields if missing
+        for field_name in ALWAYS_KEEP_SPECIFIC:
+            if field_name in valid and field_name not in fields:
+                fields[field_name] = {}
+        
+        # Create the instance with collected fields
+        instance = cls(**fields)
+        
+        # Call set_default_names if available to ensure proper defaults
+        if hasattr(instance, 'set_default_names') and callable(instance.set_default_names):
+            instance = instance.set_default_names()
+            
+        # Special handling for ModelRegistrationConfig and PayloadConfig
+        is_registration_class = False
+        is_payload_class = False
+        
+        # Check MRO (inheritance chain) for ModelRegistrationConfig
+        for base_cls in cls.__mro__:
+            if base_cls.__name__ == 'ModelRegistrationConfig':
+                is_registration_class = True
+            if base_cls.__name__ == 'PayloadConfig':
+                is_payload_class = True
+                
+        # For ModelRegistrationConfig, ensure input_names has required values
+        if is_registration_class:
+            if not hasattr(instance, 'input_names') or not getattr(instance, 'input_names'):
+                instance.input_names = {
+                    "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
+                    "payload_s3_key": "S3 key for payload data",
+                    "payload_s3_uri": "S3 URI for payload data"
+                }
+                
+        # For PayloadConfig, ensure proper output_names
+        if is_payload_class:
+            if not hasattr(instance, 'output_names') or not getattr(instance, 'output_names'):
+                instance.output_names = {
+                    "payload_sample": "Directory containing the generated payload samples",
+                    "payload_metadata": "Directory containing the payload metadata"
+                }
+        
+        rebuilt[step] = instance
 
     return rebuilt
 
@@ -162,8 +273,13 @@ def verify_configs(
 ) -> bool:
     """
     Compare originals to reloaded configs, allowing multiple instantiations.
+    Also checks that required fields are present.
     """
     ok = True
+    
+    # Fields that should be checked
+    required_fields = ["input_names", "output_names"]
+    
     for orig in original_list:
         base = BasePipelineConfig.get_step_name(orig.__class__.__name__)
         step = base
@@ -177,7 +293,16 @@ def verify_configs(
             print(f"  Missing loaded config for '{step}'")
             ok = False
             continue
+        
         r = loaded[step]
+        
+        # Check that required fields are present and not None
+        for field in required_fields:
+            if hasattr(r, field):
+                if getattr(r, field) is None:
+                    print(f"  Warning: '{step}' has {field}=None")
+                    ok = False
+        
         o_ser = serialize_config(orig).copy()
         n_ser = serialize_config(r).copy()
         o_ser.pop('_metadata',None)

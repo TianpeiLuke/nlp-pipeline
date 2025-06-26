@@ -382,13 +382,18 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
         step_name = self._get_step_name('XGBoostModelEval')
         
-        processing_step = ProcessingStep(
-            name=step_name,
-            processor=processor,
+        
+        step_args = processor.run(
+            code=self.config.processing_entry_point, #self.config.get_script_path(),
+            source_dir=self.config.processing_source_dir, # This is the crucial part
             inputs=proc_inputs,
             outputs=proc_outputs,
-            code=self.config.get_script_path(),
-            job_arguments=job_args,
+            arguments=job_args,
+        )
+
+        processing_step = ProcessingStep(
+            name=step_name,
+            step_args=step_args,
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching)
         )

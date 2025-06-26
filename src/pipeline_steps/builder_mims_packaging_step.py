@@ -281,7 +281,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         proc_outputs = self._get_processor_outputs(outputs)
         # Remove job_arguments completely as the script doesn't need any arguments
 
-        step_name = self._get_step_name('MIMSPackaging')
+        step_name = self._get_step_name('Package')
         
         processing_step = ProcessingStep(
             name=step_name,

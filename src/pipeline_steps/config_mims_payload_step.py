@@ -21,14 +21,16 @@ class PayloadConfig(ModelRegistrationConfig):
     
     # Override input_names and output_names from parent class with specific defaults
     input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {},  # Payload step doesn't need any inputs from previous steps
+        default_factory=lambda: {
+            "model_input": "Model artifacts from training step"
+        },
         description="Mapping of input channel names to their descriptions."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "payload_s3_uri": "S3 URI of the generated payload",
-            "payload_s3_key": "S3 key of the generated payload"
+            "payload_sample": "Directory containing the generated payload samples",
+            "payload_metadata": "Directory containing the payload metadata"
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -75,6 +77,10 @@ class PayloadConfig(ModelRegistrationConfig):
     )
     
     # Script path configuration (optional)
+    payload_source_dir: Optional[str] = Field(
+        default=None, 
+        description="Source directory for payload scripts. Falls back to base source_dir if not provided."
+    )
     payload_script_path: Optional[str] = Field(
         default=None,
         description="Optional path to a custom payload generation script (relative to notebook_root or S3 URI)"
@@ -130,7 +136,7 @@ class PayloadConfig(ModelRegistrationConfig):
     
     @model_validator(mode='after')
     def construct_payload_path(self) -> 'PayloadConfig':
-        """Construct S3 key for payload if not provided and set default input/output names if empty"""
+        """Construct S3 key for payload if not provided"""
         # Construct S3 key for payload if not provided
         if not self.sample_payload_s3_key:
             payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
@@ -141,21 +147,37 @@ class PayloadConfig(ModelRegistrationConfig):
         # Update model with sample payload S3 key
         self = self.model_copy(update={"sample_payload_s3_key": self.sample_payload_s3_key})
         
-        # Set default input names if not provided or empty
-        if self.input_names is None:
-            # Payload step doesn't need any inputs from previous steps
-            input_names = {}
-            # Use self.model_copy to avoid triggering validators recursively
-            self = self.model_copy(update={"input_names": input_names})
+        return self
         
-        # Set default output names if not provided or empty
-        if self.output_names is None or not self.output_names:
-            output_names = {
-                "payload_s3_uri": "S3 URI of the generated payload",
-                "payload_s3_key": "S3 key of the generated payload"
+    @model_validator(mode='after')
+    def set_default_names(self) -> 'PayloadConfig':
+        """Ensure default input and output names are set if not provided."""
+        if not self.input_names:
+            self.input_names = {
+                "model_input": "Model artifacts from training step"
             }
-            # Use self.model_copy to avoid triggering validators recursively
-            self = self.model_copy(update={"output_names": output_names})
+        
+        if not self.output_names:
+            self.output_names = {
+                "payload_sample": "Directory containing the generated payload samples",
+                "payload_metadata": "Directory containing the payload metadata"
+            }
+        
+        return self
+        
+    @model_validator(mode='after')
+    def validate_registration_configs(self) -> 'PayloadConfig':
+        """Override the parent validator to use payload_source_dir if available"""
+        # Validate model registration objective
+        if not self.model_registration_objective:
+            raise ValueError("model_registration_objective must be provided")
+        
+        # Use the effective source directory instead of just source_dir
+        effective_source_dir = self.get_effective_source_dir()
+        if effective_source_dir and not effective_source_dir.startswith('s3://'):
+            entry_point_path = Path(effective_source_dir) / self.inference_entry_point
+            if not entry_point_path.exists():
+                raise ValueError(f"Inference entry point script not found: {entry_point_path}")
         
         return self
         
@@ -421,6 +443,29 @@ class PayloadConfig(ModelRegistrationConfig):
             logger.error(f"Failed to generate and upload payloads: {str(e)}")
             raise
             
+    def get_effective_source_dir(self) -> Optional[str]:
+        """Get the effective source directory"""
+        return self.payload_source_dir or self.source_dir
+        
+    def get_script_path(self) -> Optional[str]:
+        """
+        Get the full path to the processing script.
+        
+        Returns:
+            Optional[str]: Full path to the script or None if entry_point not available
+        """
+        if self.inference_entry_point is None:
+            return None
+            
+        effective_source_dir = self.get_effective_source_dir()
+        if effective_source_dir is None:
+            return None
+            
+        if effective_source_dir.startswith('s3://'):
+            return f"{effective_source_dir.rstrip('/')}/{self.inference_entry_point}"
+        
+        return str(Path(effective_source_dir) / self.inference_entry_point)
+
     def model_dump(self, **kwargs) -> Dict[str, Any]:
         """Custom serialization"""
         data = super().model_dump(**kwargs)
