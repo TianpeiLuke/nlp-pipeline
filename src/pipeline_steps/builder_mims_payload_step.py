@@ -251,8 +251,9 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Returns:
             A list of strings representing the command-line arguments.
         """
-        # No job arguments needed as everything is provided via environment and input files
-        return []
+        # SageMaker requires at least one command-line argument
+        # Adding a dummy argument to satisfy SageMaker validation requirement
+        return ["--dummy-arg", "dummy-value"]
 
     def create_step(self, **kwargs) -> ProcessingStep:
         """

@@ -4,7 +4,7 @@ import logging
 
 from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.sklearn import SKLearnProcessor
+from sagemaker.xgboost import XGBoostProcessor
 
 from .config_model_eval_step_xgboost import XGBoostModelEvalConfig
 from .builder_step_base import StepBuilderBase
@@ -60,11 +60,14 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         
         # Validate required attributes
         required_attrs = [
-            'processing_instance_count',
-            'processing_volume_size',
             'processing_entry_point',
             'processing_source_dir',
-            'processing_framework_version'
+            'processing_instance_count', 
+            'processing_volume_size',
+            'pipeline_name',
+            'job_type',
+            'hyperparameters',
+            'xgboost_framework_version'
         ]
         
         for attr in required_attrs:
@@ -94,7 +97,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         
         logger.info("XGBoostModelEvalConfig validation succeeded.")
 
-    def _create_processor(self) -> SKLearnProcessor:
+    def _create_processor(self) -> XGBoostProcessor:
         """
         Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
         This defines the execution environment for the script, including the instance
@@ -106,8 +109,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         # Get the appropriate instance type based on use_large_processing_instance
         instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
         
-        return SKLearnProcessor(
-            framework_version=self.config.processing_framework_version,
+        return XGBoostProcessor(
+            framework_version=self.config.xgboost_framework_version,
             role=self.role,
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
@@ -118,6 +121,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
+    
 
     def _get_environment_variables(self) -> Dict[str, str]:
         """
@@ -127,21 +131,15 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
         Returns:
             A dictionary of environment variables.
-        """
-        env_vars = {}
-        
-        # Add optional environment variables if they exist
-        if hasattr(self.config, "target_column") and self.config.target_column:
-            env_vars["TARGET_COLUMN"] = self.config.target_column
-            
-        if hasattr(self.config, "problem_type") and self.config.problem_type:
-            env_vars["PROBLEM_TYPE"] = self.config.problem_type
-            
-        if hasattr(self.config, "eval_metrics") and self.config.eval_metrics:
-            env_vars["EVAL_METRICS"] = ",".join(self.config.eval_metrics)
-            
-        logger.info(f"Processing environment variables: {env_vars}")
+        """        
+        env_vars = {
+            "ID_FIELD": str(self.config.hyperparameters.id_name),
+            "LABEL_FIELD": str(self.config.hyperparameters.label_name),
+        }
+        logger.info(f"Evaluation environment variables: {env_vars}")
         return env_vars
+
+    
 
     def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
@@ -180,7 +178,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             ProcessingInput(
                 input_name=eval_data_key,
                 source=inputs[eval_data_key],
-                destination="/opt/ml/processing/input/validation"
+                destination="/opt/ml/processing/input/eval_data"
             )
         ]
         
@@ -224,7 +222,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         processing_outputs = [
             ProcessingOutput(
                 output_name=eval_out_key,
-                source="/opt/ml/processing/output/evaluation",
+                source="/opt/ml/processing/output/eval",
                 destination=outputs[eval_out_key]
             ),
             ProcessingOutput(
