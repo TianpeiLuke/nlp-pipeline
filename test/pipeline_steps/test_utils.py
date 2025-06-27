@@ -647,14 +647,12 @@ class TestUtils(unittest.TestCase):
                 self.assertIn('processing_shared', merged['processing'], 
                     "processing_shared section should exist")
                 
-                # Since we're forcing these to be added in for testing, these checks are still valid
-                self.assertIn('processing_shared_value', merged['processing']['processing_shared'], 
-                    "processing_shared_value should be in processing_shared section")
-                # Utils.py uses processing_source_dir internally, not our dummy
-                self.assertIn('processing_source_dir', merged['processing']['processing_shared'],
-                    "processing_source_dir should be in processing_shared section") 
+                # After our fix, only built-in ProcessingStepConfigBase fields will be in processing_shared
+                # Custom fields like processing_shared_value won't be forced there anymore
                 self.assertIn('processing_instance_count', merged['processing']['processing_shared'], 
                     "processing_instance_count should be in processing_shared section")
+                self.assertIn('processing_source_dir', merged['processing']['processing_shared'],
+                    "processing_source_dir should be in processing_shared section") 
                     
                 # Check processing_specific section
                 self.assertIn('processing_specific', merged['processing'], 
