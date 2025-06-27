@@ -538,13 +538,16 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
 def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) -> Dict[str, BaseModel]:
     """
     Load multiple Pydantic configs from JSON, reconstructing each instantiation uniquely.
-    Enhanced to better handle class hierarchy, default values, and special fields.
+    Mirrors the saving algorithm's logic for where fields should come from.
     
-    Expects:
-      - metadata.config_types: maps each unique step_name → Pydantic class name
-      - configuration.shared, configuration.processing, configuration.specific
+    Config fields are loaded with the following priority order:
+    1. Specific values for this exact config (highest priority)
+    2. Processing-specific values (if applicable)
+    3. Processing-shared values (if applicable)
+    4. Shared values (lowest priority)
     
-    We rebuild each config under its step_name, ensuring proper initialization of special fields.
+    This ensures we respect the mutual exclusivity of the categories and properly
+    handle inheritance relationships.
     """
     
     with open(input_file) as f:
@@ -554,66 +557,81 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
     types = meta['config_types']  # step_name -> class_name
     rebuilt = {}
 
+    # First, identify all processing and non-processing configs
+    processing_steps = set()
     for step, cls_name in types.items():
         if cls_name not in config_classes:
             raise ValueError(f"Unknown config class: {cls_name}")
         cls = config_classes[cls_name]
-        valid = set(cls.model_fields.keys())
+        if issubclass(cls, ProcessingStepConfigBase):
+            processing_steps.add(step)
+    
+    # Now build each config with the correct field hierarchy
+    for step, cls_name in types.items():
+        cls = config_classes[cls_name]
+        is_processing = step in processing_steps
+        
+        # Build the field dictionary with strict priority order
         fields = {}
         
-        # Prioritize specific values first
-        for k, v in cfgs['specific'].get(step, {}).items():
-            if k in valid:
-                fields[k] = v
-                
-        # Then add shared values (only if not already set)
-        # We pass None to should_keep_specific for all_configs, which will make it
-        # return True by default, preventing loading of shared values
-        # Instead, we want ALL shared values during loading
+        # 1. Start with an empty field set
+        valid_fields = set(cls.model_fields.keys())
+        
+        # 2. Get field values from shared (lowest priority)
         for k, v in cfgs['shared'].items():
-            if k in valid and k not in fields:
+            if k in valid_fields:
                 fields[k] = v
-                
-        # Add processing values (only if not already set)
-        if issubclass(cls, ProcessingStepConfigBase):
-            # First add processing_shared values
+        
+        # 3. If processing, add processing-shared values (overrides shared)
+        if is_processing:
             for k, v in cfgs['processing'].get('processing_shared', {}).items():
-                if k in valid and k not in fields:
+                if k in valid_fields:
                     fields[k] = v
-            
-            # Then add processing_specific values for this step
+                    
+        # 4. If processing, add processing-specific values for this step (overrides processing-shared)
+        if is_processing:
             for k, v in cfgs['processing'].get('processing_specific', {}).get(step, {}).items():
-                if k in valid and k not in fields:
+                if k in valid_fields:
                     fields[k] = v
         
-        # For all fields in valid that are still missing, get default values
-        # from field definitions rather than creating an instance
-        for field_name in valid:
+        # 5. Add specific values (highest priority, overrides everything)
+        for k, v in cfgs['specific'].get(step, {}).items():
+            if k in valid_fields:
+                fields[k] = v
+        
+        # 6. For any remaining fields, use class defaults
+        for field_name in valid_fields:
             if field_name not in fields:
-                # Try to get default from field definition
+                # Get default from field definition
                 default_value = get_field_default(cls, field_name)
                 if default_value is not None:
                     fields[field_name] = default_value
-                # Use naming patterns to determine appropriate defaults
-                elif field_name.endswith("_names") or "channel" in field_name or field_name.endswith("_values"):
-                    # Dictionary-like fields should have empty dict defaults
+                # Use naming patterns for appropriate defaults
+                elif any(pattern in field_name for pattern in DICT_FIELD_PATTERNS):
                     fields[field_name] = {}
-                elif field_name.endswith("_dir") or field_name.endswith("_path"):
-                    # Path-like fields should have empty string defaults
+                elif any(pattern in field_name for pattern in PATH_FIELD_PATTERNS):
                     fields[field_name] = ""
         
-        # Create the instance with collected fields
+        # Create the instance with the collected fields
         try:
             instance = cls(**fields)
+            
+            # Explicitly verify mutually exclusive fields
+            # to ensure we haven't duplicated any
+            for k in fields.keys():
+                if k in cfgs['shared'] and step in cfgs['specific'] and k in cfgs['specific'][step]:
+                    logger.warning(f"Field '{k}' appears in both shared and specific.{step}")
+                
+                if is_processing and k in cfgs['processing'].get('processing_shared', {}) and \
+                   step in cfgs['processing'].get('processing_specific', {}) and \
+                   k in cfgs['processing'].get('processing_specific', {}).get(step, {}):
+                    logger.warning(f"Field '{k}' appears in both processing_shared and processing_specific.{step}")
+            
         except ValueError as e:
             # Log the error for debugging purposes
             logger.error(f"Failed to create instance for {step}: {str(e)}")
             # Re-raise the exception - validation errors are the user's responsibility to fix
             raise
-        
-        # Call set_default_names if available to ensure proper defaults
-        if hasattr(instance, 'set_default_names') and callable(instance.set_default_names):
-            instance = instance.set_default_names()
         
         rebuilt[step] = instance
 
