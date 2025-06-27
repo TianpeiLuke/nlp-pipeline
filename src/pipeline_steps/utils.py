@@ -199,10 +199,24 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
     Merge and save multiple configs to JSON. Handles multiple instantiations with unique step_name.
     Better handles class hierarchy for fields like input_names that should be kept specific.
 
+    # Field Categorization Rules:
+    # ---------------------------
+    # 1. For fields that appear in BOTH processing and non-processing configs (cross-type fields):
+    #    - If the field has identical values across ALL configs (both types): place in "shared"
+    #    - Otherwise: place in appropriate specific sections ("processing_specific" or "specific")
+    #
+    # 2. For fields EXCLUSIVE to processing configs:
+    #    - If the field exists in ALL processing configs AND has identical values: place in "processing_shared"
+    #    - Otherwise: place in "processing_specific" for each config
+    #
+    # 3. For fields EXCLUSIVE to non-processing configs:
+    #    - If the field exists in multiple configs AND has identical values: place in "shared"
+    #    - Otherwise: place in "specific" for each config
+
     We build a nested structure:
       - "shared": fields that appear (with identical values) in two or more configs; and the values of these fields are static
       - "processing": configuration for ProcessingStepConfigBase subclasses
-          - "processing_shared": fields common across all processing configs
+          - "processing_shared": fields common across all processing configs with identical values
           - "processing_specific": 1) fields unique to specific processing configs; 2) fields that are shared across multiple processing configs, but the values of them are different for different processing config; grouped by step name
       - "specific": 1) fields unique to specific configs; 2) fields that are shared across multiple configs, but the values of them are different for different config; grouped by step name
 
@@ -399,7 +413,14 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
             else:
                 # Different values or not in all processing configs - put in processing_specific
                 # This covers fields unique to specific processing configs or shared with different values
-                print(f"  ✗ {k} not eligible for processing_shared")
+                print(f"  ✗ {k} not eligible for processing_shared because:")
+                if len(processing_values) > 1:
+                    print(f"    - Values differ across configs ({len(processing_values)} different values)")
+                if len(processing_configs_with_field) < len(processing_configs):
+                    print(f"    - Not present in all processing configs ({len(processing_configs_with_field)} of {len(processing_configs)})")
+                if is_cross_type:
+                    print(f"    - It's a cross-type field (appears in both processing and non-processing configs)")
+                    
                 for cfg in processing_configs:
                     if hasattr(cfg, k):
                         d = serialize_config(cfg)
@@ -474,28 +495,8 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
                         # Put in regular specific section
                         merged['specific'][step][field_name] = _serialize(value)
 
-    # For testing: Force add specific processing fields to processing_shared if they exist in any processing config
-    if len(processing_configs) > 1:
-        # Add processing_shared_value
-        for cfg in processing_configs:
-            if hasattr(cfg, 'processing_shared_value'):
-                print(f"Found processing_shared_value: {cfg.processing_shared_value}")
-                merged['processing']['processing_shared']['processing_shared_value'] = cfg.processing_shared_value
-                break
-                
-        # Add processing_source_dir
-        for cfg in processing_configs:
-            if hasattr(cfg, 'processing_source_dir'):
-                print(f"Found processing_source_dir: {cfg.processing_source_dir}")
-                merged['processing']['processing_shared']['processing_source_dir'] = cfg.processing_source_dir
-                break
-                
-        # Add processing_instance_count
-        for cfg in processing_configs:
-            if hasattr(cfg, 'processing_instance_count'):
-                print(f"Found processing_instance_count: {cfg.processing_instance_count}")
-                merged['processing']['processing_shared']['processing_instance_count'] = cfg.processing_instance_count
-                break
+    # Note: "Force add" section removed - this was causing issues with processing_source_dir
+    # being incorrectly placed in processing_shared when values differed between configs
 
     # Enforce mutual exclusivity by removing any duplicated fields
     # 1. Check for overlaps between shared and specific
@@ -504,6 +505,8 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
         overlap = shared_fields.intersection(set(fields.keys()))
         if overlap:
             print(f"WARNING: Found fields {overlap} in both 'shared' and 'specific' for step {step}")
+            print(f"  The values in shared: {[merged['shared'][f] for f in overlap]}")
+            print(f"  The values in specific.{step}: {[fields[f] for f in overlap]}")
             for field in overlap:
                 merged['specific'][step].pop(field)
     
@@ -513,6 +516,8 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
         overlap = proc_shared_fields.intersection(set(fields.keys()))
         if overlap:
             print(f"WARNING: Found fields {overlap} in both 'processing_shared' and 'processing_specific' for step {step}")
+            print(f"  The values in processing_shared: {[merged['processing']['processing_shared'][f] for f in overlap]}")
+            print(f"  The values in processing_specific.{step}: {[fields[f] for f in overlap]}")
             for field in overlap:
                 merged['processing']['processing_specific'][step].pop(field)
 
