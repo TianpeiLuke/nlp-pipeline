@@ -1,5 +1,6 @@
 import unittest
-from types import SimpleNamespace
+import tempfile
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,110 +15,121 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Import the builder class to be tested
+# Import the builder class and config class to be tested
 from src.pipeline_steps.builder_currency_conversion_step import CurrencyConversionStepBuilder
+from src.pipeline_steps.config_currency_conversion_step import CurrencyConversionConfig
 
 class TestCurrencyConversionStepBuilder(unittest.TestCase):
     def setUp(self):
         """Set up a minimal, mocked configuration and builder instance for each test."""
-        # Create a dummy config object with required attributes
-        self.config = SimpleNamespace()
+        # Create a temporary directory for testing
+        self.temp_dir = tempfile.mkdtemp()
         
-        # Required attributes for validation
-        self.config.processing_entry_point = 'currency_conversion.py'
-        self.config.enable_currency_conversion = True
-        self.config.marketplace_id_col = 'marketplace_id'
-        self.config.currency_col = None
-        self.config.currency_conversion_var_list = ['price', 'cost']
-        self.config.currency_conversion_dict = {'USD': 1.0, 'EUR': 0.85, 'GBP': 0.75}
-        self.config.marketplace_info = {
-            'US': {'currency_code': 'USD'},
-            'UK': {'currency_code': 'GBP'},
-            'DE': {'currency_code': 'EUR'}
+        # Create the entry point script in the temporary directory
+        entry_point = 'currency_conversion.py'
+        entry_point_path = os.path.join(self.temp_dir, entry_point)
+        with open(entry_point_path, 'w') as f:
+            f.write('# Dummy currency conversion script for testing\n')
+            f.write('print("This is a dummy script")\n')
+        
+        # Create a valid config for the CurrencyConversionConfig
+        self.valid_config_data = {
+            "job_type": "training",
+            "mode": "per_split",
+            "train_ratio": 0.7,
+            "test_val_ratio": 0.5,
+            "label_field": "target",
+            "processing_entry_point": "currency_conversion.py",
+            "processing_source_dir": self.temp_dir,
+            "processing_framework_version": "0.23-1",
+            "processing_instance_type_large": "ml.m5.4xlarge",
+            "processing_instance_type_small": "ml.m5.large",
+            "use_large_processing_instance": False,
+            "processing_instance_count": 1,
+            "processing_volume_size": 30,
+            "marketplace_id_col": "marketplace_id",
+            "currency_conversion_var_list": ["price", "cost"],
+            "currency_conversion_dict": {"USD": 1.0, "EUR": 0.85, "GBP": 0.75},
+            "marketplace_info": {
+                "US": {"currency_code": "USD"},
+                "UK": {"currency_code": "GBP"},
+                "DE": {"currency_code": "EUR"}
+            },
+            "default_currency": "USD",
+            "enable_currency_conversion": True,
+            "input_names": {"data_input": "ProcessedTabularData"},
+            "output_names": {"converted_data": "ConvertedCurrencyData"},
+            "pipeline_s3_loc": "s3://bucket/pipeline",
+            "pipeline_name": "test-pipeline"
         }
-        self.config.skip_invalid_currencies = False
-        self.config.default_currency = 'USD'
         
-        # Processing configuration
-        self.config.job_type = 'training'
-        self.config.mode = 'per_split'
-        self.config.train_ratio = 0.7
-        self.config.test_val_ratio = 0.5
-        self.config.label_field = 'target'
-        self.config.use_large_processing_instance = False
-        self.config.processing_instance_count = 1
-        self.config.processing_volume_size = 30
+        # Create a real CurrencyConversionConfig instance
+        with patch('pathlib.Path.exists', return_value=True), \
+             patch('pathlib.Path.is_file', return_value=True), \
+             patch('pathlib.Path.is_dir', return_value=True):
+            self.config = CurrencyConversionConfig(**self.valid_config_data)
         
-        # IO configuration
-        self.config.input_names = {'data_input': 'ProcessedTabularData'}
-        self.config.output_names = {'converted_data': 'ConvertedCurrencyData'}
-        self.config.pipeline_s3_loc = 's3://bucket/pipeline'
-        self.config.pipeline_name = 'test-pipeline'
+        # Instantiate builder with the real config
+        self.builder = CurrencyConversionStepBuilder(
+            config=self.config,
+            sagemaker_session=MagicMock(),
+            role='arn:aws:iam::000000000000:role/DummyRole',
+            notebook_root=Path('.')
+        )
         
-        # Methods
-        self.config.get_script_path = MagicMock(return_value='currency_conversion.py')
-        # Mock Path.exists to return True for script validation
-        self.path_exists_patch = patch('pathlib.Path.exists', return_value=True)
-        self.path_exists_patch.start()
-        self.config.get_instance_type = MagicMock(return_value='ml.m5.large')
-        self.config.get_script_arguments = MagicMock(return_value=[
-            '--data-type', 'training',
-            '--mode', 'per_split',
-            '--marketplace-id-col', 'marketplace_id',
-            '--default-currency', 'USD',
-            '--enable-conversion', 'true'
-        ])
-        self.config.get_environment_variables = MagicMock(return_value={
-            'CURRENCY_CONVERSION_VARS': '["price", "cost"]',
-            'CURRENCY_CONVERSION_DICT': '{"USD": 1.0, "EUR": 0.85, "GBP": 0.75}',
-            'MARKETPLACE_INFO': '{"US": {"currency_code": "USD"}, "UK": {"currency_code": "GBP"}, "DE": {"currency_code": "EUR"}}',
-            'LABEL_FIELD': 'target',
-            'TRAIN_RATIO': '0.7',
-            'TEST_VAL_RATIO': '0.5'
-        })
-        
-        # Instantiate builder without running __init__ (to bypass type checks)
-        self.builder = object.__new__(CurrencyConversionStepBuilder)
-        self.builder.config = self.config
-        
-        # Create a properly configured session mock
-        session_mock = MagicMock()
-        # Set sagemaker_config to an empty dict to pass validation
-        session_mock.sagemaker_config = {}
-        self.builder.session = session_mock
-        
-        self.builder.role = 'arn:aws:iam::000000000000:role/DummyRole'
-        self.builder.notebook_root = Path('.')
-        # Use a mock for the _get_step_name method from the base class
+        # Mock the methods that interact with SageMaker
         self.builder._get_step_name = MagicMock(return_value='Currency_Conversion')
-        self.builder._get_cache_config = MagicMock(return_value=MagicMock())
         self.builder._sanitize_name_for_sagemaker = MagicMock(return_value='test-pipeline-currency-conversion')
+        self.builder._get_cache_config = MagicMock(return_value=MagicMock())
+        self.builder._extract_param = MagicMock(side_effect=lambda kwargs, key, default=None: kwargs.get(key, default))
 
     def tearDown(self):
         """Clean up after each test."""
-        self.path_exists_patch.stop()
+        # Remove the temporary directory
+        shutil.rmtree(self.temp_dir)
         
     def test_validate_configuration_success(self):
         """Test that configuration validation succeeds with valid config."""
         # Should not raise any exceptions
         self.builder.validate_configuration()
 
-    def test_validate_configuration_missing_marketplace_info(self):
-        """Test that configuration validation fails with missing marketplace info."""
-        self.config.marketplace_info = {}
-        with self.assertRaises(ValueError):
-            self.builder.validate_configuration()
-
-    def test_validate_configuration_missing_conversion_rates(self):
-        """Test that configuration validation fails with missing conversion rates."""
-        # Add a currency to marketplace_info that's not in currency_conversion_dict
-        self.config.marketplace_info['JP'] = {'currency_code': 'JPY'}
-        with self.assertRaises(ValueError):
-            self.builder.validate_configuration()
+    def test_validate_configuration_missing_required_fields(self):
+        """Test that configuration validation fails with missing required fields."""
+        # Test missing processing_instance_count
+        with patch.object(self.config, 'processing_instance_count', None):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
         
-        # Should pass if skip_invalid_currencies is True
-        self.config.skip_invalid_currencies = True
-        self.builder.validate_configuration()  # Should not raise
+        # Test missing processing_volume_size
+        with patch.object(self.config, 'processing_volume_size', None):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
+        
+        # Test missing processing_entry_point
+        with patch.object(self.config, 'processing_entry_point', None):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
+        
+        # Test missing processing_source_dir
+        with patch.object(self.config, 'processing_source_dir', None):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
+        
+        # Test missing processing_framework_version
+        with patch.object(self.config, 'processing_framework_version', None):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
+        
+        # Test missing job_type
+        with patch.object(self.config, 'job_type', None):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
+
+    def test_validate_configuration_invalid_job_type(self):
+        """Test that configuration validation fails with invalid job_type."""
+        with patch.object(self.config, 'job_type', 'invalid_job_type'):
+            with self.assertRaises(ValueError):
+                self.builder.validate_configuration()
 
     @patch('src.pipeline_steps.builder_currency_conversion_step.SKLearnProcessor')
     def test_create_processor(self, mock_processor_cls):
@@ -130,39 +142,117 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         processor = self.builder._create_processor()
         
         # Verify SKLearnProcessor was created with correct parameters
-        mock_processor_cls.assert_called_once_with(
-            framework_version="1.2-1",
-            role=self.builder.role,
-            instance_type='ml.m5.large',
-            instance_count=self.config.processing_instance_count,
-            volume_size_in_gb=self.config.processing_volume_size,
-            sagemaker_session=self.builder.session,
-            base_job_name='test-pipeline-currency-conversion'
-        )
+        mock_processor_cls.assert_called_once()
+        call_args = mock_processor_cls.call_args[1]
+        self.assertEqual(call_args['framework_version'], self.config.processing_framework_version)
+        self.assertEqual(call_args['role'], self.builder.role)
+        self.assertEqual(call_args['instance_type'], self.config.processing_instance_type_small)  # Default small instance
+        self.assertEqual(call_args['instance_count'], self.config.processing_instance_count)
+        self.assertEqual(call_args['volume_size_in_gb'], self.config.processing_volume_size)
+        self.assertEqual(call_args['sagemaker_session'], self.builder.session)
+        self.assertTrue('base_job_name' in call_args)
         
         # Verify the returned processor is our mock
         self.assertEqual(processor, mock_processor)
-
-    def test_get_processing_inputs(self):
-        """Test that processing inputs are created correctly."""
-        data_input = 's3://bucket/input'
-        inputs = self.builder._get_processing_inputs(data_input)
         
-        self.assertEqual(len(inputs), 1)
-        self.assertIsInstance(inputs[0], ProcessingInput)
-        self.assertEqual(inputs[0].source, data_input)
-        self.assertEqual(inputs[0].destination, '/opt/ml/processing/input/data')
-        self.assertEqual(inputs[0].input_name, 'ProcessedTabularData')
-
-    def test_get_processing_outputs(self):
-        """Test that processing outputs are created correctly."""
-        outputs = self.builder._get_processing_outputs()
+    @patch('src.pipeline_steps.builder_currency_conversion_step.SKLearnProcessor')
+    def test_create_processor_large_instance(self, mock_processor_cls):
+        """Test that the processor is created with large instance when configured."""
+        # Setup mock processor
+        mock_processor = MagicMock()
+        mock_processor_cls.return_value = mock_processor
         
-        self.assertEqual(len(outputs), 1)
-        self.assertIsInstance(outputs[0], ProcessingOutput)
-        self.assertEqual(outputs[0].source, '/opt/ml/processing/output')
-        self.assertEqual(outputs[0].destination, 's3://bucket/pipeline/currency_conversion')
-        self.assertEqual(outputs[0].output_name, 'ConvertedCurrencyData')
+        # Set use_large_processing_instance to True
+        with patch.object(self.config, 'use_large_processing_instance', True):
+            # Create processor
+            processor = self.builder._create_processor()
+            
+            # Verify large instance type was used
+            call_args = mock_processor_cls.call_args[1]
+            self.assertEqual(call_args['instance_type'], self.config.processing_instance_type_large)
+
+    def test_get_processor_inputs(self):
+        """Test that processor inputs are created correctly."""
+        # Create inputs dictionary with required keys
+        inputs = {
+            self.config.input_names["data_input"]: "s3://bucket/input"
+        }
+        
+        proc_inputs = self.builder._get_processor_inputs(inputs)
+        
+        self.assertEqual(len(proc_inputs), 1)
+        self.assertIsInstance(proc_inputs[0], ProcessingInput)
+        self.assertEqual(proc_inputs[0].source, "s3://bucket/input")
+        self.assertEqual(proc_inputs[0].destination, "/opt/ml/processing/input/data")
+        self.assertEqual(proc_inputs[0].input_name, "ProcessedTabularData")
+        
+    def test_get_processor_inputs_with_exchange_rates(self):
+        """Test that processor inputs include exchange rates when provided."""
+        # Add exchange_rates_input to config
+        with patch.object(self.config, 'input_names', {
+            "data_input": "ProcessedTabularData",
+            "exchange_rates_input": "ExchangeRatesInput"
+        }):
+            # Create inputs dictionary with both keys
+            inputs = {
+                "ProcessedTabularData": "s3://bucket/input",
+                "ExchangeRatesInput": "s3://bucket/exchange_rates"
+            }
+            
+            proc_inputs = self.builder._get_processor_inputs(inputs)
+            
+            self.assertEqual(len(proc_inputs), 2)
+            
+            # Check data input
+            data_input = next(i for i in proc_inputs if i.input_name == "ProcessedTabularData")
+            self.assertEqual(data_input.source, "s3://bucket/input")
+            self.assertEqual(data_input.destination, "/opt/ml/processing/input/data")
+            
+            # Check exchange rates input
+            exchange_rates_input = next(i for i in proc_inputs if i.input_name == "ExchangeRatesInput")
+            self.assertEqual(exchange_rates_input.source, "s3://bucket/exchange_rates")
+            self.assertEqual(exchange_rates_input.destination, "/opt/ml/processing/input/exchange_rates")
+    
+    def test_get_processor_inputs_missing(self):
+        """Test that _get_processor_inputs raises ValueError when inputs are missing."""
+        # Test with empty inputs
+        with self.assertRaises(ValueError):
+            self.builder._get_processor_inputs({})
+
+    def test_get_processor_outputs(self):
+        """Test that processor outputs are created correctly."""
+        # Create outputs dictionary with required keys
+        outputs = {
+            "ConvertedCurrencyData": "s3://bucket/output"
+        }
+        
+        proc_outputs = self.builder._get_processor_outputs(outputs)
+        
+        self.assertEqual(len(proc_outputs), 1)
+        self.assertIsInstance(proc_outputs[0], ProcessingOutput)
+        self.assertEqual(proc_outputs[0].source, "/opt/ml/processing/output")
+        self.assertEqual(proc_outputs[0].destination, "s3://bucket/output")
+        self.assertEqual(proc_outputs[0].output_name, "ConvertedCurrencyData")
+    
+    def test_get_processor_outputs_missing(self):
+        """Test that _get_processor_outputs raises ValueError when outputs are missing."""
+        # Test with empty outputs
+        with self.assertRaises(ValueError):
+            self.builder._get_processor_outputs({})
+            
+    def test_get_environment_variables(self):
+        """Test that environment variables are set correctly."""
+        env_vars = self.builder._get_environment_variables()
+        
+        # Verify required environment variables
+        self.assertIn("JOB_TYPE", env_vars)
+        self.assertEqual(env_vars["JOB_TYPE"], self.config.job_type)
+        self.assertIn("CURRENCY_FIELD", env_vars)
+        self.assertEqual(env_vars["CURRENCY_FIELD"], self.config.currency_field)
+        self.assertIn("AMOUNT_FIELD", env_vars)
+        self.assertEqual(env_vars["AMOUNT_FIELD"], self.config.amount_field)
+        self.assertIn("TARGET_CURRENCY", env_vars)
+        self.assertEqual(env_vars["TARGET_CURRENCY"], self.config.target_currency)
 
     @patch('src.pipeline_steps.builder_currency_conversion_step.SKLearnProcessor')
     @patch('src.pipeline_steps.builder_currency_conversion_step.ProcessingStep')
@@ -177,15 +267,25 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         mock_processing_step_cls.return_value = mock_step
         
         # Create step
-        data_input = 's3://bucket/input'
-        step = self.builder.create_step(data_input=data_input)
+        inputs = {
+            "inputs": {
+                "ProcessedTabularData": "s3://bucket/input"
+            }
+        }
+        outputs = {
+            "outputs": {
+                "ConvertedCurrencyData": "s3://bucket/output"
+            }
+        }
+        step = self.builder.create_step(inputs=inputs, outputs=outputs)
         
         # Verify ProcessingStep was created with correct parameters
         mock_processing_step_cls.assert_called_once()
         call_kwargs = mock_processing_step_cls.call_args.kwargs
-        self.assertEqual(call_kwargs['name'], 'Currency_Conversion')
+        self.assertEqual(call_kwargs['name'], 'Currency_Conversion-Training')
         self.assertEqual(call_kwargs['processor'], mock_processor)
-        self.assertEqual(call_kwargs['code'], self.config.get_script_path())
+        self.assertTrue(all(isinstance(i, ProcessingInput) for i in call_kwargs['inputs']))
+        self.assertTrue(all(isinstance(o, ProcessingOutput) for o in call_kwargs['outputs']))
         self.assertEqual(call_kwargs['depends_on'], [])
         
         # Verify the returned step is our mock
@@ -209,8 +309,17 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         dependencies = [dependency1, dependency2]
         
         # Create step with dependencies
-        data_input = 's3://bucket/input'
-        step = self.builder.create_step(data_input=data_input, dependencies=dependencies)
+        inputs = {
+            "inputs": {
+                "ProcessedTabularData": "s3://bucket/input"
+            }
+        }
+        outputs = {
+            "outputs": {
+                "ConvertedCurrencyData": "s3://bucket/output"
+            }
+        }
+        step = self.builder.create_step(inputs=inputs, outputs=outputs, dependencies=dependencies)
         
         # Verify ProcessingStep was created with correct parameters
         mock_processing_step_cls.assert_called_once()
@@ -219,15 +328,28 @@ class TestCurrencyConversionStepBuilder(unittest.TestCase):
         
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
+    
+    def test_get_input_requirements(self):
+        """Test that input requirements are returned correctly."""
+        input_reqs = self.builder.get_input_requirements()
         
-    def test_create_conversion_step_backward_compatibility(self):
-        """Test that the old create_conversion_step method calls the new create_step method."""
-        with patch.object(self.builder, 'create_step', return_value="step_created") as mock_create_step:
-            # Call the old method
-            result = self.builder.create_conversion_step('s3://bucket/input')
-            # Verify it called the new method
-            mock_create_step.assert_called_once_with('s3://bucket/input', None)
-            self.assertEqual(result, "step_created")
+        # Verify input requirements
+        self.assertIn("inputs", input_reqs)
+        self.assertIn("outputs", input_reqs)
+        self.assertIn("enable_caching", input_reqs)
+        
+        # Verify inputs description contains input channel names
+        self.assertIn("data_input", input_reqs["inputs"])
+        
+        # Verify outputs description contains output channel names
+        self.assertIn("converted_data", input_reqs["outputs"])
+    
+    def test_get_output_properties(self):
+        """Test that output properties are returned correctly."""
+        output_props = self.builder.get_output_properties()
+        
+        # Verify output properties
+        self.assertEqual(output_props, {"converted_data": "ConvertedCurrencyData"})
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
