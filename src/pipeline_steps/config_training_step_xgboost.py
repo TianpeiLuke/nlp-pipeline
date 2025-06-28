@@ -14,22 +14,18 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     This version is adapted to pass hyperparameters as a single config file
     via an S3 input channel, avoiding character limits.
     """
-    # Update input/output names with default values matching train_xgb.py expectations
+    # Input names mapping to their descriptions
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "train": "Training data input channel",
-            "val": "Validation data input channel",
-            "test": "Test data input channel",
-            "config": "Hyperparameters configuration input channel"
+            "input_path": "Path containing train/val/test subdirectories",
+            "config": "Path to configuration files including hyperparameters.json"
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Input channels mapping for the training job."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "training_job_name": "Name of the training job",
-            "model_data": "S3 path to the model artifacts",
-            "model_data_url": "S3 URL to the model artifacts"
+            "output_path": "S3 path for output model artifacts"
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -70,7 +66,7 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     hyperparameters_s3_uri: Optional[str] = Field(
         default=None,
         description="S3 URI *prefix* under which `hyperparameters.json` will be uploaded.  e.g. `s3://my-bucket/pipeline/config/2025-06-12/`",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/.+?)/$'
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/.+?)?$'  # Made trailing slash optional
     )
 
     class Config(BasePipelineConfig.Config):
@@ -105,11 +101,30 @@ class XGBoostTrainingConfig(BasePipelineConfig):
         if not values.get('hyperparameters_s3_uri'):
             values['hyperparameters_s3_uri'] = (
                 f"s3://{bucket}/{pipeline_name}/training_config/"
-                f"{current_date}/"
+                f"{current_date}"  # Removed trailing slash
             )
 
         return values
 
+    @model_validator(mode='after')
+    def _normalize_paths(self) -> 'XGBoostTrainingConfig':
+        """Normalize all S3 paths to ensure no trailing slashes."""
+        # Normalize hyperparameters_s3_uri if it exists
+        if self.hyperparameters_s3_uri:
+            self.hyperparameters_s3_uri = self.hyperparameters_s3_uri.rstrip('/')
+            
+        # Normalize other paths too for consistency
+        if self.input_path:
+            self.input_path = self.input_path.rstrip('/')
+            
+        if self.output_path:
+            self.output_path = self.output_path.rstrip('/')
+            
+        if self.checkpoint_path:
+            self.checkpoint_path = self.checkpoint_path.rstrip('/')
+            
+        return self
+        
     @model_validator(mode='after')
     def _validate_training_paths_logic(self) -> 'XGBoostTrainingConfig':
         """Validates S3 path requirements for training."""
@@ -180,17 +195,13 @@ class XGBoostTrainingConfig(BasePipelineConfig):
         """Ensure default input and output names are set if not provided."""
         if not self.input_names:
             self.input_names = {
-                "train": "Training data input channel",
-                "val": "Validation data input channel",
-                "test": "Test data input channel",
-                "config": "Hyperparameters configuration input channel"
+                "input_path": "Path containing train/val/test subdirectories",
+                "config": "Path to configuration files including hyperparameters.json"
             }
         
         if not self.output_names:
             self.output_names = {
-                "training_job_name": "Name of the training job",
-                "model_data": "S3 path to the model artifacts",
-                "model_data_url": "S3 URL to the model artifacts"
+                "output_path": "S3 path for output model artifacts"
             }
         
         return self

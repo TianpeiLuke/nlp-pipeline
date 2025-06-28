@@ -79,11 +79,10 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 raise ValueError(f"XGBoostTrainingConfig missing required attribute: {attr}")
         
         # Validate input and output names
-        if "train" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'train'")
-        
-        if "val" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'val'")
+        required_input_keys = ["input_path", "config"]
+        missing_input_keys = [key for key in required_input_keys if key not in (self.config.input_names or {})]
+        if missing_input_keys:
+            raise ValueError(f"input_names must contain keys: {', '.join(required_input_keys)}. Missing: {', '.join(missing_input_keys)}")
             
         logger.info("XGBoostTrainingConfig validation succeeded.")
 
@@ -153,14 +152,17 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
     
     def get_output_properties(self) -> Dict[str, str]:
         """
-        Get the output properties this step provides.
+        Get the output properties this step provides based on the config's output_names.
         
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Define the output properties for the training step
+        # Use output_names from config to provide consistent output properties
+        output_key = next(iter(self.config.output_names.keys()), "output_path")
+        output_description = next(iter(self.config.output_names.values()), "S3 URI of the model artifacts")
+        
         output_props = {
-            "ModelArtifacts.S3ModelArtifacts": "S3 URI of the model artifacts"
+            "ModelArtifacts.S3ModelArtifacts": f"S3 URI for {output_description}"
         }
         return output_props
 
@@ -170,24 +172,26 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         Constructs a dictionary of TrainingInput objects from the provided inputs dictionary.
         This defines the data channels for the training job, mapping S3 locations
         to input channels for the training container.
+        
+        The training script expects two input channels:
+        - "data": containing train/val/test subdirectories
+        - "config": containing hyperparameters.json
 
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'train', 'val')
-                    to their S3 URIs or dynamic Step properties.
-                    Can be either:
-                    - Flat format: {"train": "s3://path/...", "val": "s3://path/..."}
-                    - Nested format: {"inputs": {"train": "s3://path/...", "val": "s3://path/..."}}
+            inputs: A dictionary mapping logical input channel names to their S3 URIs or dynamic Step properties.
+                   Can be either:
+                   - Flat format: {"input_path": "s3://path/...", "hyperparameters_s3_uri": "s3://path/..."}
+                   - Nested format: {"inputs": {"input_path": "s3://path/...", "config": "s3://path/..."}}
 
         Returns:
             A dictionary of channel names to sagemaker.inputs.TrainingInput objects.
         """
         training_inputs = {}
         
-        # Get the input names from config for standard channels
-        train_key = self.config.input_names.get("train", "train")
-        val_key = self.config.input_names.get("val", "val")
-        test_key = self.config.input_names.get("test", "test") if "test" in self.config.input_names else "test"
-        config_key = self.config.input_names.get("config", "config") if "config" in self.config.input_names else "config"
+        # Get channel names from config
+        input_path_key = next(iter(self.config.input_names.keys()), "input_path")
+        config_key = "config"  # Name for the hyperparameters config channel
+        data_key = "data"      # The SageMaker channel name for input data
         
         # Handle different input structures
         if not isinstance(inputs, dict):
@@ -207,41 +211,50 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             for key, value in inputs["inputs"].items():
                 normalized_inputs[key] = value
         
-        # Handle hyperparameters_s3_uri specially
-        if "hyperparameters_s3_uri" in inputs and config_key not in normalized_inputs:
-            normalized_inputs[config_key] = inputs["hyperparameters_s3_uri"]
+        # Process input path for data channel
+        if input_path_key in normalized_inputs:
+            s3_uri = normalized_inputs[input_path_key]
+            if self._validate_s3_uri(s3_uri, "input data path"):
+                training_inputs[data_key] = TrainingInput(s3_data=s3_uri)
+                logger.info(f"Adding data channel: {data_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
+        else:
+            logger.warning(f"No input path found for channel: {input_path_key}")
+        
+        # Process config channel for hyperparameters
+        if "hyperparameters_s3_uri" in inputs:
+            s3_uri = inputs["hyperparameters_s3_uri"]
             
-        # Process training data - required
-        if train_key in normalized_inputs:
-            s3_uri = normalized_inputs[train_key]
-            if self._validate_s3_uri(s3_uri, "training data"):
-                training_inputs[train_key] = TrainingInput(s3_data=s3_uri)
-                logger.info(f"Adding training data channel: {train_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
-        else:
-            logger.warning(f"No training data found for channel: {train_key}")
+            # Ensure s3_uri is a string and doesn't end with hyperparameters.json
+            if hasattr(s3_uri, 'expr'):
+                # Handle PipelineVariable case
+                uri_str = str(s3_uri.expr)
+            else:
+                uri_str = str(s3_uri)
                 
-        # Process validation data - required
-        if val_key in normalized_inputs:
-            s3_uri = normalized_inputs[val_key]
-            if self._validate_s3_uri(s3_uri, "validation data"):
-                training_inputs[val_key] = TrainingInput(s3_data=s3_uri)
-                logger.info(f"Adding validation data channel: {val_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
-        else:
-            logger.warning(f"No validation data found for channel: {val_key}")
+            # Get the directory part of the URI - handle case where s3_uri might already contain hyperparameters.json
+            if uri_str.endswith("/hyperparameters.json"):
+                # Remove hyperparameters.json and use the parent directory
+                config_dir = uri_str[:-len("/hyperparameters.json")]
+            elif uri_str.endswith("hyperparameters.json"):
+                # Remove just hyperparameters.json if no leading slash
+                config_dir = uri_str[:-len("hyperparameters.json")].rstrip("/")
+            else:
+                # Otherwise just remove any trailing slash
+                config_dir = uri_str.rstrip("/")
                 
-        # Process test data (optional)
-        if test_key in normalized_inputs:
-            s3_uri = normalized_inputs[test_key]
-            if self._validate_s3_uri(s3_uri, "test data"):
-                training_inputs[test_key] = TrainingInput(s3_data=s3_uri)
-                logger.info(f"Adding test data channel: {test_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
-                
-        # Process hyperparameter config (optional)
-        if config_key in normalized_inputs:
+            # Log the URI transformation for debugging
+            logger.info(f"Hyperparameters URI transformation: {uri_str} -> {config_dir}")
+            
+            if self._validate_s3_uri(config_dir, "hyperparameter config"):
+                training_inputs[config_key] = TrainingInput(s3_data=config_dir)
+                logger.info(f"Adding config channel: {config_key} from {config_dir}")
+        
+        # Check if config is provided directly in normalized_inputs
+        elif config_key in normalized_inputs:
             s3_uri = normalized_inputs[config_key]
-            if self._validate_s3_uri(s3_uri, "hyperparameter config"):
+            if self._validate_s3_uri(s3_uri, "config path"):
                 training_inputs[config_key] = TrainingInput(s3_data=s3_uri)
-                logger.info(f"Adding hyperparameter config channel: {config_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
+                logger.info(f"Adding config channel: {config_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
                 
         return training_inputs
     
@@ -261,7 +274,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 json.dump(hyperparams_dict, indent=2, fp=f)
             logger.info(f"Created hyperparameters JSON file at {local_file}")
 
-            # Construct S3 URI
+            # Construct S3 URI for the config directory
             prefix = self.config.hyperparameters_s3_uri if hasattr(self.config, 'hyperparameters_s3_uri') else None
             if not prefix:
                 # Fallback path construction
@@ -270,7 +283,16 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 current_date = getattr(self.config, 'current_date', "2025-06-02")
                 prefix = f"s3://{bucket}/{pipeline_name}/training_config/{current_date}"
             
-            target_s3_uri = f"{prefix}/hyperparameters.json"
+            # Ensure no trailing slash in prefix before adding filename
+            config_dir = prefix.rstrip("/")
+            
+            # Ensure we don't have hyperparameters.json already in the path
+            if config_dir.endswith("hyperparameters.json"):
+                target_s3_uri = config_dir
+            else:
+                target_s3_uri = f"{config_dir}/hyperparameters.json"
+                
+            logger.info(f"Using hyperparameters S3 target URI: {target_s3_uri}")
 
             # Check if file exists and handle appropriately
             s3_parts = target_s3_uri.replace('s3://', '').split('/', 1)
@@ -379,10 +401,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         
-        # Get the configured input channel keys from config
-        train_key = self.config.input_names.get("train", "train") 
-        val_key = self.config.input_names.get("val", "val")
-        test_key = self.config.input_names.get("test", "test") if "test" in self.config.input_names else "test"
+        # Get the configured input path key from config
+        input_path_key = self.config.input_names.get("input_path", "input_path")
         
         # Check if this step has the expected output structure
         if not hasattr(prev_step, "outputs") or not prev_step.outputs:
@@ -400,8 +420,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             if not processed_data_output:
                 return matched_inputs
                 
-            # TabularPreprocessingStep stores outputs in subfolders (train, val, test)
-            # according to tabular_preprocess.py script
+            # TabularPreprocessingStep output is the base path that contains train/val/test subdirs
             base_path = processed_data_output.destination
             base_path = base_path.rstrip("/")
             
@@ -409,26 +428,12 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             if "inputs" not in inputs:
                 inputs["inputs"] = {}
                 
-            # Add train data - explicitly point to the /train subdirectory
-            if train_key not in inputs.get("inputs", {}):
-                train_path = f"{base_path}/train"
-                inputs["inputs"][train_key] = train_path
+            # Just use the base path directly - it contains all subdirectories
+            # that the training script expects (train, val, test)
+            if input_path_key not in inputs.get("inputs", {}):
+                inputs["inputs"][input_path_key] = base_path
                 matched_inputs.add("inputs")
-                logger.info(f"Added training data path: {train_path}")
-                
-            # Add validation data - explicitly point to the /val subdirectory
-            if val_key not in inputs.get("inputs", {}):
-                val_path = f"{base_path}/val"
-                inputs["inputs"][val_key] = val_path
-                matched_inputs.add("inputs")
-                logger.info(f"Added validation data path: {val_path}")
-                
-            # Add test data (optional) - explicitly point to the /test subdirectory
-            if test_key not in inputs.get("inputs", {}) and "test" in self.config.input_names:
-                test_path = f"{base_path}/test"
-                inputs["inputs"][test_key] = test_path
-                matched_inputs.add("inputs")
-                logger.info(f"Added test data path: {test_path}")
+                logger.info(f"Added input path: {base_path}")
                 
         except Exception as e:
             logger.warning(f"Error matching TabularPreprocessingStep outputs: {e}")
@@ -447,7 +452,6 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             Set of input names that were successfully matched
         """
         matched_inputs = set()
-        config_key = self.config.input_names.get("config", "config") if "config" in self.config.input_names else "config"
         
         # Check if hyperparameters are available in the step outputs
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
@@ -455,15 +459,11 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
                     hyperparameters_s3_uri = prev_step.properties.Outputs["hyperparameters_s3_uri"]
                     
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                        
-                    # Add to config channel directly
-                    if config_key not in inputs.get("inputs", {}):
-                        inputs["inputs"][config_key] = hyperparameters_s3_uri
-                        matched_inputs.add("inputs")
-                        logger.info(f"Connected hyperparameters to config input channel: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
+                    # Instead of adding to inputs, store directly in hyperparameters_s3_uri key
+                    # which will be handled in create_step method
+                    inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
+                    matched_inputs.add("hyperparameters_s3_uri")
+                    logger.info(f"Found hyperparameters_s3_uri: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
             except (AttributeError, KeyError) as e:
                 logger.warning(f"Error matching HyperparameterPrepStep outputs: {e}")
                 
@@ -472,15 +472,10 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             try:
                 hyperparameters_s3_uri = prev_step.hyperparameters_s3_uri
                 
-                # Initialize inputs dict if needed
-                if "inputs" not in inputs:
-                    inputs["inputs"] = {}
-                    
-                # Add to config channel directly
-                if config_key not in inputs.get("inputs", {}):
-                    inputs["inputs"][config_key] = hyperparameters_s3_uri
-                    matched_inputs.add("inputs")
-                    logger.info(f"Connected hyperparameters to config input channel: {hyperparameters_s3_uri}")
+                # Store directly in hyperparameters_s3_uri key
+                inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
+                matched_inputs.add("hyperparameters_s3_uri")
+                logger.info(f"Found hyperparameters_s3_uri directly on step: {hyperparameters_s3_uri}")
             except AttributeError as e:
                 logger.warning(f"Error accessing hyperparameters_s3_uri property: {e}")
                 
@@ -499,11 +494,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         
-        # Get the configured input channel keys from config
-        train_key = self.config.input_names.get("train", "train") 
-        val_key = self.config.input_names.get("val", "val")
-        test_key = self.config.input_names.get("test", "test") if "test" in self.config.input_names else "test"
-        config_key = self.config.input_names.get("config", "config") if "config" in self.config.input_names else "config"
+        # Get the configured input path key from config
+        input_path_key = self.config.input_names.get("input_path", "input_path")
         
         # Look for outputs from a ProcessingStep
         if hasattr(prev_step, "outputs") and prev_step.outputs:
@@ -514,66 +506,38 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 base_path = prev_step.outputs[0].destination.rstrip("/")
                 output_name = prev_step.outputs[0].output_name.lower() if hasattr(prev_step.outputs[0], "output_name") else ""
                 
-                # If this appears to be a processed data output, try inferring subdirectories
+                # If this appears to be a processed data output, use it as the base input path
                 if "processed" in output_name or "data" in output_name:
                     # Initialize inputs dict if needed
                     if "inputs" not in inputs:
                         inputs["inputs"] = {}
+                    
+                    # Add base path directly - contains all subdirectories needed
+                    if input_path_key not in inputs.get("inputs", {}):
+                        inputs["inputs"][input_path_key] = base_path
+                        matched_inputs.add("inputs")
+                        logger.info(f"Generic match - found input path: {base_path}")
                         
-                    # Add potential train/val/test subdirectory paths if not already set
-                    if train_key not in inputs.get("inputs", {}):
-                        train_path = f"{base_path}/train"
-                        inputs["inputs"][train_key] = train_path
-                        matched_inputs.add("inputs")
-                        logger.info(f"Generic match - inferred training data path: {train_path}")
-                    
-                    if val_key not in inputs.get("inputs", {}):
-                        val_path = f"{base_path}/val"
-                        inputs["inputs"][val_key] = val_path
-                        matched_inputs.add("inputs")
-                        logger.info(f"Generic match - inferred validation data path: {val_path}")
-                    
-                    # Only add test if configured
-                    if "test" in self.config.input_names and test_key not in inputs.get("inputs", {}):
-                        test_path = f"{base_path}/test"
-                        inputs["inputs"][test_key] = test_path
-                        matched_inputs.add("inputs")
-                        logger.info(f"Generic match - inferred test data path: {test_path}")
-                    
-                    # If we've matched all required inputs, return early
+                    # If we've matched the input path, return early
                     if matched_inputs:
                         return matched_inputs
             
-            # Fallback to standard matching by names if the above approach doesn't match
-            # Match train data
+            # Fallback to standard matching by name patterns
+            # Look for outputs that might contain input data
             self._match_output_by_name(inputs, prev_step, matched_inputs, 
-                                     train_key, ["train", "training"])
-                
-            # Match validation data
-            self._match_output_by_name(inputs, prev_step, matched_inputs, 
-                                     val_key, ["valid", "val", "validation"])
-                
-            # Match test data
-            self._match_output_by_name(inputs, prev_step, matched_inputs, 
-                                     test_key, ["test", "testing"])
+                                     input_path_key, ["data", "processed", "input"])
         
         # Look for hyperparameters from a step with standard SageMaker Pipeline output
-        # NO CHANGES TO THIS PART
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
             try:
                 # Try to get the hyperparameters_s3_uri from standard SageMaker Pipeline output
                 if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
                     hyperparameters_s3_uri = prev_step.properties.Outputs["hyperparameters_s3_uri"]
                     
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                    
-                    # Add to config channel directly
-                    if config_key not in inputs.get("inputs", {}):
-                        inputs["inputs"][config_key] = hyperparameters_s3_uri
-                        matched_inputs.add("inputs")
-                        logger.info(f"Connected hyperparameters to config input channel: '{config_key}'")
+                    # Store directly in hyperparameters_s3_uri key for handling in create_step
+                    inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
+                    matched_inputs.add("hyperparameters_s3_uri")
+                    logger.info(f"Found hyperparameters_s3_uri in outputs: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
             except (AttributeError, KeyError) as e:
                 logger.warning(f"Could not extract hyperparameters from step outputs: {e}")
                 
@@ -602,13 +566,6 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                     # Ensure we don't match more specific patterns
                     if not matches_pattern:
                         continue
-                        
-                    # Skip if the output name contains more specific patterns that shouldn't match
-                    # Example: "train_data" should match "train" but "train_validation_split" should NOT match "train"
-                    if (input_key == self.config.input_names.get("train", "train") and 
-                        any(term in output.output_name.lower() 
-                            for term in ["validation", "val", "test"])):
-                        continue
                     
                     # Initialize inputs dict if needed
                     if "inputs" not in inputs:
@@ -618,7 +575,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                     if input_key not in inputs.get("inputs", {}):
                         inputs["inputs"][input_key] = output.destination
                         matched_inputs.add("inputs")
-                        logger.info(f"Found {input_key} data from output: {output.output_name}")
+                        logger.info(f"Found {input_key} path from output: {output.output_name}")
                         break
                         
         except Exception as e:
@@ -649,18 +606,13 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Prepare hyperparameters - generate and upload hyperparameters.json
+        # Prepare hyperparameters - generate and upload hyperparameters.json to the config subdirectory
         if not hyperparameters_s3_uri:
             hyperparameters_s3_uri = self._prepare_hyperparameters_file()
             logger.info(f"Generated hyperparameters at: {hyperparameters_s3_uri}")
-            
-        # Add the hyperparameters URI to the config channel input
-        config_key = self.config.input_names.get("config", "config") if "config" in self.config.input_names else "config"
-        if "inputs" not in inputs:
-            inputs["inputs"] = {}
         
-        if config_key not in inputs.get("inputs", {}):
-            inputs["inputs"][config_key] = hyperparameters_s3_uri
+        # Add hyperparameters URI to the inputs so _get_training_inputs can create the config channel
+        inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
         
         
         # Auto-detect inputs from dependencies if needed
@@ -677,22 +629,14 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 if matched:
                     logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', str(dep_step))}")
             
-            # If hyperparameters_s3_uri was found in inputs during matching, add it to the config channel
-            config_key = self.config.input_names.get("config", "config") if "config" in self.config.input_names else "config"
-            
+            # If hyperparameters_s3_uri was found in inputs during matching, use that instead
             if not hyperparameters_s3_uri and 'hyperparameters_s3_uri' in inputs:
-                # Extract the URI
                 hyperparameters_s3_uri = inputs.pop('hyperparameters_s3_uri')
                 logger.info(f"Found hyperparameters_s3_uri in inputs: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
                 
-                # Create inputs structure if needed
-                if "inputs" not in inputs:
-                    inputs["inputs"] = {}
-                    
-                # Add to config channel directly
-                if config_key not in inputs["inputs"]:
-                    inputs["inputs"][config_key] = hyperparameters_s3_uri
-                    logger.info(f"Added hyperparameters to {config_key} input channel")
+                # Note: We don't need to add hyperparameters to a separate channel
+                # The hyperparameters file is uploaded directly to the appropriate S3 location
+                # The training script will find it under the config subdirectory in the input_path
         
         # Validate we have required inputs - more comprehensive check
         input_sources = []
@@ -705,20 +649,13 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             if key != "inputs" and key != "hyperparameters_s3_uri" and key != "dependencies" and key != "enable_caching":
                 input_sources.append(key)
         
-        # Get the configured train and val keys
-        train_key = self.config.input_names.get("train", "train")
-        val_key = self.config.input_names.get("val", "val")
+        # Get the configured input path key
+        input_path_key = self.config.input_names.get("input_path", "input_path")
         
-        # Check for required channels
-        missing_channels = []
-        if train_key not in input_sources:
-            missing_channels.append(f"training data ('{train_key}')")
-        if val_key not in input_sources:
-            missing_channels.append(f"validation data ('{val_key}')")
-            
-        if missing_channels:
-            raise ValueError(f"Missing required input channels: {', '.join(missing_channels)}. "
-                            f"Could not extract them from dependencies or provided inputs.")
+        # Check for required channel
+        if input_path_key not in input_sources:
+            raise ValueError(f"Missing required input path channel ('{input_path_key}'). "
+                           f"Could not extract it from dependencies or provided inputs.")
 
         # Create and configure the estimator
         estimator = self._create_estimator()
