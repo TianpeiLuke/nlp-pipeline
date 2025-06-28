@@ -131,14 +131,30 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         Returns:
             A dictionary of environment variables.
         """
+        import json
+        
+        # Start with required environment variables from the config
         env_vars = {
             "JOB_TYPE": self.config.job_type,
-            "CURRENCY_FIELD": self.config.currency_field,
-            "AMOUNT_FIELD": self.config.amount_field,
-            "TARGET_CURRENCY": self.config.target_currency
+            "MARKETPLACE_ID_COL": self.config.marketplace_id_col,
+            "DEFAULT_CURRENCY": self.config.default_currency,
+            "ENABLE_CONVERSION": str(self.config.enable_currency_conversion).lower(),
+            "CURRENCY_CONVERSION_VARS": json.dumps(self.config.currency_conversion_var_list),
+            "CURRENCY_CONVERSION_DICT": json.dumps(self.config.currency_conversion_dict),
+            "MARKETPLACE_INFO": json.dumps(self.config.marketplace_info),
+            "LABEL_FIELD": self.config.label_field,
+            "TRAIN_RATIO": str(self.config.train_ratio),
+            "TEST_VAL_RATIO": str(self.config.test_val_ratio),
+            "MODE": self.config.mode
         }
         
         # Add optional environment variables if they exist
+        if hasattr(self.config, "currency_col") and self.config.currency_col:
+            env_vars["CURRENCY_COL"] = self.config.currency_col
+            
+        if hasattr(self.config, "skip_invalid_currencies") and self.config.skip_invalid_currencies:
+            env_vars["SKIP_INVALID_CURRENCIES"] = str(self.config.skip_invalid_currencies).lower()
+            
         if hasattr(self.config, "date_field") and self.config.date_field:
             env_vars["DATE_FIELD"] = self.config.date_field
             
@@ -227,7 +243,22 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         Returns:
             A list of strings representing the command-line arguments.
         """
-        return ["--job_type", self.config.job_type]
+        args = [
+            "--job-type", self.config.job_type,
+            "--mode", self.config.mode,
+            "--marketplace-id-col", self.config.marketplace_id_col,
+            "--default-currency", self.config.default_currency,
+            "--enable-conversion", str(self.config.enable_currency_conversion).lower()
+        ]
+        
+        # Add optional arguments
+        if hasattr(self.config, "currency_col") and self.config.currency_col:
+            args.extend(["--currency-col", self.config.currency_col])
+            
+        if hasattr(self.config, "skip_invalid_currencies") and self.config.skip_invalid_currencies:
+            args.append("--skip-invalid-currencies")
+            
+        return args
         
     def get_input_requirements(self) -> Dict[str, str]:
         """
