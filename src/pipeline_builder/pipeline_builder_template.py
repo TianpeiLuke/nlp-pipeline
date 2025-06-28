@@ -67,6 +67,11 @@ class PipelineBuilderTemplate:
         self.step_instances: Dict[str, Step] = {}
         self.step_builders: Dict[str, StepBuilderBase] = {}
         
+        # Add attributes expected by tests
+        self.step_input_requirements: Dict[str, Dict[str, str]] = {}
+        self.step_output_properties: Dict[str, Dict[str, str]] = {}
+        self.step_messages = defaultdict(dict)
+        
         # Validate inputs
         self._validate_inputs()
         
@@ -138,12 +143,123 @@ class PipelineBuilderTemplate:
         elapsed_time = time.time() - start_time
         logger.info(f"Initialized {len(self.step_builders)} step builders in {elapsed_time:.2f} seconds")
 
+    def _collect_step_io_requirements(self) -> None:
+        """
+        Collect input requirements and output properties from all step builders.
+        
+        This method queries each step builder for its input requirements and output properties,
+        and stores them in the step_input_requirements and step_output_properties dictionaries.
+        """
+        logger.info("Collecting step I/O requirements")
+        
+        for step_name, builder in self.step_builders.items():
+            # Get input requirements
+            input_requirements = builder.get_input_requirements()
+            self.step_input_requirements[step_name] = input_requirements
+            
+            # Get output properties
+            output_properties = builder.get_output_properties()
+            self.step_output_properties[step_name] = output_properties
+            
+            logger.debug(f"Step {step_name} input requirements: {list(input_requirements.keys())}")
+            logger.debug(f"Step {step_name} output properties: {list(output_properties.keys())}")
+
+    def _propagate_messages(self) -> None:
+        """
+        Propagate messages between steps based on input requirements and output properties.
+        
+        This method analyzes the input requirements and output properties of each step,
+        and creates messages that describe how inputs should be connected to outputs.
+        
+        It uses two matching strategies:
+        1. Direct match: Input name matches output name exactly
+        2. Pattern match: Input name contains a pattern that matches an output name
+        """
+        logger.info("Propagating messages between steps")
+        
+        # Define common patterns for matching inputs to outputs
+        input_patterns = {
+            "model": ["model", "model_data", "model_artifacts", "model_path"],
+            "data": ["data", "dataset", "input_data", "training_data"],
+            "output": ["output", "result", "artifacts", "s3_uri"]
+        }
+        
+        # Get the build order from the DAG
+        build_order = self.dag.topological_sort()
+        
+        # Process steps in topological order
+        for i, step_name in enumerate(build_order):
+            # Skip the first step (no dependencies)
+            if i == 0:
+                continue
+                
+            # Get the input requirements for this step
+            input_requirements = self.step_input_requirements.get(step_name, {})
+            if not input_requirements:
+                logger.debug(f"Step {step_name} has no input requirements")
+                continue
+                
+            # Get the dependencies for this step
+            dependencies = self.dag.get_dependencies(step_name)
+            if not dependencies:
+                logger.debug(f"Step {step_name} has no dependencies")
+                continue
+                
+            # Process each input requirement
+            for input_name, input_desc in input_requirements.items():
+                # Skip if this input already has a message
+                if step_name in self.step_messages and input_name in self.step_messages[step_name]:
+                    continue
+                    
+                # Try to find a matching output in the dependencies
+                for dep_name in dependencies:
+                    # Get the output properties for this dependency
+                    output_properties = self.step_output_properties.get(dep_name, {})
+                    if not output_properties:
+                        continue
+                        
+                    # Try direct match first
+                    if input_name in output_properties:
+                        self.step_messages[step_name][input_name] = {
+                            'source_step': dep_name,
+                            'source_output': input_name
+                        }
+                        logger.debug(f"Direct match: {dep_name}.{input_name} -> {step_name}.{input_name}")
+                        break
+                        
+                    # Try pattern match
+                    matched = False
+                    for pattern_type, keywords in input_patterns.items():
+                        if not any(kw in input_name.lower() for kw in keywords):
+                            continue
+                            
+                        # Find outputs that match the same pattern
+                        matching_outputs = [
+                            out_name for out_name in output_properties
+                            if any(kw in out_name.lower() for kw in keywords)
+                        ]
+                        
+                        if matching_outputs:
+                            # Use the first matching output
+                            output_name = matching_outputs[0]
+                            self.step_messages[step_name][input_name] = {
+                                'source_step': dep_name,
+                                'source_output': output_name,
+                                'pattern_match': True
+                            }
+                            logger.debug(f"Pattern match ({pattern_type}): {dep_name}.{output_name} -> {step_name}.{input_name}")
+                            matched = True
+                            break
+                            
+                    if matched:
+                        break
+
     def _instantiate_step(self, step_name: str) -> Step:
         """
         Instantiate a pipeline step with appropriate inputs from dependencies.
         
-        This method creates a step using the step builder's build method,
-        which automatically extracts inputs from dependency steps and creates the step.
+        This method creates a step using the step builder's create_step method,
+        extracting inputs from dependency steps based on the messages.
         
         Args:
             step_name: Name of the step to instantiate
@@ -165,33 +281,123 @@ class PipelineBuilderTemplate:
         
         dependency_steps = [self.step_instances[parent] for parent in dependencies]
         
-        # Build the step with dependency steps
+        # Extract inputs from messages
+        kwargs = {'dependencies': dependency_steps}
+        
+        # Add inputs from messages
+        if step_name in self.step_messages:
+            for input_name, message in self.step_messages[step_name].items():
+                source_step = message['source_step']
+                source_output = message['source_output']
+                
+                # Get the source step instance
+                if source_step not in self.step_instances:
+                    logger.warning(f"Source step {source_step} not instantiated for input {input_name}")
+                    continue
+                    
+                source_step_instance = self.step_instances[source_step]
+                
+                # Get the output value from the source step
+                if hasattr(source_step_instance, source_output):
+                    output_value = getattr(source_step_instance, source_output)
+                    kwargs[input_name] = output_value
+                    logger.debug(f"Added input {input_name} from {source_step}.{source_output}")
+                else:
+                    logger.warning(f"Source step {source_step} has no output {source_output}")
+        
+        # Build the step with extracted inputs
         start_time = time.time()
         try:
-            # Use the build method which combines extract_inputs_from_dependencies and create_step
-            step = builder.build(dependency_steps)
+            step = builder.create_step(**kwargs)
             
             elapsed_time = time.time() - start_time
             logger.info(f"Built step {step_name} in {elapsed_time:.2f} seconds")
-            
-            # Get the input requirements for logging purposes
-            input_requirements = builder.get_input_requirements()
-            if input_requirements:
-                logger.info(f"Step {step_name} input requirements: {list(input_requirements.keys())}")
             
             return step
         except Exception as e:
             logger.error(f"Error building step {step_name}: {e}")
             raise ValueError(f"Failed to build step {step_name}: {e}") from e
-    
+
+    def _add_config_inputs(self, kwargs: Dict[str, Any], config: BasePipelineConfig) -> None:
+        """
+        Add inputs from a config object to the kwargs dictionary.
+        
+        This method extracts non-None attributes from the config object and adds them to the kwargs dictionary.
+        
+        Args:
+            kwargs: Dictionary to add inputs to
+            config: Config object to extract inputs from
+        """
+        # Get all attributes of the config object
+        for attr_name in dir(config):
+            # Skip private attributes and methods
+            if attr_name.startswith('_') or callable(getattr(config, attr_name)):
+                continue
+                
+            # Get the attribute value
+            attr_value = getattr(config, attr_name)
+            
+            # Skip None values
+            if attr_value is None:
+                continue
+                
+            # Add the attribute to kwargs
+            kwargs[attr_name] = attr_value
+            logger.debug(f"Added config input {attr_name}")
+
+    def _extract_common_outputs(self, kwargs: Dict[str, Any], prev_step: Step, step_name: str, step_type: str) -> None:
+        """
+        Extract common outputs from a previous step and add them to the kwargs dictionary.
+        
+        This method extracts common outputs like model artifacts and processing outputs from a previous step,
+        and adds them to the kwargs dictionary with appropriate names based on the step type.
+        
+        Args:
+            kwargs: Dictionary to add outputs to
+            prev_step: Previous step to extract outputs from
+            step_name: Name of the current step
+            step_type: Type of the current step
+        """
+        # Extract model artifacts
+        if hasattr(prev_step, 'model_artifacts_path'):
+            model_path = prev_step.model_artifacts_path
+            
+            # Add model_data for normal steps
+            if step_type != "PackagingStep":
+                kwargs['model_data'] = model_path
+                logger.debug(f"Added model_data from {prev_step.name}.model_artifacts_path")
+            else:
+                # Add model_artifacts_input_source for packaging steps
+                kwargs['model_artifacts_input_source'] = model_path
+                logger.debug(f"Added model_artifacts_input_source from {prev_step.name}.model_artifacts_path")
+        
+        # Extract processing output
+        if hasattr(prev_step, 'properties') and hasattr(prev_step.properties, 'ProcessingOutputConfig'):
+            try:
+                outputs = prev_step.properties.ProcessingOutputConfig.Outputs
+                if hasattr(outputs, '__getitem__') and hasattr(outputs[0], 'S3Output'):
+                    s3_uri = outputs[0].S3Output.S3Uri
+                    
+                    # Add processing_output for normal steps
+                    if step_type != "RegistrationStep":
+                        kwargs['processing_output'] = s3_uri
+                        logger.debug(f"Added processing_output from {prev_step.name}.ProcessingOutputConfig")
+                    else:
+                        # Add packaging_step_output for registration steps
+                        kwargs['packaging_step_output'] = s3_uri
+                        logger.debug(f"Added packaging_step_output from {prev_step.name}.ProcessingOutputConfig")
+            except (AttributeError, IndexError) as e:
+                logger.warning(f"Error extracting processing output: {e}")
+
     def generate_pipeline(self, pipeline_name: str) -> Pipeline:
         """
         Build and return a SageMaker Pipeline object.
         
         This method builds the pipeline by:
-        1. Determining the build order using topological sort
-        2. Instantiating steps in topological order
-        3. Creating the pipeline with the instantiated steps
+        1. Collecting step I/O requirements
+        2. Propagating messages between steps
+        3. Instantiating steps in topological order
+        4. Creating the pipeline with the instantiated steps
         
         Args:
             pipeline_name: Name of the pipeline
@@ -206,6 +412,12 @@ class PipelineBuilderTemplate:
         if self.step_instances:
             logger.info("Clearing existing step instances for pipeline regeneration")
             self.step_instances = {}
+        
+        # Collect step I/O requirements
+        self._collect_step_io_requirements()
+        
+        # Propagate messages between steps
+        self._propagate_messages()
         
         # Topological sort to determine build order
         try:

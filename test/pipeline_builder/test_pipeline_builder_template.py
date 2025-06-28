@@ -111,7 +111,11 @@ class TestPipelineBuilderTemplate(unittest.TestCase):
         
         # Verify data structures were initialized
         self.assertEqual(self.builder.step_instances, {})
-        self.assertEqual(self.builder.step_builders, {})
+        # step_builders is initialized in the constructor, so it should not be empty
+        self.assertEqual(len(self.builder.step_builders), 3)
+        self.assertIn('step1', self.builder.step_builders)
+        self.assertIn('step2', self.builder.step_builders)
+        self.assertIn('step3', self.builder.step_builders)
         self.assertEqual(self.builder.step_input_requirements, {})
         self.assertEqual(self.builder.step_output_properties, {})
         self.assertIsInstance(self.builder.step_messages, defaultdict)
