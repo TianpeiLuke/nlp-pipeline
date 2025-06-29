@@ -11,9 +11,11 @@ from sagemaker.workflow.steps import TrainingStep, Step
 from sagemaker.inputs import TrainingInput
 from sagemaker.xgboost import XGBoost
 from sagemaker.s3 import S3Uploader
+from sagemaker.workflow.functions import Join
 
 from .config_training_step_xgboost import XGBoostTrainingConfig
 from .builder_step_base import StepBuilderBase
+from .s3_utils import S3PathHandler
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +169,52 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         return output_props
 
         
+    def _normalize_s3_uri(self, uri: str, description: str = "S3 URI") -> str:
+        """
+        Normalizes an S3 URI to ensure it has no trailing slashes and is properly formatted.
+        Uses S3PathHandler for consistent path handling.
+        
+        Args:
+            uri: The S3 URI to normalize
+            description: Description for logging purposes
+            
+        Returns:
+            Normalized S3 URI
+        """
+        # Handle PipelineVariable objects
+        if hasattr(uri, 'expr'):
+            uri = str(uri.expr)
+        
+        # Handle Pipeline step references with Get key - return as is
+        if isinstance(uri, dict) and 'Get' in uri:
+            logger.info(f"Found Pipeline step reference during normalization: {uri}")
+            return uri
+        
+        return S3PathHandler.normalize(uri, description)
+        
+    def _get_s3_directory_path(self, uri: str, filename: str = None) -> str:
+        """
+        Gets the directory part of an S3 URI, handling special cases correctly.
+        Uses S3PathHandler for consistent path handling.
+        
+        Args:
+            uri: The S3 URI which may or may not contain a filename
+            filename: Optional filename to check for at the end of the URI
+            
+        Returns:
+            The directory part of the URI without trailing slash
+        """
+        # Handle PipelineVariable objects
+        if hasattr(uri, 'expr'):
+            uri = str(uri.expr)
+            
+        # Handle Pipeline step references with Get key - return as is
+        if isinstance(uri, dict) and 'Get' in uri:
+            logger.info(f"Found Pipeline step reference in directory path: {uri}")
+            return uri
+            
+        return S3PathHandler.ensure_directory(uri, filename)
+
     def _get_training_inputs(self, inputs: Dict[str, Any]) -> Dict[str, TrainingInput]:
         """
         Constructs a dictionary of TrainingInput objects from the provided inputs dictionary.
@@ -211,43 +259,93 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             for key, value in inputs["inputs"].items():
                 normalized_inputs[key] = value
         
-        # Process input path for data channel
-        if input_path_key in normalized_inputs:
-            s3_uri = normalized_inputs[input_path_key]
-            if self._validate_s3_uri(s3_uri, "input data path"):
-                training_inputs[data_key] = TrainingInput(s3_data=s3_uri)
-                logger.info(f"Adding data channel: {data_key} from {s3_uri.expr if hasattr(s3_uri, 'expr') else s3_uri}")
+        # Check if input_path is set directly on the config object - use that instead
+        # This is the pattern used in the backup implementation
+        if hasattr(self.config, 'input_path') and self.config.input_path:
+            input_base_path = self.config.input_path
+            # Use expr attribute if it exists, otherwise safely convert to string
+            logger.info("Using input_path from config")
+            
+            # Create train/val/test channels using Join
+            train_path = Join(on='/', values=[input_base_path, "train/"])
+            val_path = Join(on='/', values=[input_base_path, "val/"])
+            test_path = Join(on='/', values=[input_base_path, "test/"])
+            
+            # Log the path expressions (safely handling Pipeline references)
+            logger.info("Created training data paths using config input_path")
+            
+            # Create separate channels for each data split
+            training_inputs["train"] = TrainingInput(s3_data=train_path)
+            training_inputs["val"] = TrainingInput(s3_data=val_path)
+            training_inputs["test"] = TrainingInput(s3_data=test_path)
+            
+        # Fallback to input dictionary if input_path is not in config
+        elif input_path_key in normalized_inputs:
+            base_path = normalized_inputs[input_path_key]
+            # Normalize the base path URI
+            base_path = self._normalize_s3_uri(base_path, "base input path")
+            
+            if self._validate_s3_uri(base_path, "base input path"):
+                # Handle Pipeline step references with Get key differently
+                if isinstance(base_path, dict) and 'Get' in base_path:
+                    # For step references in dictionary format, use a different approach
+                    # Extract the step reference parts
+                    step_parts = base_path['Get'].split('.')
+                    step_name = step_parts[0] if step_parts[0].startswith('Steps.') else f"Steps.{step_parts[0]}" 
+                    
+                    # Create separate channel references by appending the paths
+                    train_path = {'Get': f"{step_name}.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri/train"}
+                    val_path = {'Get': f"{step_name}.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri/val"}
+                    test_path = {'Get': f"{step_name}.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri/test"}
+                    
+                    # Log the references
+                    logger.info("Created Step reference paths for train/val/test")
+                    logger.info(f"Train path reference: {train_path}")
+                    logger.info(f"Val path reference: {val_path}")
+                    logger.info(f"Test path reference: {test_path}")
+                else:
+                    # Regular S3 paths or PipelineVariable objects
+                    train_path = Join(on='/', values=[base_path, "train/"])
+                    val_path = Join(on='/', values=[base_path, "val/"])
+                    test_path = Join(on='/', values=[base_path, "test/"])
+                    
+                    # Log the path expressions
+                    logger.info(f"Train data path expression: {train_path.expr if hasattr(train_path, 'expr') else train_path}")
+                    logger.info(f"Validation data path expression: {val_path.expr if hasattr(val_path, 'expr') else val_path}")
+                    logger.info(f"Test data path expression: {test_path.expr if hasattr(test_path, 'expr') else test_path}")
+                
+                # Create separate channels for each data split
+                training_inputs["train"] = TrainingInput(s3_data=train_path)
+                training_inputs["val"] = TrainingInput(s3_data=val_path)
+                training_inputs["test"] = TrainingInput(s3_data=test_path)
         else:
-            logger.warning(f"No input path found for channel: {input_path_key}")
+            logger.warning(f"No input path found for train/val/test channels")
         
-        # Process config channel for hyperparameters
+        # Process config channel for hyperparameters - use the FULL file path rather than just the directory
         if "hyperparameters_s3_uri" in inputs:
             s3_uri = inputs["hyperparameters_s3_uri"]
             
-            # Ensure s3_uri is a string and doesn't end with hyperparameters.json
+            # Detailed logging for debugging S3 path issues
             if hasattr(s3_uri, 'expr'):
-                # Handle PipelineVariable case
-                uri_str = str(s3_uri.expr)
+                original_uri = str(s3_uri.expr)
             else:
-                uri_str = str(s3_uri)
+                original_uri = str(s3_uri)
                 
-            # Get the directory part of the URI - handle case where s3_uri might already contain hyperparameters.json
-            if uri_str.endswith("/hyperparameters.json"):
-                # Remove hyperparameters.json and use the parent directory
-                config_dir = uri_str[:-len("/hyperparameters.json")]
-            elif uri_str.endswith("hyperparameters.json"):
-                # Remove just hyperparameters.json if no leading slash
-                config_dir = uri_str[:-len("hyperparameters.json")].rstrip("/")
-            else:
-                # Otherwise just remove any trailing slash
-                config_dir = uri_str.rstrip("/")
-                
-            # Log the URI transformation for debugging
-            logger.info(f"Hyperparameters URI transformation: {uri_str} -> {config_dir}")
+            # Ensure we're using the full file path, not just the directory
+            hyperparameters_file_uri = s3_uri
             
-            if self._validate_s3_uri(config_dir, "hyperparameter config"):
-                training_inputs[config_key] = TrainingInput(s3_data=config_dir)
-                logger.info(f"Adding config channel: {config_key} from {config_dir}")
+            # If the URI doesn't already end with hyperparameters.json, append it
+            if not S3PathHandler.get_name(s3_uri) == "hyperparameters.json":
+                hyperparameters_file_uri = S3PathHandler.join(s3_uri, "hyperparameters.json")
+                
+            logger.info(f"Processing hyperparameters S3 URI:")
+            logger.info(f"  - Original URI: {original_uri}")
+            logger.info(f"  - Using full file path: {hyperparameters_file_uri}")
+            
+            if self._validate_s3_uri(hyperparameters_file_uri, "hyperparameter file path"):
+                # Use the FULL file path as s3_data, not just the directory
+                training_inputs[config_key] = TrainingInput(s3_data=hyperparameters_file_uri)
+                logger.info(f"Added config channel: {config_key} using file: {hyperparameters_file_uri}")
         
         # Check if config is provided directly in normalized_inputs
         elif config_key in normalized_inputs:
@@ -281,16 +379,21 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 bucket = self.config.bucket if hasattr(self.config, 'bucket') else "sandboxdependency-abuse-secureaisandboxteamshare-1l77v9am252um"
                 pipeline_name = self.config.pipeline_name if hasattr(self.config, 'pipeline_name') else "xgboost-model"
                 current_date = getattr(self.config, 'current_date', "2025-06-02")
-                prefix = f"s3://{bucket}/{pipeline_name}/training_config/{current_date}"
+                prefix = f"s3://{bucket}/{pipeline_name}/training_config/{current_date}" # No trailing slash
             
-            # Ensure no trailing slash in prefix before adding filename
-            config_dir = prefix.rstrip("/")
+            # Use our helper methods for consistent path handling
+            config_dir = self._normalize_s3_uri(prefix, "hyperparameters prefix")
+            logger.info(f"Normalized hyperparameters prefix: {config_dir}")
             
-            # Ensure we don't have hyperparameters.json already in the path
-            if config_dir.endswith("hyperparameters.json"):
+            # Check if hyperparameters.json is already in the path
+            if S3PathHandler.get_name(config_dir) == "hyperparameters.json":
+                # Use path as is if it already includes the filename
                 target_s3_uri = config_dir
+                logger.info(f"Using existing hyperparameters path: {target_s3_uri}")
             else:
-                target_s3_uri = f"{config_dir}/hyperparameters.json"
+                # Otherwise append the filename using S3PathHandler.join for proper path handling
+                target_s3_uri = S3PathHandler.join(config_dir, "hyperparameters.json")
+                logger.info(f"Constructed hyperparameters path: {target_s3_uri}")
                 
             logger.info(f"Using hyperparameters S3 target URI: {target_s3_uri}")
 
@@ -323,6 +426,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
     def _validate_s3_uri(self, uri: str, description: str = "data") -> bool:
         """
         Validates that a string is a properly formatted S3 URI.
+        Uses S3PathHandler for consistent path validation.
         
         Args:
             uri: The URI to validate
@@ -331,24 +435,27 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         Returns:
             True if valid, False otherwise
         """
-        import re
-        
         # Handle PipelineVariable objects
         if hasattr(uri, 'expr'):
             # For PipelineVariables, we trust they'll resolve to valid URIs at execution time
             return True
             
+        # Handle Pipeline step references with Get key
+        if isinstance(uri, dict) and 'Get' in uri:
+            # For Get expressions, we also trust they'll resolve properly at execution time
+            logger.info(f"Found Pipeline step reference: {uri}")
+            return True
+        
         if not isinstance(uri, str):
             logger.warning(f"Invalid {description} URI: type {type(uri).__name__}")
             return False
-            
-        # Basic S3 URI validation
-        s3_pattern = r'^s3://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._-]+)*/?$'
-        if not re.match(s3_pattern, uri):
+        
+        # Use S3PathHandler for validation
+        valid = S3PathHandler.is_valid(uri)
+        if not valid:
             logger.warning(f"Invalid {description} URI format: {uri}")
-            return False
-            
-        return True
+        
+        return valid
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
@@ -610,6 +717,10 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         if not hyperparameters_s3_uri:
             hyperparameters_s3_uri = self._prepare_hyperparameters_file()
             logger.info(f"Generated hyperparameters at: {hyperparameters_s3_uri}")
+        else:
+            # Normalize the provided hyperparameters_s3_uri
+            hyperparameters_s3_uri = self._normalize_s3_uri(hyperparameters_s3_uri, "provided hyperparameters URI")
+            logger.info(f"Using normalized hyperparameters URI: {hyperparameters_s3_uri}")
         
         # Add hyperparameters URI to the inputs so _get_training_inputs can create the config channel
         inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
@@ -666,6 +777,13 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         # Convert the inputs dict to properly formatted TrainingInput objects
         train_inputs = self._get_training_inputs(inputs)
         logger.info(f"Final training inputs: {list(train_inputs.keys())}")
+        
+        # Check if we have all required data channels
+        required_channels = ["train", "val", "test"]
+        missing_channels = [ch for ch in required_channels if ch not in train_inputs]
+        if missing_channels:
+            raise ValueError(f"Missing required input data channels: {', '.join(missing_channels)}. "
+                           f"Ensure the input path contains train/val/test subdirectories.")
 
         step_name = self._get_step_name('XGBoostTraining')
         
