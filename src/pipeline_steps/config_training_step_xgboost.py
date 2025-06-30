@@ -14,35 +14,36 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     This version is adapted to pass hyperparameters as a single config file
     via an S3 input channel, avoiding character limits.
     """
-    # Input names mapping to their descriptions
+    # Input names mapping to script input names
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "input_path": "Path containing train/val/test subdirectories",
-            "config": "Path to configuration files including hyperparameters.json"
+            "input_path": "TrainingDataDirectory",  # KEY: logical name, VALUE: script input name
+            "config": "HyperparametersConfig"       # KEY: logical name, VALUE: script input name
         },
-        description="Input channels mapping for the training job."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "output_path": "S3 path for output model artifacts"
+            "model_data": "ModelArtifacts",    # KEY: logical name, VALUE: output descriptor
+            "output_path": "ModelOutputPath"   # KEY: logical name, VALUE: output descriptor
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
     
     # S3 paths for data inputs and model outputs
     input_path: str = Field(
         description="S3 path for input training data (containing train/val/test channels).",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*/?$'  # Allow trailing slash
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
     output_path: str = Field(
         description="S3 path for output model artifacts.",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*/?$'  # Allow trailing slash
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
     checkpoint_path: Optional[str] = Field(
         default=None,
         description="Optional S3 path for model checkpoints.",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*/?$'  # Allow trailing slash
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
 
     # Instance configuration
@@ -66,7 +67,7 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     hyperparameters_s3_uri: Optional[str] = Field(
         default=None,
         description="S3 URI *prefix* under which `hyperparameters.json` will be uploaded.  e.g. `s3://my-bucket/pipeline/config/2025-06-12/`",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/.+?)?/?$'  # Allow trailing slash
+        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/.+?)?$'  # Made trailing slash optional
     )
 
     class Config(BasePipelineConfig.Config):
@@ -75,7 +76,7 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     @model_validator(mode='before')
     @classmethod
     def _construct_paths(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """Constructs S3 paths if they are not explicitly provided."""
+        """Constructs S3 paths if they are not explicitly provided and normalizes all paths."""
         values = super()._construct_base_attributes(values)
 
         bucket       = values.get('bucket')
@@ -104,34 +105,14 @@ class XGBoostTrainingConfig(BasePipelineConfig):
                 f"{current_date}"  # Removed trailing slash
             )
 
+        # Normalize all paths to ensure no trailing slashes
+        for path_key in ['hyperparameters_s3_uri', 'input_path', 'output_path', 'checkpoint_path']:
+            if path_key in values and values.get(path_key):
+                values[path_key] = values[path_key].rstrip('/')
+
         return values
 
-    @model_validator(mode='after')
-    def _normalize_paths(self) -> 'XGBoostTrainingConfig':
-        """Normalize all S3 paths to ensure no trailing slashes."""
-        # Use a flag to prevent recursion
-        if hasattr(self, '_paths_normalized') and self._paths_normalized:
-            return self
-            
-        # Set the flag to prevent recursion
-        self._paths_normalized = True
-        
-        # Normalize hyperparameters_s3_uri if it exists
-        if self.hyperparameters_s3_uri:
-            self.hyperparameters_s3_uri = self.hyperparameters_s3_uri.rstrip('/')
-            
-        # Normalize other paths too for consistency
-        if self.input_path:
-            self.input_path = self.input_path.rstrip('/')
-            
-        if self.output_path:
-            self.output_path = self.output_path.rstrip('/')
-            
-        if self.checkpoint_path:
-            self.checkpoint_path = self.checkpoint_path.rstrip('/')
-            
-        return self
-        
+
     @model_validator(mode='after')
     def _validate_training_paths_logic(self) -> 'XGBoostTrainingConfig':
         """Validates S3 path requirements for training."""
@@ -163,19 +144,6 @@ class XGBoostTrainingConfig(BasePipelineConfig):
                     )
         return self
 
-    @model_validator(mode='after')
-    def validate_required_fields(self) -> 'XGBoostTrainingConfig':
-        """Validate that required fields are present."""
-        # Check source_dir
-        if not hasattr(self, 'source_dir') or self.source_dir is None:
-            raise ValueError("source_dir must be provided")
-            
-        # Check training_entry_point
-        if not hasattr(self, 'training_entry_point') or not self.training_entry_point:
-            raise ValueError("training_entry_point cannot be empty")
-            
-        return self
-        
     @model_validator(mode='after')
     def validate_hyperparameter_fields(self) -> 'XGBoostTrainingConfig':
         """
@@ -213,43 +181,20 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     @model_validator(mode='after')
     def set_default_names(self) -> 'XGBoostTrainingConfig':
         """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
+        if self.input_names is None or len(self.input_names) == 0:
             self.input_names = {
-                "input_path": "Path containing train/val/test subdirectories",
-                "config": "Path to configuration files including hyperparameters.json"
+                "input_path": "TrainingDataDirectory",  # KEY: logical name, VALUE: script input name
+                "config": "HyperparametersConfig"       # KEY: logical name, VALUE: script input name
             }
-        else:
-            # Validate required input names
-            if "input_path" not in self.input_names or "config" not in self.input_names:
-                raise ValueError("input_names must contain keys 'input_path' and 'config'")
         
-        if not self.output_names:
+        if self.output_names is None or len(self.output_names) == 0:
             self.output_names = {
-                "output_path": "S3 path for output model artifacts"
+                "model_data": "ModelArtifacts",    # KEY: logical name, VALUE: output descriptor
+                "output_path": "ModelOutputPath"   # KEY: logical name, VALUE: output descriptor
             }
-        else:
-            # Validate required output names
-            if "output_path" not in self.output_names:
-                raise ValueError("output_names must contain key 'output_path'")
         
         return self
     
-    @field_validator('training_entry_point')
-    @classmethod
-    def _validate_training_entry_point(cls, v: str) -> str:
-        """Validate that training_entry_point is not empty."""
-        if not v:
-            raise ValueError("training_entry_point cannot be empty")
-        return v
-        
-    @field_validator('source_dir')
-    @classmethod
-    def _validate_source_dir(cls, v: Optional[str]) -> Optional[str]:
-        """Validate that source_dir is provided."""
-        if v is None:
-            raise ValueError("source_dir must be provided")
-        return v
-        
     @field_validator('training_instance_type')
     @classmethod
     def _validate_sagemaker_xgboost_instance_type(cls, v: str) -> str:

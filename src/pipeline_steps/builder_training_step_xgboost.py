@@ -88,17 +88,24 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             
         logger.info("XGBoostTrainingConfig validation succeeded.")
 
-    def _create_estimator(self) -> XGBoost:
+    def _create_estimator(self, output_path=None) -> XGBoost:
         """
         Creates and configures the XGBoost estimator for the SageMaker Training Job.
         This defines the execution environment for the training script, including the instance
         type, framework version, and environment variables.
+        
+        Args:
+            output_path: Optional override for model output path. If provided, this will be used
+                         instead of self.config.output_path.
 
         Returns:
             An instance of sagemaker.xgboost.XGBoost.
         """
         # Note: We don't pass hyperparameters directly here because they are passed
         # through the "config" input channel instead
+        
+        # Use provided output_path or fall back to config
+        actual_output_path = output_path or self.config.output_path
         
         return XGBoost(
             entry_point=self.config.training_entry_point,
@@ -113,7 +120,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 f"{self._get_step_name('XGBoostTraining')}"
             ),
             sagemaker_session=self.session,
-            output_path=self.config.output_path,
+            output_path=actual_output_path,
             checkpoint_s3_uri=self.config.get_checkpoint_uri(),
             environment=self._get_environment_variables(),
         )
@@ -154,18 +161,29 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
     
     def get_output_properties(self) -> Dict[str, str]:
         """
-        Get the output properties this step provides based on the config's output_names.
+        Get the output properties this step provides using VALUES from output_names.
         
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Use output_names from config to provide consistent output properties
-        output_key = next(iter(self.config.output_names.keys()), "output_path")
-        output_description = next(iter(self.config.output_names.values()), "S3 URI of the model artifacts")
+        # Use values from output_names as property names
+        output_props = {}
         
-        output_props = {
-            "ModelArtifacts.S3ModelArtifacts": f"S3 URI for {output_description}"
-        }
+        # Get the model artifacts property name from output_names
+        model_artifacts_key = None
+        for key, value in (self.config.output_names or {}).items():
+            if "model" in key.lower():
+                model_artifacts_key = value  # Use the VALUE here
+                output_props[value] = "S3 URI of the model artifacts"
+                break
+        
+        # If no model key found, use a default
+        if not output_props:
+            output_props["ModelArtifacts"] = "S3 URI of the model artifacts"
+        
+        # Also add the standard SageMaker property for backward compatibility
+        output_props["ModelArtifacts.S3ModelArtifacts"] = "S3 URI for model artifacts"
+        
         return output_props
 
         
@@ -246,18 +264,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             logger.warning(f"Expected inputs to be a dictionary, got {type(inputs)}")
             return training_inputs
             
-        # First, normalize the inputs structure by merging nested and flat formats
-        normalized_inputs = {}
-        
-        # Copy items directly from the inputs dict (flat format)
-        for key, value in inputs.items():
-            if key != "inputs" and key != "hyperparameters_s3_uri":
-                normalized_inputs[key] = value
-                
-        # Add items from the nested format if present
-        if "inputs" in inputs and isinstance(inputs["inputs"], dict):
-            for key, value in inputs["inputs"].items():
-                normalized_inputs[key] = value
+        # Use the base class helper to normalize inputs
+        normalized_inputs = self._normalize_inputs(inputs)
         
         # Check if input_path is set directly on the config object - use that instead
         # This is the pattern used in the backup implementation
@@ -690,13 +698,13 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
     
     def create_step(self, **kwargs) -> TrainingStep:
         """
-        Creates the final, fully configured SageMaker TrainingStep for the pipeline.
-        This method orchestrates the assembly of the estimator and its inputs
-        into a single, executable pipeline step.
+        Creates the final, fully configured SageMaker TrainingStep for the pipeline
+        using the standardized input handling approach.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                - outputs: A dictionary mapping output channel names to their S3 destinations.
                 - hyperparameters_s3_uri: Optional S3 URI to a JSON file containing hyperparameters.
                 - dependencies: Optional list of steps that this step depends on.
                 - enable_caching: A boolean indicating whether to cache the results of this step
@@ -707,13 +715,40 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         logger.info("Creating XGBoost TrainingStep...")
 
-        # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs', {})
+        # Extract parameters using standard methods
+        inputs_raw = self._extract_param(kwargs, 'inputs', {})
+        outputs = self._extract_param(kwargs, 'outputs', {})
         hyperparameters_s3_uri = self._extract_param(kwargs, 'hyperparameters_s3_uri')
-        dependencies = self._extract_param(kwargs, 'dependencies')
+        dependencies = self._extract_param(kwargs, 'dependencies', [])
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Prepare hyperparameters - generate and upload hyperparameters.json to the config subdirectory
+        # Normalize inputs using standard helper method
+        inputs = self._normalize_inputs(inputs_raw)
+        
+        # Extract output_path from outputs dictionary if available
+        model_output_path = self.config.output_path  # Default to config value
+        
+        # Look for output path in outputs dictionary
+        if outputs:
+            # First check for standardized output name value
+            output_key = None
+            for key, value in self.config.output_names.items():
+                if value in outputs:
+                    model_output_path = outputs[value]
+                    output_key = value
+                    logger.info(f"Using model output path from output_names value '{output_key}': {model_output_path}")
+                    break
+            
+            # Backward compatibility checks
+            if output_key is None:
+                if "ModelArtifacts.S3ModelArtifacts" in outputs:
+                    model_output_path = outputs["ModelArtifacts.S3ModelArtifacts"]
+                    logger.info(f"Using model output path from ModelArtifacts key: {model_output_path}")
+                elif "output_path" in outputs:
+                    model_output_path = outputs["output_path"]
+                    logger.info(f"Using model output path from output_path key: {model_output_path}")
+        
+        # Prepare hyperparameters
         if not hyperparameters_s3_uri:
             hyperparameters_s3_uri = self._prepare_hyperparameters_file()
             logger.info(f"Generated hyperparameters at: {hyperparameters_s3_uri}")
@@ -722,19 +757,14 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             hyperparameters_s3_uri = self._normalize_s3_uri(hyperparameters_s3_uri, "provided hyperparameters URI")
             logger.info(f"Using normalized hyperparameters URI: {hyperparameters_s3_uri}")
         
-        # Add hyperparameters URI to the inputs so _get_training_inputs can create the config channel
+        # Add hyperparameters URI to the inputs
         inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-        
         
         # Auto-detect inputs from dependencies if needed
         if dependencies:
             input_requirements = self.get_input_requirements()
             
-            # Initialize inputs dictionary if not provided
-            if not inputs:
-                inputs = {}
-                
-            # Extract both regular inputs and hyperparameters_s3_uri from dependencies
+            # Extract inputs from dependencies
             for dep_step in dependencies:
                 matched = self._match_custom_properties(inputs, input_requirements, dep_step)
                 if matched:
@@ -744,54 +774,42 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             if not hyperparameters_s3_uri and 'hyperparameters_s3_uri' in inputs:
                 hyperparameters_s3_uri = inputs.pop('hyperparameters_s3_uri')
                 logger.info(f"Found hyperparameters_s3_uri in inputs: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
-                
-                # Note: We don't need to add hyperparameters to a separate channel
-                # The hyperparameters file is uploaded directly to the appropriate S3 location
-                # The training script will find it under the config subdirectory in the input_path
         
-        # Validate we have required inputs - more comprehensive check
-        input_sources = []
-        
-        # Check both flat and nested input formats
-        if "inputs" in inputs and isinstance(inputs["inputs"], dict):
-            input_sources.extend(list(inputs["inputs"].keys()))
-        
-        for key in inputs.keys():
-            if key != "inputs" and key != "hyperparameters_s3_uri" and key != "dependencies" and key != "enable_caching":
-                input_sources.append(key)
+        # Log input keys for debugging
+        logger.info(f"Input keys after normalization: {list(inputs.keys())}")
         
         # Get the configured input path key
-        input_path_key = self.config.input_names.get("input_path", "input_path")
+        input_path_key = next((k for k in self.config.input_names if "input_path" in k.lower()), "input_path")
         
-        # Check for required channel
-        if input_path_key not in input_sources:
-            raise ValueError(f"Missing required input path channel ('{input_path_key}'). "
-                           f"Could not extract it from dependencies or provided inputs.")
+        # Check for required input path either directly in config or in inputs
+        if hasattr(self.config, 'input_path') and self.config.input_path:
+            logger.info(f"Using input_path directly from config: {self.config.input_path}")
+        elif input_path_key not in inputs:
+            # Check for input path in normalized inputs
+            raise ValueError(f"Missing required input path ('{input_path_key}'). "
+                          f"Could not extract it from dependencies or provided inputs.")
 
-        # Create and configure the estimator
-        estimator = self._create_estimator()
-
-        # Note: We don't set estimator.hyperparameters_file_s3_uri because our script
-        # reads hyperparameters directly from the "config" input channel 
-
-        # Convert the inputs dict to properly formatted TrainingInput objects
+        # Create estimator and training inputs
+        estimator = self._create_estimator(model_output_path)
         train_inputs = self._get_training_inputs(inputs)
         logger.info(f"Final training inputs: {list(train_inputs.keys())}")
         
-        # Check if we have all required data channels
+        # Check for required data channels
         required_channels = ["train", "val", "test"]
         missing_channels = [ch for ch in required_channels if ch not in train_inputs]
         if missing_channels:
-            raise ValueError(f"Missing required input data channels: {', '.join(missing_channels)}. "
-                           f"Ensure the input path contains train/val/test subdirectories.")
+            raise ValueError(f"Missing required data channels: {', '.join(missing_channels)}. "
+                          f"Ensure the input path contains train/val/test subdirectories.")
 
+        # Create step name
         step_name = self._get_step_name('XGBoostTraining')
         
+        # Create and return the step
         training_step = TrainingStep(
             name=step_name,
             estimator=estimator,
             inputs=train_inputs,
-            depends_on=dependencies or [],
+            depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)
         )
         logger.info(f"Created TrainingStep with name: {training_step.name}")

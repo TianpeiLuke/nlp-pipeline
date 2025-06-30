@@ -140,15 +140,20 @@ class ModelRegistrationConfig(BasePipelineConfig):
 
     @model_validator(mode='after')
     def set_default_names(self) -> 'ModelRegistrationConfig':
-        """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
-            self.input_names = {
-                "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
+        """Ensure default input and output names are set if not provided or empty."""
+        if self.input_names is None or len(self.input_names) == 0:
+            # Use __dict__ to modify the attribute directly without triggering validation
+            self.__dict__["input_names"] = {
+                "packaged_model_output": "Output from packaging step",
                 "payload_sample": "Directory containing the generated payload samples"
             }
         
-        if not self.output_names:
-            logger.info(f"{self.output_names} will not be used as output as the registration step has no output")
+        if self.output_names is None or len(self.output_names) == 0:
+            # Even though Registration step has no outputs, we should define this
+            # so it's properly captured in the config
+            # Use __dict__ to modify the attribute directly without triggering validation
+            self.__dict__["output_names"] = {}
+            logger.info("Registration step has no outputs, but output_names will be preserved in config")
 
         return self
 

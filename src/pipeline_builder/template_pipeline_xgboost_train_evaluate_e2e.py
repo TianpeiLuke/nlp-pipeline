@@ -45,22 +45,27 @@ logger = logging.getLogger(__name__)
 # Import pipeline constants if available
 import os
 import importlib
+
+# Define default constants with uppercase values
+OUTPUT_TYPE_DATA = "DATA"
+OUTPUT_TYPE_METADATA = "METADATA"
+OUTPUT_TYPE_SIGNATURE = "SIGNATURE"
+
+# Try to import from module if available
 SECUREAI_PIPELINE_CONSTANTS_MODULE = os.environ.get("SECUREAI_PIPELINE_CONSTANTS_MODULE")
-OUTPUT_TYPE_DATA = OUTPUT_TYPE_METADATA = OUTPUT_TYPE_SIGNATURE = None
 if SECUREAI_PIPELINE_CONSTANTS_MODULE:
     try:
         const_mod = importlib.import_module(SECUREAI_PIPELINE_CONSTANTS_MODULE)
-        OUTPUT_TYPE_DATA      = getattr(const_mod, "OUTPUT_TYPE_DATA",      None)
-        OUTPUT_TYPE_METADATA  = getattr(const_mod, "OUTPUT_TYPE_METADATA",  None)
-        OUTPUT_TYPE_SIGNATURE = getattr(const_mod, "OUTPUT_TYPE_SIGNATURE", None)
+        # These will override the defaults if available
+        OUTPUT_TYPE_DATA      = getattr(const_mod, "OUTPUT_TYPE_DATA", OUTPUT_TYPE_DATA)
+        OUTPUT_TYPE_METADATA  = getattr(const_mod, "OUTPUT_TYPE_METADATA", OUTPUT_TYPE_METADATA)
+        OUTPUT_TYPE_SIGNATURE = getattr(const_mod, "OUTPUT_TYPE_SIGNATURE", OUTPUT_TYPE_SIGNATURE)
         logger.info(f"Imported pipeline constants from {SECUREAI_PIPELINE_CONSTANTS_MODULE}")
     except ImportError as e:
         logger.error(f"Could not import pipeline constants: {e}")
+        logger.info("Using default uppercase constants: DATA, METADATA, SIGNATURE")
 else:
-    logger.warning(
-        "SECUREAI_PIPELINE_CONSTANTS_MODULE not set; "
-        "pipeline constants (DATA, METADATA, SIGNATURE) unavailable."
-    )
+    logger.info("Using default uppercase constants: DATA, METADATA, SIGNATURE")
 
 # Config classes mapping
 CONFIG_CLASSES = {
@@ -91,8 +96,8 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
     7) Tabular Preprocessing (for calibration set)
     8) Model Evaluation (on calibration set)
     """
-    REQUIRED_INPUTS = {"data_input"}
-    OPTIONAL_INPUTS = {"metadata_input", "signature_input"}
+    REQUIRED_INPUTS = {"DATA"}
+    OPTIONAL_INPUTS = {"METADATA", "SIGNATURE"}
 
     def __init__(
         self,
@@ -192,9 +197,8 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         config_map["train_data_load"] = cradle_configs.get('training')
         config_map["train_preprocess"] = tp_configs.get('training')
         
-        # Find single instance configs
+        # Find single instance configs (removing hyperparameter_prep)
         for cfg_type, step_name in [
-            (HyperparameterPrepConfig, "hyperparameter_prep"),
             (XGBoostTrainingConfig, "xgboost_train"),
             (PackageStepConfig, "model_packaging"),
             (PayloadConfig, "payload_test"),
@@ -220,10 +224,9 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         """Create the DAG structure for the pipeline."""
         dag = PipelineDAG()
         
-        # Add nodes
+        # Add nodes (removing hyperparameter_prep)
         dag.add_node("train_data_load")
         dag.add_node("train_preprocess")
-        dag.add_node("hyperparameter_prep")
         dag.add_node("xgboost_train")
         dag.add_node("model_packaging")
         dag.add_node("model_registration")
@@ -235,8 +238,8 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         # Add edges for training flow
         dag.add_edge("train_data_load", "train_preprocess")
         dag.add_edge("train_preprocess", "xgboost_train")
-        dag.add_edge("hyperparameter_prep", "xgboost_train")
         dag.add_edge("xgboost_train", "model_packaging")
+        dag.add_edge("xgboost_train", "payload_test")  # Direct connection from training to payload
         dag.add_edge("model_packaging", "model_registration")
         dag.add_edge("payload_test", "model_registration")
         

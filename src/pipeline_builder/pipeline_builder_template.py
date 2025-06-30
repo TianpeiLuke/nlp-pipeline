@@ -171,11 +171,20 @@ class PipelineBuilderTemplate:
         This method analyzes the input requirements and output properties of each step,
         and creates messages that describe how inputs should be connected to outputs.
         
-        It uses two matching strategies:
-        1. Direct match: Input name matches output name exactly
-        2. Pattern match: Input name contains a pattern that matches an output name
+        It follows the standard pattern for input/output naming:
+        1. Match logical input name (KEY from input_names) to logical output name (KEY from output_names)
+        2. Use output descriptor VALUE (VALUE from output_names) when referencing the output
+        3. Handle uppercase constants specially (DATA, METADATA, SIGNATURE)
+        4. Fall back to pattern matching if other matching methods fail
         """
         logger.info("Propagating messages between steps")
+        
+        # Add enhanced debug logging for input/output connections
+        logger.info("Analyzing step input/output connections:")
+        for step_name in self.step_input_requirements:
+            logger.info(f"  Step {step_name} input requirements: {list(self.step_input_requirements[step_name].keys())}")
+            if step_name in self.config_map and hasattr(self.config_map[step_name], 'input_names'):
+                logger.info(f"  Step {step_name} input_names: {self.config_map[step_name].input_names}")
         
         # Define common patterns for matching inputs to outputs
         input_patterns = {
@@ -183,6 +192,9 @@ class PipelineBuilderTemplate:
             "data": ["data", "dataset", "input_data", "training_data"],
             "output": ["output", "result", "artifacts", "s3_uri"]
         }
+        
+        # Common uppercase constants used as input/output keys
+        uppercase_constants = ["DATA", "METADATA", "SIGNATURE"]
         
         # Get the build order from the DAG
         build_order = self.dag.topological_sort()
@@ -198,14 +210,17 @@ class PipelineBuilderTemplate:
             if not input_requirements:
                 logger.debug(f"Step {step_name} has no input requirements")
                 continue
-                
+            
+            # Get the current step's config to access input_names
+            current_config = self.config_map.get(step_name)
+            
             # Get the dependencies for this step
             dependencies = self.dag.get_dependencies(step_name)
             if not dependencies:
                 logger.debug(f"Step {step_name} has no dependencies")
                 continue
                 
-            # Process each input requirement
+                # Process each input requirement
             for input_name, input_desc in input_requirements.items():
                 # Skip if this input already has a message
                 if step_name in self.step_messages and input_name in self.step_messages[step_name]:
@@ -213,47 +228,190 @@ class PipelineBuilderTemplate:
                     
                 # Try to find a matching output in the dependencies
                 for dep_name in dependencies:
+                    # Get the source step's config to access output_names
+                    source_config = self.config_map.get(dep_name)
+                    if not source_config or not hasattr(source_config, 'output_names') or not source_config.output_names:
+                        continue
+                    
+                    # Track if we found a match
+                    matched = False
+                    
+                    # Try logical name match first (KEY from input_names to KEY from output_names)
+                    for out_logical_name, out_descriptor in source_config.output_names.items():
+                        if input_name == out_logical_name:
+                            # Found a match between logical names
+                            self.step_messages[step_name][input_name] = {
+                                'source_step': dep_name,
+                                'source_output': out_descriptor,  # Use VALUE from output_names
+                                'match_type': 'logical_name'
+                            }
+                            logger.info(f"Logical name match: {dep_name}.{out_logical_name} (descriptor: {out_descriptor}) -> {step_name}.{input_name}")
+                            matched = True
+                            break
+                    
+                    if matched:
+                        break
+                    
+                    # Check for uppercase constant names (DATA, METADATA, SIGNATURE)
+                    if input_name.isupper() and input_name in uppercase_constants:
+                        # First check if this input name is also a key in source_config.output_names
+                        if input_name in source_config.output_names:
+                            self.step_messages[step_name][input_name] = {
+                                'source_step': dep_name,
+                                'source_output': source_config.output_names[input_name],  # Use VALUE from output_names
+                                'match_type': 'uppercase_constant_key'
+                            }
+                            logger.info(f"Uppercase constant key match: {dep_name}.{input_name} -> {step_name}.{input_name}")
+                            matched = True
+                            break
+                        
+                        # Also check if this exact name exists as a value in output_names
+                        for out_logical_name, out_descriptor in source_config.output_names.items():
+                            if input_name == out_descriptor:
+                                self.step_messages[step_name][input_name] = {
+                                    'source_step': dep_name,
+                                    'source_output': input_name,  # Use the uppercase constant directly
+                                    'match_type': 'uppercase_constant_value'
+                                }
+                                logger.info(f"Uppercase constant value match: {dep_name}.{out_logical_name} -> {step_name}.{input_name}")
+                                matched = True
+                                break
+                        
+                        # As a last resort, check if the source step has this exact attribute
+                        # This handles direct uppercase constants from CradleDataLoadingStep
+                        source_step_instance = self.step_instances.get(dep_name)
+                        if source_step_instance and hasattr(source_step_instance, input_name):
+                            self.step_messages[step_name][input_name] = {
+                                'source_step': dep_name,
+                                'source_output': input_name,  # Use the same name for source output
+                                'match_type': 'direct_attribute'
+                            }
+                            logger.info(f"Direct attribute match: {dep_name}.{input_name} -> {step_name}.{input_name}")
+                            matched = True
+                            break
+                    
+                    if matched:
+                        break
+                    
+                    # Check if input name directly matches an output VALUE
+                    for out_logical_name, out_descriptor in source_config.output_names.items():
+                        if input_name == out_descriptor:
+                            self.step_messages[step_name][input_name] = {
+                                'source_step': dep_name,
+                                'source_output': input_name,
+                                'match_type': 'direct_output_value'
+                            }
+                            logger.info(f"Direct output value match: {dep_name}.{out_descriptor} -> {step_name}.{input_name}")
+                            matched = True
+                            break
+                    
+                    if matched:
+                        break
+                    
+                    # If no previous matches found, try pattern match as fallback
                     # Get the output properties for this dependency
                     output_properties = self.step_output_properties.get(dep_name, {})
                     if not output_properties:
                         continue
                         
-                    # Try direct match first
-                    if input_name in output_properties:
-                        self.step_messages[step_name][input_name] = {
-                            'source_step': dep_name,
-                            'source_output': input_name
-                        }
-                        logger.debug(f"Direct match: {dep_name}.{input_name} -> {step_name}.{input_name}")
-                        break
-                        
-                    # Try pattern match
-                    matched = False
+                        # Try pattern match
                     for pattern_type, keywords in input_patterns.items():
                         if not any(kw in input_name.lower() for kw in keywords):
                             continue
                             
-                        # Find outputs that match the same pattern
-                        matching_outputs = [
-                            out_name for out_name in output_properties
-                            if any(kw in out_name.lower() for kw in keywords)
-                        ]
+                        # Find outputs by looking for matches in output_names logical names
+                        matching_outputs = []
+                        for out_logical_name, out_descriptor in source_config.output_names.items():
+                            if any(kw in out_logical_name.lower() for kw in keywords):
+                                matching_outputs.append((out_logical_name, out_descriptor))
                         
                         if matching_outputs:
                             # Use the first matching output
-                            output_name = matching_outputs[0]
+                            out_logical_name, out_descriptor = matching_outputs[0]
                             self.step_messages[step_name][input_name] = {
                                 'source_step': dep_name,
-                                'source_output': output_name,
-                                'pattern_match': True
+                                'source_output': out_descriptor,  # Use VALUE from output_names
+                                'match_type': 'pattern_match',
+                                'pattern_type': pattern_type
                             }
-                            logger.debug(f"Pattern match ({pattern_type}): {dep_name}.{output_name} -> {step_name}.{input_name}")
+                            logger.info(f"Pattern match ({pattern_type}): {dep_name}.{out_logical_name} (descriptor: {out_descriptor}) -> {step_name}.{input_name}")
                             matched = True
                             break
                             
                     if matched:
                         break
+                
+                # Log warning if no match found
+                if step_name not in self.step_messages or input_name not in self.step_messages[step_name]:
+                    logger.warning(f"No output match found for input: {step_name}.{input_name}")
 
+    def _generate_outputs(self, step_name: str) -> Dict[str, Any]:
+        """
+        Generate default outputs for a step using the VALUES from output_names as keys.
+        
+        Creates paths in the format:
+        {base_s3_loc}/{step_type}/{job_type (if present)}/{output_key}
+        
+        Args:
+            step_name: Name of the step to generate outputs for
+            
+        Returns:
+            Dictionary mapping output values to S3 URIs
+        """
+        outputs = {}
+        config = self.config_map[step_name]
+        
+        # Find base_s3_loc in configs - typically in the base config
+        base_s3_loc = None
+        for cfg in self.config_map.values():
+            if hasattr(cfg, 'pipeline_s3_loc') and getattr(cfg, 'pipeline_s3_loc'):
+                base_s3_loc = getattr(cfg, 'pipeline_s3_loc')
+                break
+        
+        if not base_s3_loc:
+            base_s3_loc = 's3://default-bucket/pipeline'
+            logger.info(f"No base_s3_loc found, using default: {base_s3_loc}")
+        
+        # Use output_names from config to generate outputs
+        if hasattr(config, 'output_names') and config.output_names:
+            # Get step type from config class name
+            step_type = BasePipelineConfig.get_step_name(type(config).__name__)
+            
+            # Get job_type if available (used by steps like TabularPreprocessing)
+            job_type = getattr(config, 'job_type', '')
+            
+            # Construct base path components
+            path_parts = [base_s3_loc, step_type.lower()]
+            if job_type:
+                path_parts.append(job_type)
+                
+            # Join with slashes and ensure no duplicate slashes
+            base_path = "/".join([p for p in path_parts if p])
+            
+            # Generate paths for all output_names values
+            for logical_name, output_descriptor in config.output_names.items():
+                # Use VALUE as the dictionary key (instead of logical name)
+                outputs[output_descriptor] = f"{base_path}/{logical_name}"
+                
+                # Special handling for constants used by CradleDataLoadingStep
+                if logical_name.upper() in ["DATA", "METADATA", "SIGNATURE"]:
+                    outputs[logical_name.upper()] = outputs[output_descriptor]
+            
+            # Double check we have all required outputs by ensuring VALUES are in outputs
+            for logical_name, output_descriptor in config.output_names.items():
+                if output_descriptor not in outputs:
+                    logger.info(f"Adding missing required output '{output_descriptor}' for {step_name}")
+                    outputs[output_descriptor] = f"{base_path}/{logical_name}"
+        
+        logger.info(f"Generated {len(outputs)} outputs for {step_name}")
+        
+        # Add detailed info logging for all outputs
+        logger.info(f"Generated output details for {step_name}:")
+        for key, path in outputs.items():
+            logger.info(f"  Output: '{key}' => {path}")
+            
+        return outputs
+    
     def _instantiate_step(self, step_name: str) -> Step:
         """
         Instantiate a pipeline step with appropriate inputs from dependencies.
@@ -305,7 +463,14 @@ class PipelineBuilderTemplate:
                 else:
                     logger.warning(f"Source step {source_step} has no output {source_output}")
         
-        # Build the step with extracted inputs
+        # Generate outputs if not already provided
+        if 'outputs' not in kwargs:
+            outputs = self._generate_outputs(step_name)
+            if outputs:
+                kwargs['outputs'] = outputs
+                logger.info(f"Adding generated outputs for step {step_name}")
+        
+        # Build the step with extracted inputs and outputs
         start_time = time.time()
         try:
             step = builder.create_step(**kwargs)

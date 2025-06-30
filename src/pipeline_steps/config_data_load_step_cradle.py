@@ -511,9 +511,9 @@ class CradleDataLoadConfig(BasePipelineConfig):
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            OUTPUT_TYPE_DATA: "S3 location of the data output",
-            OUTPUT_TYPE_METADATA: "S3 location of the metadata output",
-            OUTPUT_TYPE_SIGNATURE: "S3 location of the signature output"
+            "data_output": OUTPUT_TYPE_DATA,
+            "metadata_output": OUTPUT_TYPE_METADATA,
+            "signature_output": OUTPUT_TYPE_SIGNATURE
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -541,9 +541,9 @@ class CradleDataLoadConfig(BasePipelineConfig):
         # (3) Deal with empty input names and empty output names separately
         if not model.output_names:
             model.output_names = {
-                OUTPUT_TYPE_DATA: "S3 location of the data output",
-                OUTPUT_TYPE_METADATA: "S3 location of the metadata output",
-                OUTPUT_TYPE_SIGNATURE: "S3 location of the signature output"
+                "data_output": OUTPUT_TYPE_DATA,
+                "metadata_output": OUTPUT_TYPE_METADATA,
+                "signature_output": OUTPUT_TYPE_SIGNATURE
             }
 
         return model

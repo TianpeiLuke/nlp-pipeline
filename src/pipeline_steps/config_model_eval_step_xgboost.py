@@ -18,18 +18,18 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     # Input/output names for evaluation with defaults
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_input": "Model artifacts input",
-            "eval_data_input": "Evaluation data input"
+            "model_input": "ModelInput",        # KEY: logical name, VALUE: script input name
+            "eval_data_input": "EvaluationData" # KEY: logical name, VALUE: script input name
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "eval_output": "Output name for evaluation predictions",
-            "metrics_output": "Output name for evaluation metrics"
+            "eval_output": "EvaluationResults",    # KEY: logical name, VALUE: output descriptor
+            "metrics_output": "EvaluationMetrics"  # KEY: logical name, VALUE: output descriptor
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
 
     job_type: str = Field(
@@ -75,16 +75,16 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     @model_validator(mode='after')
     def set_default_names(self) -> 'XGBoostModelEvalConfig':
         """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
+        if self.input_names is None or len(self.input_names) == 0:
             self.input_names = {
-                "model_input": "Model artifacts input",
-                "eval_data_input": "Evaluation data input"
+                "model_input": "ModelInput",        # KEY: logical name, VALUE: script input name
+                "eval_data_input": "EvaluationData" # KEY: logical name, VALUE: script input name
             }
         
-        if not self.output_names:
+        if self.output_names is None or len(self.output_names) == 0:
             self.output_names = {
-                "eval_output": "Output name for evaluation predictions",
-                "metrics_output": "Output name for evaluation metrics"
+                "eval_output": "EvaluationResults",    # KEY: logical name, VALUE: output descriptor
+                "metrics_output": "EvaluationMetrics"  # KEY: logical name, VALUE: output descriptor
             }
         
         return self

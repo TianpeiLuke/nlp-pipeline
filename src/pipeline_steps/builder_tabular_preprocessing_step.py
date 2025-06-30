@@ -87,15 +87,11 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             )
         
         # Validate input and output names
-        if "data_input" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'data_input'")
+        if "DATA" not in (self.config.input_names or {}):
+            raise ValueError("input_names must contain key 'DATA'")
         
         if "processed_data" not in (self.config.output_names or {}):
             raise ValueError("output_names must contain key 'processed_data'")
-        
-        # full_data is now optional
-        # if "full_data" not in (self.config.output_names or {}):
-        #    raise ValueError("output_names must contain key 'full_data'")
         
         logger.info("TabularPreprocessingConfig validation succeeded.")
 
@@ -161,53 +157,51 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
 
     def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
-        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
-        This defines the data channels for the processing job, mapping S3 locations
-        to local directories inside the container.
+        Constructs a list of ProcessingInput objects from the provided inputs dictionary
+        using the standardized helper methods.
 
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'data_input')
+            inputs: A dictionary mapping logical input channel names (keys from input_names)
                     to their S3 URIs or dynamic Step properties.
 
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the data input key from config
-        key_in = self.config.input_names["data_input"]
+        # Validate required inputs using the standard helper method
+        self._validate_inputs(inputs)
         
-        # Check if inputs is empty or doesn't contain the required key
-        if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply an S3 URI for '{key_in}'")
+        processing_inputs = []
         
-        if key_in not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_in}' in 'inputs'")
-
-        # Define the primary data input channel
-        processing_inputs = [
-            ProcessingInput(
-                input_name=key_in,
-                source=inputs[key_in],
-                destination="/opt/ml/processing/input/data"
+        # Process data input (required) using the standard helper method
+        processing_inputs.append(
+            self._create_standard_processing_input(
+                "DATA", 
+                inputs,
+                "/opt/ml/processing/input/data"
             )
-        ]
+        )
         
-        # Add optional metadata input if available
-        if "metadata_input" in self.config.input_names and "metadata_input" in inputs:
+        # Process metadata input (optional)
+        metadata_logical_name = "METADATA"
+        if (metadata_logical_name in self.config.input_names and 
+            metadata_logical_name in inputs):
             processing_inputs.append(
-                ProcessingInput(
-                    input_name=self.config.input_names["metadata_input"],
-                    source=inputs[self.config.input_names["metadata_input"]],
-                    destination="/opt/ml/processing/input/metadata"
+                self._create_standard_processing_input(
+                    metadata_logical_name,
+                    inputs,
+                    "/opt/ml/processing/input/metadata"
                 )
             )
         
-        # Add optional signature input if available
-        if "signature_input" in self.config.input_names and "signature_input" in inputs:
+        # Process signature input (optional)
+        signature_logical_name = "SIGNATURE"
+        if (signature_logical_name in self.config.input_names and 
+            signature_logical_name in inputs):
             processing_inputs.append(
-                ProcessingInput(
-                    input_name=self.config.input_names["signature_input"],
-                    source=inputs[self.config.input_names["signature_input"]],
-                    destination="/opt/ml/processing/input/signature"
+                self._create_standard_processing_input(
+                    signature_logical_name,
+                    inputs,
+                    "/opt/ml/processing/input/signature"
                 )
             )
         
@@ -215,49 +209,89 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
 
     def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
         """
-        Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 locations where the results of the processing job will be stored.
-
+        Constructs ProcessingOutput objects with enhanced resilience for Join objects.
+        
         The tabular_preprocess.py script creates processed data in split-specific subdirectories
         (train, test, val) under /opt/ml/processing/output. We map these outputs to the
         appropriate S3 destinations.
-
+        
         Args:
-            outputs: A dictionary mapping the logical output channel names to S3 destination URIs.
-                    At minimum, must include the "processed_data" key.
-
+            outputs: A dictionary mapping the output VALUES from output_names to S3 destination URIs.
+                    This may also be a Join object or other type with different access patterns.
+        
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        processed_data_key = self.config.output_names["processed_data"]
-        full_data_key = self.config.output_names["full_data"]
+        processing_outputs = []
         
-        if not outputs:
-            raise ValueError(f"Outputs dictionary is empty. Must supply an S3 URI for '{processed_data_key}'")
+        # Get the output descriptor name we need
+        output_key = self._get_output_destination_name("processed_data")  # Should be "ProcessedTabularData"
         
-        if processed_data_key not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{processed_data_key}' in 'outputs'")
+        # Add detailed logging for debugging
+        logger.debug(f"Building output for key '{output_key}', outputs type: {type(outputs)}")
+        if isinstance(outputs, dict):
+            logger.debug(f"Available output keys: {list(outputs.keys())}")
         
-        # Define the outputs for processed data
-        # The script creates files in split-specific subfolders (train, test, val) 
-        # under /opt/ml/processing/output
-        processing_outputs = [
-            ProcessingOutput(
-                output_name=processed_data_key,
-                source="/opt/ml/processing/output", 
-                destination=outputs[processed_data_key]
-            )
-        ]
-        
-        # Only add the full_data output if it's provided
-        if full_data_key in outputs:
+        try:
+            # First try using our enhanced helper method
             processing_outputs.append(
-                ProcessingOutput(
-                    output_name=full_data_key,
-                    source="/opt/ml/processing/output",
-                    destination=outputs[full_data_key]
+                self._create_standard_processing_output(
+                    "processed_data",  # Logical name in config.output_names
+                    outputs,           # Outputs dictionary or Join object
+                    "/opt/ml/processing/output"  # Standard source path
                 )
             )
+            logger.info(f"Successfully created standard processing output for '{output_key}'")
+        except ValueError as e:
+            # Enhanced helper failed - implement fallback mechanism
+            logger.warning(f"Standard output helper failed: {e}, using fallback mechanism")
+            
+            # Follow pattern from mods_pipeline_xgboost_train_evaluate_e2e.py
+            # Construct predictable S3 path based on config properties
+            fallback_path = f"{self.config.pipeline_s3_loc}/tabular_preprocessing/{self.config.job_type}"
+            
+            # Create the processing output directly with our fallback path
+            processing_outputs.append(
+                ProcessingOutput(
+                    output_name=output_key,  # "ProcessedTabularData"
+                    source="/opt/ml/processing/output",
+                    destination=fallback_path
+                )
+            )
+            logger.info(f"Created fallback processing output for '{output_key}': {fallback_path}")
+        
+        # Handle full_data output if configured (same pattern as for processed_data)
+        full_data_logical_name = "full_data"
+        if full_data_logical_name in self.config.output_names:
+            full_data_output_name = self._get_output_destination_name(full_data_logical_name)
+            
+            try:
+                # Try to create full_data output using helper method
+                full_data_output = self._create_standard_processing_output(
+                    full_data_logical_name,
+                    outputs,
+                    "/opt/ml/processing/output"
+                )
+                processing_outputs.append(full_data_output)
+                logger.info(f"Successfully created standard processing output for '{full_data_output_name}'")
+            except ValueError as e:
+                # Enhanced helper failed - implement fallback for full_data
+                logger.warning(f"Full data output helper failed: {e}, using fallback mechanism")
+                
+                # Construct fallback path for full_data
+                full_data_fallback_path = f"{self.config.pipeline_s3_loc}/tabular_preprocessing/{self.config.job_type}/full_data"
+                processing_outputs.append(
+                    ProcessingOutput(
+                        output_name=full_data_output_name,
+                        source="/opt/ml/processing/output",
+                        destination=full_data_fallback_path
+                    )
+                )
+                logger.info(f"Created fallback processing output for '{full_data_output_name}': {full_data_fallback_path}")
+        
+        # Ensure we created at least one output
+        if not processing_outputs:
+            raise ValueError("Failed to create any processing outputs")
         
         return processing_outputs
 
@@ -278,12 +312,18 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        # Get input requirements from config's input_names
-        input_reqs = {
-            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
-            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
-            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
-        }
+        # Only include the actual input channel names from the config
+        input_reqs = {}
+        
+        # Add all input channel names from config
+        for k, v in (self.config.input_names or {}).items():
+            input_reqs[k] = f"S3 path for {v}"
+        
+        # Add other required parameters
+        input_reqs["outputs"] = f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths"
+        input_reqs["enable_caching"] = self.COMMON_PROPERTIES["enable_caching"]
+        input_reqs["dependencies"] = "List of steps that this step depends on"
+        
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -366,15 +406,15 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                 )
             except ImportError:
                 # Fallback to string constants if import fails
-                OUTPUT_TYPE_DATA = "data"
-                OUTPUT_TYPE_METADATA = "metadata"
-                OUTPUT_TYPE_SIGNATURE = "signature"
+                OUTPUT_TYPE_DATA = "DATA"  # Upper Case, correct one
+                OUTPUT_TYPE_METADATA = "METADATA"  # Upper Case, correct one
+                OUTPUT_TYPE_SIGNATURE = "SIGNATURE"  # Upper Case, correct one
                 
-            # Map output types to input keys
+            # Map output types to input keys - use direct mapping with constants
             output_type_to_input_key = {
-                OUTPUT_TYPE_DATA: "data_input",
-                OUTPUT_TYPE_METADATA: "metadata_input",
-                OUTPUT_TYPE_SIGNATURE: "signature_input"
+                OUTPUT_TYPE_DATA: OUTPUT_TYPE_DATA,  # Use constants directly for direct matching
+                OUTPUT_TYPE_METADATA: OUTPUT_TYPE_METADATA,
+                OUTPUT_TYPE_SIGNATURE: OUTPUT_TYPE_SIGNATURE
             }
             
             # Match each output type to corresponding input key
@@ -382,15 +422,10 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                 if output_type in output_locations and input_key_name in self.config.input_names:
                     input_key = self.config.input_names[input_key_name]
                     
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                        
-                    # Add output location to inputs
-                    if input_key not in inputs.get("inputs", {}):
-                        inputs["inputs"][input_key] = output_locations[output_type]
-                        matched_inputs.add("inputs")
-                        logger.info(f"Found {output_type} from CradleDataLoadingStep")
+                    # Add output location directly to inputs (no nesting)
+                    inputs[input_key] = output_locations[output_type]
+                    matched_inputs.add(input_key)
+                    logger.info(f"Found {output_type} from CradleDataLoadingStep")
                         
             return True
                 
@@ -414,22 +449,22 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         if not (hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0):
             return
             
-        # Match data output
+        # Match data output - now uses uppercase "DATA"
         self._match_output_by_name(
             inputs, prev_step, matched_inputs, 
-            "data_input", "data"
+            "DATA", "data"
         )
         
-        # Match metadata output
+        # Match metadata output - now uses uppercase "METADATA"
         self._match_output_by_name(
             inputs, prev_step, matched_inputs, 
-            "metadata_input", "metadata"
+            "METADATA", "metadata"
         )
         
-        # Match signature output
+        # Match signature output - now uses uppercase "SIGNATURE"
         self._match_output_by_name(
             inputs, prev_step, matched_inputs, 
-            "signature_input", "signature"
+            "SIGNATURE", "signature"
         )
         
     def _match_output_by_name(self, inputs: Dict[str, Any], prev_step: Step, 
@@ -442,7 +477,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             inputs: Dictionary to add matched inputs to
             prev_step: The dependency step
             matched_inputs: Set to add matched input names to
-            input_key_name: Name of the input key in config.input_names
+            input_key_name: Name of the input key in config.input_names (now uses uppercase constants)
             output_name_pattern: Pattern to look for in output names
         """
         try:
@@ -457,25 +492,19 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                 if (hasattr(output, "output_name") and 
                     output_name_pattern in output.output_name.lower()):
                     
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                    
-                    # Add output destination to inputs
-                    if input_key not in inputs.get("inputs", {}):
-                        inputs["inputs"][input_key] = output.destination
-                        matched_inputs.add("inputs")
-                        logger.info(f"Found {output_name_pattern} from ProcessingStep")
-                        break
+                    # Add output destination directly to inputs (no nesting)
+                    inputs[input_key] = output.destination
+                    matched_inputs.add(input_key)
+                    logger.info(f"Found {output_name_pattern} from ProcessingStep")
+                    break
                         
         except Exception as e:
             logger.warning(f"Error matching {output_name_pattern} output: {e}")
     
     def create_step(self, **kwargs) -> ProcessingStep:
         """
-        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
-        This method orchestrates the assembly of the processor, inputs, outputs, and
-        script arguments into a single, executable pipeline step.
+        Creates the final, fully configured SageMaker ProcessingStep for the pipeline
+        using the standardized input handling approach.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
@@ -484,31 +513,47 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                 - dependencies: Optional list of steps that this step depends on.
                 - enable_caching: A boolean indicating whether to cache the results of this step
                                 to speed up subsequent pipeline runs with the same inputs.
+                - DATA, METADATA, SIGNATURE: Direct attribute references from pipeline template
+                  representing Join objects (outputs from CradleDataLoadingStep)
 
         Returns:
             A configured sagemaker.workflow.steps.ProcessingStep instance.
         """
         logger.info("Creating TabularPreprocessing ProcessingStep...")
 
-        # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs')
-        outputs = self._extract_param(kwargs, 'outputs')
-        dependencies = self._extract_param(kwargs, 'dependencies')
+        # Extract parameters using standard methods
+        inputs_raw = self._extract_param(kwargs, 'inputs', {})
+        outputs = self._extract_param(kwargs, 'outputs', {})
+        dependencies = self._extract_param(kwargs, 'dependencies', [])
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
+        # Normalize inputs using standard helper method
+        inputs = self._normalize_inputs(inputs_raw)
+        
+        # Handle direct attribute references that may come from template's _instantiate_step
+        # These would be top-level kwargs like DATA, METADATA, SIGNATURE
+        for key in ["DATA", "METADATA", "SIGNATURE"]:
+            if key in kwargs and key not in inputs:
+                inputs[key] = kwargs[key]
+                logger.info(f"Added {key} from direct attribute reference")
+        
         # Validate required parameters
-        if not inputs:
-            raise ValueError("inputs must be provided")
         if not outputs:
             raise ValueError("outputs must be provided")
+            
+        # Extra debug logging to help diagnose connection issues
+        logger.info(f"Input keys after normalization: {list(inputs.keys())}")
 
+        # Create processor and get inputs/outputs
         processor = self._create_processor()
         proc_inputs = self._get_processor_inputs(inputs)
         proc_outputs = self._get_processor_outputs(outputs)
         job_args = self._get_job_arguments()
 
+        # Create step name
         step_name = f"{self._get_step_name('TabularPreprocessing')}-{self.config.job_type.capitalize()}"
         
+        # Create and return the step
         processing_step = ProcessingStep(
             name=step_name,
             processor=processor,
@@ -516,7 +561,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             outputs=proc_outputs,
             code=self.config.get_script_path(),
             job_arguments=job_args,
-            depends_on=dependencies or [],
+            depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)
         )
         logger.info(f"Created ProcessingStep with name: {processing_step.name}")

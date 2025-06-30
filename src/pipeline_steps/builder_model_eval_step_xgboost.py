@@ -143,52 +143,47 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
     def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
-        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
-        This defines the data channels for the processing job, mapping S3 locations
-        to local directories inside the container.
-
+        Constructs a list of ProcessingInput objects using the standardized helper methods.
+        
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'model_input', 'eval_data_input')
-                    to their S3 URIs or dynamic Step properties.
+            inputs: A dictionary mapping logical input channel names (keys from input_names)
+                   to their S3 URIs or dynamic Step properties.
 
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the input keys - use the keys directly
-        model_key = "model_input"
-        eval_data_key = "eval_data_input"
+        # Validate required inputs using the standard helper method
+        self._validate_inputs(inputs)
         
-        # Check if inputs is empty or doesn't contain the required keys
-        if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_key}' and '{eval_data_key}'")
+        processing_inputs = []
         
-        if model_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{model_key}' in 'inputs'")
-        
-        if eval_data_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{eval_data_key}' in 'inputs'")
-
-        # Define the input channels
-        processing_inputs = [
-            ProcessingInput(
-                input_name=model_key,
-                source=inputs[model_key],
-                destination="/opt/ml/processing/input/model"
-            ),
-            ProcessingInput(
-                input_name=eval_data_key,
-                source=inputs[eval_data_key],
-                destination="/opt/ml/processing/input/eval_data"
+        # Process model input (required) using standard helper
+        processing_inputs.append(
+            self._create_standard_processing_input(
+                "model_input",
+                inputs,
+                "/opt/ml/processing/input/model"
             )
-        ]
+        )
+        
+        # Process evaluation data input (required) using standard helper
+        processing_inputs.append(
+            self._create_standard_processing_input(
+                "eval_data_input",
+                inputs,
+                "/opt/ml/processing/input/eval_data"
+            )
+        )
         
         # Add optional hyperparameters input if available
-        if "hyperparameters_input" in self.config.input_names and "hyperparameters_input" in inputs:
+        hyperparams_logical_name = "hyperparameters_input"
+        if (hyperparams_logical_name in self.config.input_names and 
+            hyperparams_logical_name in inputs):
             processing_inputs.append(
-                ProcessingInput(
-                    input_name=self.config.input_names["hyperparameters_input"],
-                    source=inputs[self.config.input_names["hyperparameters_input"]],
-                    destination="/opt/ml/processing/input/hyperparameters"
+                self._create_standard_processing_input(
+                    hyperparams_logical_name,
+                    inputs,
+                    "/opt/ml/processing/input/hyperparameters"
                 )
             )
         
@@ -196,41 +191,37 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
     def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
         """
-        Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 location where the results of the processing job will be stored.
+        Constructs the ProcessingOutput objects needed for this step using standardized helper methods.
+        Uses VALUES from output_names as keys in the outputs dictionary (standard pattern).
 
         Args:
-            outputs: A dictionary mapping the logical output channel names ('eval_output', 'metrics_output')
-                     to their S3 destination URIs.
+            outputs: A dictionary mapping the output values from output_names to their S3 destination URIs.
 
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        eval_out_key = "eval_output"
-        metrics_out_key = "metrics_output"
+        # Validate outputs using standard helper method
+        self._validate_outputs(outputs)
         
-        if not outputs:
-            raise ValueError(f"Outputs dictionary is empty. Must supply S3 URIs for '{eval_out_key}' and '{metrics_out_key}'")
+        processing_outputs = []
         
-        if eval_out_key not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{eval_out_key}' in 'outputs'")
-            
-        if metrics_out_key not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{metrics_out_key}' in 'outputs'")
-        
-        # Define the outputs for evaluation results and metrics
-        processing_outputs = [
-            ProcessingOutput(
-                output_name=eval_out_key,
-                source="/opt/ml/processing/output/eval",
-                destination=outputs[eval_out_key]
-            ),
-            ProcessingOutput(
-                output_name=metrics_out_key,
-                source="/opt/ml/processing/output/metrics",
-                destination=outputs[metrics_out_key]
+        # Add evaluation results output using helper method
+        processing_outputs.append(
+            self._create_standard_processing_output(
+                "eval_output",
+                outputs,
+                "/opt/ml/processing/output/eval"
             )
-        ]
+        )
+        
+        # Add metrics output using helper method
+        processing_outputs.append(
+            self._create_standard_processing_output(
+                "metrics_output",
+                outputs,
+                "/opt/ml/processing/output/metrics"
+            )
+        )
         
         return processing_outputs
 
@@ -344,9 +335,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
     
     def create_step(self, **kwargs) -> ProcessingStep:
         """
-        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
-        This method orchestrates the assembly of the processor, inputs, outputs, and
-        script arguments into a single, executable pipeline step.
+        Creates the final, fully configured SageMaker ProcessingStep for the pipeline
+        using the standardized input handling approach.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
@@ -361,38 +351,45 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         """
         logger.info("Creating XGBoostModelEval ProcessingStep...")
 
-        # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs')
-        outputs = self._extract_param(kwargs, 'outputs')
-        dependencies = self._extract_param(kwargs, 'dependencies')
+        # Extract parameters using standard methods
+        inputs_raw = self._extract_param(kwargs, 'inputs', {})
+        outputs = self._extract_param(kwargs, 'outputs', {})
+        dependencies = self._extract_param(kwargs, 'dependencies', [])
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
+        # Normalize inputs using standard helper method
+        inputs = self._normalize_inputs(inputs_raw)
+        
         # Validate required parameters
-        if not inputs:
-            raise ValueError("inputs must be provided")
         if not outputs:
             raise ValueError("outputs must be provided")
+            
+        # Log input keys for debugging
+        logger.info(f"Input keys after normalization: {list(inputs.keys())}")
 
+        # Create processor and get inputs/outputs
         processor = self._create_processor()
         proc_inputs = self._get_processor_inputs(inputs)
         proc_outputs = self._get_processor_outputs(outputs)
         job_args = self._get_job_arguments()
 
+        # Create step name
         step_name = self._get_step_name('XGBoostModelEval')
         
-        
+        # Create step arguments
         step_args = processor.run(
-            code=self.config.processing_entry_point, #self.config.get_script_path(),
-            source_dir=self.config.processing_source_dir, # This is the crucial part
+            code=self.config.processing_entry_point,
+            source_dir=self.config.processing_source_dir,
             inputs=proc_inputs,
             outputs=proc_outputs,
             arguments=job_args,
         )
 
+        # Create and return the step
         processing_step = ProcessingStep(
             name=step_name,
             step_args=step_args,
-            depends_on=dependencies or [],
+            depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)
         )
         logger.info(f"Created ProcessingStep with name: {processing_step.name}")

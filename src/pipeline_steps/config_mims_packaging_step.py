@@ -15,17 +15,17 @@ class PackageStepConfig(ProcessingStepConfigBase):
     # Input/output names for packaging with defaults
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_input": "Input name for model artifacts",
-            "inference_scripts_input": "Input name for inference scripts"
+            "model_input": "ModelArtifacts",              # KEY: logical name, VALUE: script input name
+            "inference_scripts_input": "InferenceScripts"  # KEY: logical name, VALUE: script input name
         },
-        description="Dictionary mapping input names to their descriptions."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "packaged_model_output": "Output name for the packaged model"
+            "packaged_model_output": "PackagedModel"  # KEY: logical name, VALUE: output descriptor
         },
-        description="Dictionary mapping output names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
 
     class Config(ProcessingStepConfigBase.Config):
@@ -39,15 +39,15 @@ class PackageStepConfig(ProcessingStepConfigBase):
             raise ValueError("packaging step requires a processing_entry_point")
 
         # Set defaults if needed
-        if not self.input_names:
+        if self.input_names is None or len(self.input_names) == 0:
             self.input_names = {
-                "model_input": "Input name for model artifacts",
-                "inference_scripts_input": "Input name for inference scripts"
+                "model_input": "ModelArtifacts",              # KEY: logical name, VALUE: script input name
+                "inference_scripts_input": "InferenceScripts"  # KEY: logical name, VALUE: script input name
             }
         
-        if not self.output_names:
+        if self.output_names is None or len(self.output_names) == 0:
             self.output_names = {
-                "packaged_model_output": "Output name for the packaged model"
+                "packaged_model_output": "PackagedModel"  # KEY: logical name, VALUE: output descriptor
             }
 
         # Validate required channels

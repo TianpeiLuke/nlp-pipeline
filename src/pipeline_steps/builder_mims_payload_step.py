@@ -135,8 +135,8 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             if hasattr(prev_step.properties.ModelArtifacts, "S3ModelArtifacts"):
                 model_uri = prev_step.properties.ModelArtifacts.S3ModelArtifacts
                 
-                # Get the model_input key from config
-                model_key = self.config.input_names.get("model_input", "model_input")
+                # Always use the consistent logical name "model_input" for the inputs dictionary
+                model_key = "model_input"  # Use fixed logical name
                 
                 # Initialize inputs dict if needed
                 if "inputs" not in inputs:
@@ -145,7 +145,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
                 # Add model artifact to inputs
                 inputs["inputs"][model_key] = model_uri
                 matched_inputs.add("inputs")
-                logger.info(f"Matched model artifacts from training step: {model_uri}")
+                logger.info("Matched model artifacts from training step (reference)")
         
         return matched_inputs
 
@@ -172,37 +172,52 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
 
     def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
-        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
+        Constructs a list of ProcessingInput objects using the standardized helper methods.
         
         Args:
-            inputs: A dictionary with model_input in the inputs subdictionary
+            inputs: A dictionary with model_input key (already normalized by create_step)
         
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the model input key from config
-        model_key = self.config.input_names.get("model_input", "model_input")
+        # Important: inputs should already be normalized by create_step
+        # Do not normalize again to prevent losing direct parameters
         
-        # Validate model_input is provided
-        if "inputs" not in inputs or model_key not in inputs["inputs"]:
+        # Always use the logical name "model_input" for consistency
+        model_key = "model_input"
+        
+        # Validate required inputs - check for the logical name as the key
+        if model_key not in inputs:
             raise ValueError(f"{model_key} is required for MIMSPayload step")
+            
+        # Get the script parameter name that will be used
+        script_input_name = self.config.input_names.get(model_key, "ModelArtifacts")
+        logger.info(f"Using logical key '{model_key}' mapped to script parameter name '{script_input_name}'")
+        logger.info(f"Available input keys: {list(inputs.keys())}")
+        logger.info(f"Creating processing input with logical key '{model_key}' -> script parameter '{script_input_name}'")
         
-        model_uri = inputs["inputs"][model_key]
+        # Confirm the mapping will work correctly with some extra logging
+        logger.info(f"Input value to be used: {type(inputs[model_key]).__name__} (not logging actual value)")
         
-        # Set up the processor inputs
+        # Use standard helper method to create ProcessingInput with the logical name
+        # The StepBuilderBase._create_standard_processing_input will use input_names to map logical -> script names
         return [
-            ProcessingInput(
-                source=model_uri,
-                destination="/opt/ml/processing/input/model/model.tar.gz"
+            self._create_standard_processing_input(
+                model_key,  # Use the logical name here
+                inputs,     # Use the inputs directly, no second normalization
+                "/opt/ml/processing/input/model"
             )
         ]
 
     def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
         """
         Constructs the ProcessingOutput objects needed for this step.
+        Unlike other step builders, this one generates its own output paths
+        when no output paths are provided.
         
         Args:
-            outputs: Optional dictionary with output specifications (not used)
+            outputs: Optional dictionary with output specifications.
+                    If empty, default paths will be generated.
 
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
@@ -210,18 +225,80 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # Determine S3 prefix for outputs
         base_s3_uri = f"{self.config.pipeline_s3_loc}/payload" if hasattr(self.config, 'pipeline_s3_loc') else f"s3://{self.config.bucket}/mods/payload/{self.config.pipeline_name}"
         
-        return [
-            ProcessingOutput(
-                output_name="payload_sample",
-                source="/opt/ml/processing/output/payload_sample",
-                destination=f"{base_s3_uri}/payload_sample"
-            ),
-            ProcessingOutput(
-                output_name="payload_metadata", 
-                source="/opt/ml/processing/output/payload_metadata",
-                destination=f"{base_s3_uri}/payload_metadata"
-            )
-        ]
+        # Create an outputs dictionary if none was provided
+        generated_outputs = {}
+        
+        # Check if we have output_names defined
+        if hasattr(self.config, 'output_names') and self.config.output_names:
+            # Use output_names VALUES as keys (standard pattern)
+            if "payload_sample" in self.config.output_names:
+                sample_key = self.config.output_names["payload_sample"]
+                generated_outputs[sample_key] = f"{base_s3_uri}/payload_sample"
+            else:
+                generated_outputs["payload_sample"] = f"{base_s3_uri}/payload_sample"
+                
+            if "payload_metadata" in self.config.output_names:
+                metadata_key = self.config.output_names["payload_metadata"]
+                generated_outputs[metadata_key] = f"{base_s3_uri}/payload_metadata"
+            else:
+                generated_outputs["payload_metadata"] = f"{base_s3_uri}/payload_metadata"
+        else:
+            # No output_names defined, use default keys
+            generated_outputs["payload_sample"] = f"{base_s3_uri}/payload_sample"
+            generated_outputs["payload_metadata"] = f"{base_s3_uri}/payload_metadata"
+            
+        # If outputs were provided, use those instead of generated ones
+        if outputs:
+            generated_outputs.update(outputs)
+            
+        # Create ProcessingOutput objects
+        processing_outputs = []
+        
+        if "payload_sample" in generated_outputs or (hasattr(self.config, 'output_names') and 
+                                                   "payload_sample" in self.config.output_names and
+                                                   self.config.output_names["payload_sample"] in generated_outputs):
+            # Try to use standard approach if possible
+            if hasattr(self.config, 'output_names') and "payload_sample" in self.config.output_names:
+                processing_outputs.append(
+                    self._create_standard_processing_output(
+                        "payload_sample",
+                        generated_outputs,
+                        "/opt/ml/processing/output/payload_sample"
+                    )
+                )
+            else:
+                # Fall back to direct construction
+                processing_outputs.append(
+                    ProcessingOutput(
+                        output_name="payload_sample",
+                        source="/opt/ml/processing/output/payload_sample",
+                        destination=generated_outputs["payload_sample"]
+                    )
+                )
+                
+        if "payload_metadata" in generated_outputs or (hasattr(self.config, 'output_names') and 
+                                                     "payload_metadata" in self.config.output_names and
+                                                     self.config.output_names["payload_metadata"] in generated_outputs):
+            # Try to use standard approach if possible
+            if hasattr(self.config, 'output_names') and "payload_metadata" in self.config.output_names:
+                processing_outputs.append(
+                    self._create_standard_processing_output(
+                        "payload_metadata",
+                        generated_outputs,
+                        "/opt/ml/processing/output/payload_metadata"
+                    )
+                )
+            else:
+                # Fall back to direct construction
+                processing_outputs.append(
+                    ProcessingOutput(
+                        output_name="payload_metadata",
+                        source="/opt/ml/processing/output/payload_metadata",
+                        destination=generated_outputs["payload_metadata"]
+                    )
+                )
+                
+        return processing_outputs
 
     def _get_environment_variables(self) -> Dict[str, str]:
         """
@@ -261,7 +338,9 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - model_input: S3 URI of the model artifacts from training
+                - model_input: S3 URI of the model artifacts from training (can be passed directly)
+                - inputs: Dictionary that may contain model_input (alternative to direct parameter)
+                  Can be nested (e.g., {'inputs': {'model_input': uri}}) or flat (e.g., {'model_input': uri})
                 - dependencies: Optional list of steps that this step depends on.
                 - enable_caching: Whether to enable caching for this step.
                 
@@ -269,8 +348,9 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             A configured ProcessingStep instance.
         """
         # Extract common parameters
-        model_input = self._extract_param(kwargs, 'model_input', None)
-        dependencies = self._extract_param(kwargs, 'dependencies', None)
+        inputs_raw = self._extract_param(kwargs, 'inputs')
+        model_input_direct = self._extract_param(kwargs, 'model_input')
+        dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
         logger.info("Creating MIMSPayload ProcessingStep...")
@@ -278,27 +358,47 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # Get the step name
         step_name = self._get_step_name('Payload')
         
-        # Create inputs dictionary
-        inputs = {}
+        # Normalize inputs - handles both nested and flat structures
+        # This ensures inputs work regardless of how they're passed
+        inputs = self._normalize_inputs(inputs_raw)
         
-        # If model_input was provided directly, add it to inputs
-        if model_input is not None:
-            model_key = self.config.input_names.get("model_input", "model_input")
-            inputs["inputs"] = {model_key: model_input}
+        # Always use the consistent logical name "model_input" for the inputs dictionary
+        # This is the key that _get_processor_inputs will look for
+        model_key = "model_input"  # Use fixed logical name
         
-        # Auto-detect inputs from dependencies if no direct inputs and we have dependencies
-        if not inputs and dependencies:
+        # The script parameter name will be determined in _get_processor_inputs using config.input_names
+        script_param_name = self.config.input_names.get(model_key, "ModelArtifacts")
+        logger.info(f"Using logical key '{model_key}' for inputs dictionary")
+        logger.info(f"This will map to script parameter '{script_param_name}' in processor inputs")
+        
+        if model_input_direct is not None:
+            inputs[model_key] = model_input_direct
+            logger.info("Using directly provided model_input parameter (reference)")
+        else:
+            logger.info("No direct model_input parameter provided")
+        
+        # Auto-detect inputs from dependencies if we still need the model input
+        if model_key not in inputs and dependencies:
             input_requirements = self.get_input_requirements()
             
-            # Extract both regular inputs and model_input from dependencies
+            # Extract inputs from dependencies
             for dep_step in dependencies:
-                matched = self._match_custom_properties(inputs, input_requirements, dep_step)
+                # Create temporary dictionary to collect inputs from matching
+                temp_inputs = {}
+                matched = self._match_custom_properties(temp_inputs, input_requirements, dep_step)
+                
                 if matched:
-                    logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', str(dep_step))}")
+                    # Normalize any nested inputs from the matching
+                    normalized_deps = self._normalize_inputs(temp_inputs)
+                    # Add to our main inputs
+                    inputs.update(normalized_deps)
+                    logger.info(f"Found inputs from dependency step: {getattr(dep_step, 'name', None)}")
+                    
+        # Log the normalized inputs for debugging
+        logger.debug(f"Normalized inputs: {list(inputs.keys())}")
                     
         # Verify we have the required model input
-        model_key = self.config.input_names.get("model_input", "model_input")
-        if "inputs" not in inputs or model_key not in inputs.get("inputs", {}):
+        if model_key not in inputs:
             raise ValueError(f"Required model input '{model_key}' not found in inputs or dependencies")
         
         # Create the processing step using helper methods

@@ -51,23 +51,23 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
         description="Fraction of the holdout to allocate to the test set vs. validation (only if data_type=='training')."
     )
 
-    # 5) Exactly one input channel, two output channels
+    # 5) Required input/output channel mappings
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "data_input": "RawData",
-            "metadata_input": "Metadata",
-            "signature_input": "Signature"
+            "DATA": "RawData",        # KEY: logical name from upstream output, VALUE: script input name
+            "METADATA": "Metadata",   # KEY: logical name from upstream output, VALUE: script input name
+            "SIGNATURE": "Signature"  # KEY: logical name from upstream output, VALUE: script input name
         },
-        description="Mapping of input channel names to their descriptions. "
-                   "Must contain 'data_input'. 'metadata_input' and 'signature_input' are optional."
+        description="Mapping of logical input names (keys) to script input names (values). "
+                   "Must contain 'DATA'. 'METADATA' and 'SIGNATURE' are optional. "
+                   "These keys directly match CradleDataLoadingStep output keys."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "processed_data": "ProcessedTabularData",
-            "full_data": "FullTabularData"
+            "processed_data": "ProcessedTabularData",  # KEY: logical name, VALUE: output descriptor
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
 
     class Config(ProcessingStepConfigBase.Config):
@@ -111,40 +111,35 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
         if not self.hyperparameters.label_name or not self.hyperparameters.label_name.strip():
             raise ValueError("hyperparameters.label_name must be provided and non‐empty")
 
-        # Create update dictionary if needed
-        update_dict = {}
-        
-        # Set default input names if None or empty
-        if not self.input_names:
-            update_dict["input_names"] = {
-                "data_input": "RawData",
-                "metadata_input": "Metadata",
-                "signature_input": "Signature"
+        # Set default input names if None or empty dict - directly modify the attribute
+        if self.input_names is None or len(self.input_names) == 0:
+            self.input_names = {
+                "DATA": "RawData",        # Consistent with class-level default
+                "METADATA": "Metadata",   # Consistent with class-level default
+                "SIGNATURE": "Signature"  # Consistent with class-level default
             }
         
-        # Set default output names if None or empty
-        if not self.output_names:
-            update_dict["output_names"] = {
-                "processed_data": "ProcessedTabularData",
-                "full_data": "FullTabularData"
+        # Set default output names if None or empty dict - directly modify the attribute
+        if self.output_names is None or len(self.output_names) == 0:
+            self.output_names = {
+                "processed_data": "ProcessedTabularData"
             }
         
-        # Create new model copy if updates are needed
-        model = self.model_copy(update=update_dict) if update_dict else self
-
         # Validate required input channel
-        if "data_input" not in model.input_names:
-            raise ValueError("input_names must contain key 'data_input'")
+        if "DATA" not in self.input_names:
+            raise ValueError("input_names must contain key 'DATA'")
 
         # Validate required output channels
-        if not all(key in model.output_names for key in ["processed_data", "full_data"]):
-            raise ValueError("output_names must contain keys 'processed_data' and 'full_data'")
+        if "processed_data" not in self.output_names:
+            raise ValueError("output_names must contain key 'processed_data'")
 
-        # Validate optional input channels
-        valid_input_channels = {"data_input", "metadata_input", "signature_input"}
-        invalid_channels = set(model.input_names.keys()) - valid_input_channels
+        # Validate optional input channels - only uppercase constants for standardization
+        valid_input_channels = {
+            "DATA", "METADATA", "SIGNATURE"  # Only uppercase constants for standardization
+        }
+        invalid_channels = set(self.input_names.keys()) - valid_input_channels
         if invalid_channels:
             raise ValueError(f"Invalid input channel names: {invalid_channels}. "
                            f"Must be one of: {valid_input_channels}")
 
-        return model
+        return self

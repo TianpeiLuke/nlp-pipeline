@@ -56,23 +56,10 @@ try:
         OUTPUT_TYPE_SIGNATURE,
     )
 except ImportError:
-    # Fallback to dynamic import if the direct import fails
-    SECUREAI_PIPELINE_CONSTANTS_MODULE = os.environ.get("SECUREAI_PIPELINE_CONSTANTS_MODULE")
-    OUTPUT_TYPE_DATA = OUTPUT_TYPE_METADATA = OUTPUT_TYPE_SIGNATURE = None
-    if SECUREAI_PIPELINE_CONSTANTS_MODULE:
-        try:
-            const_mod = importlib.import_module(SECUREAI_PIPELINE_CONSTANTS_MODULE)
-            OUTPUT_TYPE_DATA      = getattr(const_mod, "OUTPUT_TYPE_DATA",      None)
-            OUTPUT_TYPE_METADATA  = getattr(const_mod, "OUTPUT_TYPE_METADATA",  None)
-            OUTPUT_TYPE_SIGNATURE = getattr(const_mod, "OUTPUT_TYPE_SIGNATURE", None)
-            logger.info(f"Imported pipeline constants from {SECUREAI_PIPELINE_CONSTANTS_MODULE}")
-        except ImportError as e:
-            logger.error(f"Could not import pipeline constants: {e}")
-    else:
-        logger.warning(
-            "SECUREAI_PIPELINE_CONSTANTS_MODULE not set; "
-            "pipeline constants (DATA, METADATA, SIGNATURE) unavailable."
-        )
+     # Fallback to string constants if import fails
+    OUTPUT_TYPE_DATA = "DATA"  # Upper Case, correct one
+    OUTPUT_TYPE_METADATA = "METADATA"  # Upper Case, correct one
+    OUTPUT_TYPE_SIGNATURE = "SIGNATURE"  # Upper Case, correct one
 
 
 class CradleDataLoadingStepBuilder(StepBuilderBase):
@@ -203,6 +190,11 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         """
         Get the output properties this step provides.
         
+        CradleDataLoadingStep is special in that it provides output locations through 
+        direct attribute access (step.DATA, step.METADATA, step.SIGNATURE) rather than
+        through the standard properties. However, it still adheres to the standard pattern
+        of using VALUES from output_names as keys in outputs dictionary where applicable.
+        
         Returns:
             Dictionary mapping output property names to descriptions
         """
@@ -216,20 +208,20 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             "signature_output": "S3 URI of the signature"
         }
         
-        # Create output properties dictionary
-        for output_name, output_key in (self.config.output_names or {}).items():
-            if output_name in output_descriptions:
-                output_props[output_key] = output_descriptions[output_name]
+        # Create output properties dictionary - use VALUES from output_names as property names
+        for logical_name, output_value in (self.config.output_names or {}).items():
+            if logical_name in output_descriptions:
+                output_props[output_value] = output_descriptions[logical_name]
             else:
-                output_props[output_key] = f"S3 URI of the {output_name}"
+                output_props[output_value] = f"S3 URI of the {logical_name}"
         
-        # Add constants if available
+        # Add constants for direct attribute access
         if OUTPUT_TYPE_DATA:
-            output_props[OUTPUT_TYPE_DATA] = "S3 URI of the loaded data"
+            output_props[OUTPUT_TYPE_DATA] = "S3 URI of the loaded data (direct attribute)"
         if OUTPUT_TYPE_METADATA:
-            output_props[OUTPUT_TYPE_METADATA] = "S3 URI of the metadata"
+            output_props[OUTPUT_TYPE_METADATA] = "S3 URI of the metadata (direct attribute)"
         if OUTPUT_TYPE_SIGNATURE:
-            output_props[OUTPUT_TYPE_SIGNATURE] = "S3 URI of the signature"
+            output_props[OUTPUT_TYPE_SIGNATURE] = "S3 URI of the signature (direct attribute)"
         
         return output_props
         
@@ -256,7 +248,8 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         Creates a specialized CradleDataLoadingStep for Cradle data loading.
         
         This method creates a CradleDataLoadingStep that directly interacts with the
-        Cradle service to load data.
+        Cradle service to load data. It also adds direct attribute access to output locations
+        to make the step compatible with PipelineBuilderTemplate.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
@@ -265,7 +258,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 - enable_caching: A boolean indicating whether to cache the results of this step.
 
         Returns:
-            Step: A CradleDataLoadingStep instance.
+            Step: A CradleDataLoadingStep instance with added output attributes.
             
         Raises:
             ValueError: If there's an error creating the CradleDataLoadingStep.
@@ -282,6 +275,15 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 role=self.role,
                 sagemaker_session=self.session
             )
+            
+            # Add direct attributes for output locations to enable template compatibility
+            # These will be accessible as step.DATA, step.METADATA, step.SIGNATURE
+            if OUTPUT_TYPE_DATA:
+                setattr(step, OUTPUT_TYPE_DATA, step.job_outputs[OUTPUT_TYPE_DATA])
+            if OUTPUT_TYPE_METADATA:
+                setattr(step, OUTPUT_TYPE_METADATA, step.job_outputs[OUTPUT_TYPE_METADATA])
+            if OUTPUT_TYPE_SIGNATURE:
+                setattr(step, OUTPUT_TYPE_SIGNATURE, step.job_outputs[OUTPUT_TYPE_SIGNATURE])
             
             logger.info(f"Created CradleDataLoadingStep with name: {step.name}")
             

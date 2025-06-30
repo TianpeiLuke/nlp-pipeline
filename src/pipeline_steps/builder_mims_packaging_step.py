@@ -129,30 +129,26 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the input keys from config
-        model_key = self.config.input_names["model_input"]
-        scripts_key = self.config.input_names["inference_scripts_input"]
-        
-        # Check if inputs is empty or doesn't contain the required keys
+        # Check if inputs is empty
         if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply S3 URIs for '{model_key}' and '{scripts_key}'")
+            raise ValueError("Inputs dictionary is empty. Must supply required inputs.")
         
-        if model_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{model_key}' in 'inputs'")
-            
-        if scripts_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{scripts_key}' in 'inputs'")
+        # Validate required inputs against KEYS in input_names (standard pattern)
+        required_input_keys = ["model_input", "inference_scripts_input"]
+        missing_inputs = [key for key in required_input_keys if key not in inputs]
+        if missing_inputs:
+            raise ValueError(f"Missing required inputs: {', '.join(missing_inputs)}")
 
-        # Define the input channels
+        # Define the input channels using script input names from VALUES in input_names
         processing_inputs = [
             ProcessingInput(
-                input_name=model_key,
-                source=inputs[model_key],
+                input_name=self.config.input_names["model_input"],  # Script expects this name
+                source=inputs["model_input"],  # Use LOGICAL name for lookup
                 destination="/opt/ml/processing/input/model"
             ),
             ProcessingInput(
-                input_name=scripts_key,
-                source=inputs[scripts_key],
+                input_name=self.config.input_names["inference_scripts_input"],  # Script name
+                source=inputs["inference_scripts_input"],  # Use LOGICAL name for lookup
                 destination="/opt/ml/processing/input/script"
             )
         ]
@@ -171,7 +167,10 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
+        # Get VALUE from output_names (standard pattern for outputs)
         key_out = self.config.output_names["packaged_model_output"]
+        
+        # Check if outputs contains the required VALUE (standard pattern)
         if not outputs or key_out not in outputs:
             raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
         
@@ -226,23 +225,41 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             Set of input names that were successfully matched
         """
         matched_inputs = set()
+        step_name = getattr(prev_step, 'name', str(prev_step))
         
-        # Look for model artifacts from a TrainingStep
+        # Try to find ModelArtifacts.S3ModelArtifacts (standard SageMaker property)
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
             try:
+                # Extract model artifacts using the standard property path
                 model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                if "inputs" not in inputs:
-                    inputs["inputs"] = {}
                 
-                # Get the model input key from config
-                key_in = self.config.input_names.get("model_input")
-                if key_in and key_in not in inputs.get("inputs", {}):
-                    inputs["inputs"][key_in] = model_artifacts
-                    matched_inputs.add("inputs")
-                    logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
+                # Use logical name (KEY from input_names) as key in inputs
+                model_input_key = "model_input"  # This is the logical name (KEY)
+                inputs[model_input_key] = model_artifacts  # Set at top level using logical name
+                matched_inputs.add(model_input_key)
+                logger.info(f"Found model artifacts from step {step_name}")
             except AttributeError as e:
-                logger.warning(f"Could not extract model artifacts from step: {e}")
-                
+                logger.warning(f"Error getting ModelArtifacts.S3ModelArtifacts: {e}")
+        
+        # Fall back to model_data property if it exists
+        elif hasattr(prev_step, "model_data"):
+            model_input_key = "model_input"  # This is the logical name (KEY)
+            inputs[model_input_key] = prev_step.model_data
+            matched_inputs.add(model_input_key)
+            logger.info(f"Found model_data from step {step_name}")
+        
+        # Add inference_scripts_input using the logical name (KEY)
+        inference_scripts_key = "inference_scripts_input"  # This is the logical name (KEY)
+        if inference_scripts_key not in inputs:
+            inference_scripts_path = self.config.source_dir
+            if not inference_scripts_path:
+                # Fall back to notebook_root/inference
+                inference_scripts_path = str(self.notebook_root / "inference") if self.notebook_root else "inference"
+            
+            inputs[inference_scripts_key] = inference_scripts_path  # Set using logical name
+            matched_inputs.add(inference_scripts_key)
+            logger.info(f"Using inference scripts path: {inference_scripts_path}")
+        
         return matched_inputs
     
     def create_step(self, **kwargs) -> ProcessingStep:
@@ -254,6 +271,9 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
+                  Can be nested (e.g., {'inputs': {'model_input': uri}}) or flat (e.g., {'model_input': uri}).
+                - model_input: Direct parameter for model input URI (alternative to nested inputs).
+                - inference_scripts_input: Direct parameter for inference scripts path (alternative to nested inputs).
                 - outputs: A dictionary mapping output channel names to their S3 destinations.
                 - dependencies: Optional list of steps that this step depends on.
                 - enable_caching: A boolean indicating whether to cache the results of this step
@@ -265,10 +285,26 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         logger.info("Creating MIMSPackaging ProcessingStep...")
 
         # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs')
+        inputs_raw = self._extract_param(kwargs, 'inputs')
         outputs = self._extract_param(kwargs, 'outputs')
         dependencies = self._extract_param(kwargs, 'dependencies')
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
+        
+        # Normalize inputs - handles both nested and flat structures
+        # This ensures inputs work regardless of whether they're passed as:
+        # 1. inputs={'model_input': uri, 'inference_scripts_input': path}
+        # 2. inputs={'inputs': {'model_input': uri, 'inference_scripts_input': path}}
+        # 3. model_input=uri, inference_scripts_input=path (direct kwargs)
+        inputs = self._normalize_inputs(inputs_raw)
+        
+        # Add direct parameters if provided (overriding any in inputs)
+        for param in ['model_input', 'inference_scripts_input']:
+            if param in kwargs:
+                inputs[param] = kwargs[param]
+                logger.debug(f"Added direct parameter: {param}")
+        
+        # Log the normalized inputs for debugging
+        logger.debug(f"Normalized inputs: {list(inputs.keys())}")
         
         # Validate required parameters
         if not inputs:

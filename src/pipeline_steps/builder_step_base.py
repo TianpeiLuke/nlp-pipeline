@@ -34,7 +34,50 @@ STEP_NAMES = {
 
 
 class StepBuilderBase(ABC):
-    """Base class for all step builders"""
+    """
+    Base class for all step builders
+    
+    Standard Pattern for `input_names` and `output_names`:
+    
+    1. In **config classes**:
+       ```python
+       output_names = {"logical_name": "DescriptiveValue"}  # VALUE used as key in outputs dict
+       input_names = {"logical_name": "ScriptInputName"}    # KEY used as key in inputs dict
+       ```
+    
+    2. In **pipeline code**:
+       ```python
+       # Get output using VALUE from output_names
+       output_value = step_a.config.output_names["logical_name"]
+       output_uri = step_a.properties.ProcessingOutputConfig.Outputs[output_value].S3Output.S3Uri
+       
+       # Set input using KEY from input_names
+       inputs = {"logical_name": output_uri}
+       ```
+    
+    3. In **step builders**:
+       ```python
+       # For outputs - validate using VALUES
+       value = self.config.output_names["logical_name"]
+       if value not in outputs:
+           raise ValueError(f"Must supply an S3 URI for '{value}'")
+           
+       # For inputs - validate using KEYS
+       for logical_name in self.config.input_names.keys():
+           if logical_name not in inputs:
+               raise ValueError(f"Must supply an S3 URI for '{logical_name}'")
+       ```
+    
+    Developers should follow this standard pattern when creating new step builders.
+    The base class provides helper methods to enforce and simplify this pattern:
+    
+    - `_validate_inputs()`: Validates inputs using KEYS from input_names
+    - `_validate_outputs()`: Validates outputs using VALUES from output_names
+    - `_get_script_input_name()`: Maps logical name to script input name
+    - `_get_output_destination_name()`: Maps logical name to output destination name
+    - `_create_standard_processing_input()`: Creates standardized ProcessingInput
+    - `_create_standard_processing_output()`: Creates standardized ProcessingOutput
+    """
 
     REGION_MAPPING: Dict[str, str] = {
         "NA": "us-east-1",
@@ -612,5 +655,454 @@ class StepBuilderBase(ABC):
         value = kwargs.get(param_name, default)
         if value is None and default is not None:
             logger.debug(f"Parameter '{param_name}' not found in kwargs, using default")
+        else:
+            # Log the parameter type to help with debugging
+            param_type = type(value).__name__
+            if isinstance(value, dict):
+                logger.debug(f"Extracted '{param_name}': {param_type} with keys: {list(value.keys())}")
+            elif isinstance(value, list):
+                logger.debug(f"Extracted '{param_name}': {param_type} with length: {len(value)}")
+            else:
+                if param_name not in ['model_input', 'inference_scripts_input']:  # Don't log possibly sensitive data
+                    logger.debug(f"Extracted '{param_name}': {param_type}")
+                else:
+                    logger.debug(f"Extracted '{param_name}': {param_type} (value redacted)")
             
         return value
+        
+    def _normalize_inputs(self, inputs_raw: Any) -> Dict[str, Any]:
+        """
+        Normalize inputs to a flat dictionary format.
+        
+        This method handles different input structures:
+        1. None -> Empty dictionary
+        2. Flat dictionary -> Used as is
+        3. Dictionary with nested 'inputs' field -> Merged with outer keys
+        
+        Args:
+            inputs_raw: Raw inputs object, typically from kwargs
+            
+        Returns:
+            Normalized flat dictionary of inputs
+        """
+        inputs = {}
+        
+        if not inputs_raw:
+            return inputs
+            
+        if isinstance(inputs_raw, dict):
+            # Copy direct key-value pairs (excluding 'inputs' field)
+            inputs.update({k: v for k, v in inputs_raw.items() if k != "inputs"})
+            
+            # Handle nested "inputs" field if present
+            if "inputs" in inputs_raw and isinstance(inputs_raw["inputs"], dict):
+                for k, v in inputs_raw["inputs"].items():
+                    if k not in inputs:
+                        inputs[k] = v
+        
+        return inputs
+    
+    def _check_missing_inputs(self, inputs: Dict[str, Any], check_input_names: bool = False) -> List[str]:
+        """
+        Check for missing required inputs.
+        
+        This method can check inputs against either:
+        1. input_requirements from get_input_requirements() (default)
+        2. input_names keys from config.input_names (when check_input_names=True)
+        
+        Args:
+            inputs: Dictionary of input values
+            check_input_names: If True, check against config.input_names keys
+                              If False, check against get_input_requirements()
+        
+        Returns:
+            List of missing required input names
+        """
+        # Validate input
+        if inputs is None:
+            logger.warning("Cannot check missing inputs: inputs is None")
+            return []
+            
+        missing_inputs = []
+        
+        if check_input_names:
+            # Check against config.input_names keys
+            if hasattr(self.config, 'input_names') and self.config.input_names:
+                for input_name in self.config.input_names.keys():
+                    if input_name not in inputs:
+                        missing_inputs.append(input_name)
+            else:
+                logger.debug("config.input_names is not defined or empty")
+        else:
+            # Check against input_requirements (original behavior)
+            input_requirements = self.get_input_requirements()
+            if not input_requirements:
+                return []
+                
+            for input_name, input_desc in input_requirements.items():
+                # Skip optional inputs (those with "optional" in the description)
+                if input_desc and "optional" in input_desc.lower():
+                    continue
+                
+                # Check if input is missing
+                if input_name not in inputs:
+                    missing_inputs.append(input_name)
+                    
+        return missing_inputs
+    
+    def _validate_inputs(self, inputs: Dict[str, Any], raise_error: bool = True) -> bool:
+        """
+        Validate that all required inputs are present.
+        
+        This method checks that all keys in config.input_names are present in inputs.
+        
+        Args:
+            inputs: Dictionary of inputs to validate
+            raise_error: Whether to raise an error if inputs are missing
+            
+        Returns:
+            True if all required inputs are present, False otherwise
+            
+        Raises:
+            ValueError: If required inputs are missing and raise_error=True
+        """
+        missing = self._check_missing_inputs(inputs, check_input_names=True)
+        
+        if missing and raise_error:
+            raise ValueError(f"Missing required inputs: {', '.join(missing)}")
+            
+        return len(missing) == 0
+    
+    def _get_script_input_name(self, logical_name: str) -> str:
+        """
+        Get the script input name for a logical input name.
+        
+        Args:
+            logical_name: Logical input name (key in input_names)
+            
+        Returns:
+            Script input name (value in input_names) or logical_name if not found
+            
+        Example:
+            If config.input_names = {"data": "InputData"},
+            _get_script_input_name("data") returns "InputData"
+        """
+        if not hasattr(self.config, 'input_names') or not self.config.input_names:
+            return logical_name
+            
+        return self.config.input_names.get(logical_name, logical_name)
+    
+    def _get_output_destination_name(self, logical_name: str) -> str:
+        """
+        Get the output destination name (VALUE) for a logical output name.
+        
+        Args:
+            logical_name: Logical output name (key in output_names)
+            
+        Returns:
+            Output destination name (value in output_names) or logical_name if not found
+            
+        Example:
+            If config.output_names = {"results": "ProcessedData"},
+            _get_output_destination_name("results") returns "ProcessedData"
+        """
+        if not hasattr(self.config, 'output_names') or not self.config.output_names:
+            return logical_name
+            
+        return self.config.output_names.get(logical_name, logical_name)
+        
+    def _validate_outputs(self, outputs: Dict[str, Any], raise_error: bool = True) -> bool:
+        """
+        Validate that all required outputs are present, using VALUES from output_names.
+        
+        This enhanced method is more resilient to different output types and structures,
+        including Join objects and other non-standard dictionary-like structures.
+        
+        Args:
+            outputs: Dictionary of outputs to validate (may be a Join object or other type)
+            raise_error: Whether to raise an error if outputs are missing
+            
+        Returns:
+            True if all required outputs are present, False otherwise
+            
+        Raises:
+            ValueError: If required outputs are missing and raise_error is True
+        """
+        if not outputs:
+            if raise_error:
+                raise ValueError("outputs must not be empty")
+            return False
+        
+        # Track missing outputs
+        missing = []
+        output_keys = set()
+        
+        # Collect all keys from outputs, handling potential Join objects
+        try:
+            # First try to get keys directly
+            if hasattr(outputs, 'keys'):
+                output_keys = set(outputs.keys())
+                logger.debug(f"Extracted keys from outputs: {output_keys}")
+            # If outputs is a string (single key), add it
+            elif isinstance(outputs, str):
+                output_keys.add(outputs)
+                logger.debug(f"Added string output as key: {outputs}")
+            # If output is an iterable with items() method, extract keys
+            elif hasattr(outputs, 'items'):
+                try:
+                    for k, _ in outputs.items():
+                        output_keys.add(k)
+                    logger.debug(f"Extracted keys from items(): {output_keys}")
+                except (AttributeError, TypeError):
+                    logger.debug("Could not extract keys using items()")
+            # Try converting to string and search for output values
+            else:
+                outputs_str = str(outputs)
+                logger.debug(f"Using string representation of outputs: {outputs_str[:100]}...")
+        except Exception as e:
+            logger.debug(f"Exception when extracting keys: {e}")
+        
+        # If we have output_names, validate that all required outputs are present
+        if hasattr(self.config, 'output_names') and self.config.output_names:
+            for logical_name, output_value in self.config.output_names.items():
+                # Check if the output value exists as a key in outputs
+                if output_value not in output_keys:
+                    # Try additional matching strategies
+                    found = False
+                    
+                    # Check for string representation match
+                    try:
+                        outputs_str = str(outputs)
+                        if output_value in outputs_str:
+                            logger.info(f"Found output '{output_value}' in string representation of outputs")
+                            found = True
+                    except:
+                        pass
+                        
+                    # Check if outputs is the value we're looking for
+                    if not found and outputs == output_value:
+                        logger.info(f"outputs object equals '{output_value}'")
+                        found = True
+                        
+                    # Check if the outputs object has an attribute with the output name
+                    if not found and hasattr(outputs, output_value):
+                        logger.info(f"outputs object has attribute '{output_value}'")
+                        found = True
+                    
+                    # If still not found, consider it missing
+                    if not found:
+                        missing.append(output_value)
+                        logger.warning(f"Missing required output: '{output_value}' (logical name: '{logical_name}')")
+        
+        # If we're missing any required outputs, log or raise an error
+        if missing and raise_error:
+            error_msg = f"Missing required outputs: {', '.join(missing)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+            
+        return len(missing) == 0
+        
+    def _create_standard_processing_input(self, logical_name: str, inputs: Dict[str, Any], 
+                                          destination: str = None, **kwargs) -> Any:
+        """
+        Create a standard ProcessingInput for the given logical name.
+        
+        Args:
+            logical_name: Logical input name (key in input_names)
+            inputs: Dictionary of inputs containing logical names as keys
+            destination: Optional destination path (if None, uses standard path)
+            **kwargs: Additional keyword arguments to pass to ProcessingInput
+                     (e.g., s3_data_distribution_type, s3_input_mode, etc.)
+            
+        Returns:
+            A ProcessingInput object
+            
+        Raises:
+            ValueError: If the logical name is not in inputs
+            
+        Example:
+            _create_standard_processing_input("data", inputs, "/opt/ml/processing/input/data")
+            
+        Advanced Example:
+            _create_standard_processing_input(
+                "model", inputs, "/opt/ml/processing/input/model",
+                s3_data_distribution_type="FullyReplicated",
+                s3_input_mode="File"
+            )
+        """
+        # Import ProcessingInput here to avoid circular imports
+        from sagemaker.processing import ProcessingInput
+        
+        if logical_name not in inputs:
+            raise ValueError(f"Input '{logical_name}' not found in inputs dictionary")
+        
+        script_input_name = self._get_script_input_name(logical_name)
+        
+        # If no destination specified, create a standard path
+        if destination is None:
+            destination = f"/opt/ml/processing/input/{logical_name.lower()}"
+            
+        return ProcessingInput(
+            input_name=script_input_name,
+            source=inputs[logical_name],
+            destination=destination,
+            **kwargs  # Forward additional arguments to ProcessingInput
+        )
+    
+    def _create_standard_processing_output(self, logical_name: str, outputs: Dict[str, Any],
+                                           source: str = None) -> Any:
+        """
+        Create a standard ProcessingOutput for the given logical name.
+        
+        This enhanced method is more resilient to different output types and structures,
+        including Join objects and other non-standard dictionary-like structures.
+        
+        Args:
+            logical_name: Logical output name (key in output_names)
+            outputs: Dictionary of outputs containing destination values as keys 
+            source: Optional source path (if None, uses standard path)
+            
+        Returns:
+            A ProcessingOutput object
+            
+        Raises:
+            ValueError: If the output destination name is not in outputs
+            
+        Example:
+            _create_standard_processing_output("results", outputs, "/opt/ml/processing/output")
+        """
+        # Import ProcessingOutput here to avoid circular imports
+        from sagemaker.processing import ProcessingOutput
+        
+        # Get the output destination name (VALUE) for this logical name
+        output_dest_name = self._get_output_destination_name(logical_name)
+        
+        # Initialize destination
+        destination = None
+        
+        # Try different strategies to find the destination
+        try:
+            # First, try direct dictionary access
+            if hasattr(outputs, 'get') or hasattr(outputs, '__getitem__'):
+                if output_dest_name in outputs:
+                    destination = outputs[output_dest_name]
+                    logger.debug(f"Found destination for '{output_dest_name}' using direct access")
+            
+            # If destination is still None, try string representation searching
+            if destination is None:
+                # Check if the outputs contains this value as a string
+                outputs_str = str(outputs)
+                if output_dest_name in outputs_str:
+                    # As a fallback, construct a path similar to _generate_outputs
+                    step_type = BasePipelineConfig.get_step_name(type(self.config).__name__)
+                    job_type = getattr(self.config, "job_type", "")
+                    
+                    # Similar pattern to _generate_outputs
+                    if hasattr(self.config, 'pipeline_s3_loc'):
+                        base_s3_loc = self.config.pipeline_s3_loc
+                        path_parts = [base_s3_loc, step_type.lower()]
+                        if job_type:
+                            path_parts.append(job_type)
+                        base_path = "/".join([p for p in path_parts if p])
+                        
+                        # Use logical_name for the path since it maps to output_dest_name
+                        destination = f"{base_path}/{logical_name}"
+                        logger.info(f"Auto-generated destination for '{output_dest_name}': {destination}")
+        except Exception as e:
+            logger.warning(f"Error trying to find destination for '{output_dest_name}': {e}")
+        
+        # If still not found, raise an error
+        if destination is None:
+            raise ValueError(f"Output destination '{output_dest_name}' not found in outputs and couldn't be generated")
+        
+        # If no source specified, create a standard path
+        if source is None:
+            source = f"/opt/ml/processing/output/{logical_name.lower()}"
+            
+        return ProcessingOutput(
+            output_name=output_dest_name, 
+            source=source,
+            destination=destination
+        )
+
+    @classmethod
+    def validate_builder_pattern_compliance(cls, builder_cls) -> Dict[str, Any]:
+        """
+        Validate that a step builder class follows the standard input/output naming pattern.
+        
+        Args:
+            builder_cls: The step builder class to validate
+            
+        Returns:
+            Dictionary with validation results
+            
+        Example:
+            ```python
+            from src.pipeline_steps.builder_step_base import StepBuilderBase
+            from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+            
+            results = StepBuilderBase.validate_builder_pattern_compliance(MIMSPackagingStepBuilder)
+            if results['compliant']:
+                print("Builder is compliant")
+            else:
+                print(f"Builder is not compliant: {results['issues']}")
+            ```
+        """
+        import inspect
+        
+        results = {
+            "compliant": True,
+            "issues": [],
+            "checked_methods": []
+        }
+        
+        # Check if the class inherits from StepBuilderBase
+        if not issubclass(builder_cls, cls):
+            results["issues"].append(f"Class {builder_cls.__name__} does not inherit from StepBuilderBase")
+            results["compliant"] = False
+            return results
+        
+        methods_to_check = [
+            ("_validate_inputs", "Validate inputs using KEYS"),
+            ("_validate_outputs", "Validate outputs using VALUES"),
+            ("_get_script_input_name", "Maps logical name to script input name"),
+            ("_get_output_destination_name", "Maps logical name to output destination name")
+        ]
+        
+        # Check each required method
+        for method_name, description in methods_to_check:
+            results["checked_methods"].append(method_name)
+            
+            # Check if method exists
+            if not hasattr(builder_cls, method_name):
+                results["issues"].append(f"Missing method: {method_name} ({description})")
+                results["compliant"] = False
+                continue
+                
+            # Get the method implementation
+            method = getattr(builder_cls, method_name)
+            
+            # Check if the method is inherited or overridden
+            if method.__qualname__ == f"StepBuilderBase.{method_name}":
+                # Method is inherited from StepBuilderBase (good - using standard implementation)
+                continue
+            
+            # Method is overridden - check if it follows the standard pattern
+            source = inspect.getsource(method)
+            
+            if method_name == "_validate_inputs":
+                # Should use logical names (KEYS) for input validation
+                if "input_names" in source and "keys()" not in source and "self._check_missing_inputs" not in source:
+                    results["issues"].append(
+                        f"Method {method_name} may not validate using KEYS from input_names")
+                    results["compliant"] = False
+                    
+            elif method_name == "_validate_outputs":
+                # Should use values from output_names for output validation
+                if "output_names" in source and "values()" in source:
+                    results["issues"].append(
+                        f"Method {method_name} may be using VALUES with values() instead of direct VALUES")
+                    results["compliant"] = False
+        
+        # All standard validation methods passed
+        return results

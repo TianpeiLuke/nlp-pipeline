@@ -22,17 +22,17 @@ class PayloadConfig(ModelRegistrationConfig):
     # Override input_names and output_names from parent class with specific defaults
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_input": "Model artifacts from training step"
+            "model_input": "ModelArtifacts"  # KEY: logical name, VALUE: script input name (matches PackageStepConfig)
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "payload_sample": "Directory containing the generated payload samples",
-            "payload_metadata": "Directory containing the payload metadata"
+            "payload_sample": "GeneratedPayloadSamples",  # KEY: logical name, VALUE: output descriptor
+            "payload_metadata": "PayloadMetadata"         # KEY: logical name, VALUE: output descriptor
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
     
     # Performance metrics
@@ -151,16 +151,21 @@ class PayloadConfig(ModelRegistrationConfig):
         
     @model_validator(mode='after')
     def set_default_names(self) -> 'PayloadConfig':
-        """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
-            self.input_names = {
-                "model_input": "Model artifacts from training step"
+        """Ensure default input and output names are set if not provided or empty."""
+        if self.input_names is None or len(self.input_names) == 0:
+            self.__dict__["input_names"] = {
+                "model_input": "ModelArtifacts"  # KEY: logical name, VALUE: script input name (matches PackageStepConfig)
             }
+        else:
+            # Ensure model_input always uses the correct script input parameter name
+            # regardless of what's in the config file
+            if "model_input" in self.input_names:
+                self.__dict__["input_names"]["model_input"] = "ModelArtifacts"
         
-        if not self.output_names:
-            self.output_names = {
-                "payload_sample": "Directory containing the generated payload samples",
-                "payload_metadata": "Directory containing the payload metadata"
+        if self.output_names is None or len(self.output_names) == 0:
+            self.__dict__["output_names"] = {
+                "payload_sample": "GeneratedPayloadSamples",  # KEY: logical name, VALUE: output descriptor
+                "payload_metadata": "PayloadMetadata"         # KEY: logical name, VALUE: output descriptor
             }
         
         return self

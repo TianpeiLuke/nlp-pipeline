@@ -94,28 +94,29 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
 
     def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
-        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
+        Constructs a list of ProcessingInput objects using the standardized helper methods.
         This defines the data channels for the processing job, mapping S3 locations
         to local directories inside the container.
 
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'packaged_model_output', 'payload_s3_key')
-                    to their S3 URIs or dynamic Step properties.
+            inputs: A dictionary mapping logical input channel names to their S3 URIs 
+                  or dynamic Step properties.
 
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
-        # Get the input keys from config
+        # Use the standard helper method for input validation
+        # We'll need to do a custom validation due to backward compatibility options
+        if not inputs:
+            raise ValueError("Inputs dictionary is empty")
+        
+        # Get input keys for better readability
         model_package_key = "packaged_model_output"
         payload_sample_key = "payload_sample"  
         
         # For backward compatibility
         payload_key = "payload_s3_key"
         payload_uri_key = "payload_s3_uri"
-        
-        # Check if inputs is empty
-        if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply '{model_package_key}' and '{payload_sample_key}'")
         
         # Validate required model package input
         if model_package_key not in inputs:
@@ -125,28 +126,33 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if (payload_sample_key not in inputs and 
             payload_key not in inputs and payload_uri_key not in inputs):
             raise ValueError(f"Must supply an S3 URI for either '{payload_sample_key}', '{payload_key}', or '{payload_uri_key}' in 'inputs'")
-
-        # Define the input channels
+        
+        # Define the input channels - use standard helper for model input
         processing_inputs = [
-            ProcessingInput(
-                source=inputs[model_package_key],
-                destination="/opt/ml/processing/input/model",
+            self._create_standard_processing_input(
+                model_package_key,
+                inputs,
+                "/opt/ml/processing/input/model",
+                # Add additional parameters required by ProcessingInput
                 s3_data_distribution_type="FullyReplicated",
                 s3_input_mode="File"
             )
         ]
         
-        # Add payload input - prefer new payload_sample key if available
+        # Handle payload input with preference order - use standard helper when possible
         if payload_sample_key in inputs:
+            # Use standard helper for preferred payload sample key
             processing_inputs.append(
-                ProcessingInput(
-                    source=inputs[payload_sample_key],
-                    destination="/opt/ml/processing/mims_payload",
+                self._create_standard_processing_input(
+                    payload_sample_key,
+                    inputs,
+                    "/opt/ml/processing/mims_payload",
                     s3_data_distribution_type="FullyReplicated",
                     s3_input_mode="File"
                 )
             )
-        # Fallback to old keys for backward compatibility
+        # Fallback to old keys for backward compatibility - can't use helper directly here
+        # since these aren't in config.input_names
         elif payload_key in inputs:
             processing_inputs.append(
                 ProcessingInput(
