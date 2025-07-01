@@ -79,40 +79,91 @@ def create_model_variable_list(
     return model_var_list
 
 def extract_hyperparameters_from_tarball() -> Dict:
-    """Extract and load hyperparameters from model.tar.gz"""
-    input_model_tar = os.path.join(INPUT_MODEL_DIR, "model.tar.gz")
-    logger.info(f"Extracting hyperparameters from {input_model_tar}")
+    """Extract and load hyperparameters from model artifacts"""
+    # The builder step has been updated to use the directory as destination, not model.tar.gz
+    # But we'll keep the name for backward compatibility and handle both cases
+    input_model_path = os.path.join(INPUT_MODEL_DIR, "model.tar.gz")
+    input_model_dir = INPUT_MODEL_DIR
+    logger.info(f"Looking for hyperparameters in model artifacts")
     
-    if not os.path.exists(input_model_tar):
-        raise FileNotFoundError(f"Required model.tar.gz not found at {input_model_tar}")
-        
     # Create temporary directory for extraction
     os.makedirs(WORKING_DIRECTORY, exist_ok=True)
     
-    # Extract just the hyperparameters.json file
-    with tarfile.open(input_model_tar, "r:gz") as tar:
-        # Check if hyperparameters.json exists in the tarball
-        hyperparams_info = None
-        for member in tar.getmembers():
-            if member.name == 'hyperparameters.json':
-                hyperparams_info = member
+    hyperparams_path = None
+    
+    # First check if model.tar.gz exists and is a file (original case)
+    if os.path.exists(input_model_path) and os.path.isfile(input_model_path):
+        logger.info(f"Found model.tar.gz file at {input_model_path}")
+        try:
+            # Extract just the hyperparameters.json file from tarball
+            with tarfile.open(input_model_path, "r:gz") as tar:
+                # Check if hyperparameters.json exists in the tarball
+                hyperparams_info = None
+                for member in tar.getmembers():
+                    if member.name == 'hyperparameters.json':
+                        hyperparams_info = member
+                        break
+                
+                if not hyperparams_info:
+                    # List contents for debugging
+                    contents = [m.name for m in tar.getmembers()]
+                    logger.error(f"hyperparameters.json not found in tarball. Contents: {contents}")
+                    # Don't raise error here, continue checking other locations
+                else:
+                    # Extract only the hyperparameters file
+                    tar.extract(hyperparams_info, WORKING_DIRECTORY)
+                    hyperparams_path = os.path.join(WORKING_DIRECTORY, "hyperparameters.json")
+        except Exception as e:
+            logger.warning(f"Error processing model.tar.gz as tarfile: {e}")
+            # Continue to other methods
+    
+    # Next check if model.tar.gz exists but is a directory (the error case we're fixing)
+    if hyperparams_path is None and os.path.exists(input_model_path) and os.path.isdir(input_model_path):
+        logger.info(f"{input_model_path} is a directory, looking for hyperparameters.json inside")
+        direct_hyperparams_path = os.path.join(input_model_path, "hyperparameters.json")
+        if os.path.exists(direct_hyperparams_path):
+            logger.info(f"Found hyperparameters.json directly in the model.tar.gz directory")
+            hyperparams_path = direct_hyperparams_path
+    
+    # Finally check if hyperparameters.json exists directly in the input model directory
+    if hyperparams_path is None:
+        logger.info(f"Looking for hyperparameters.json directly in {input_model_dir}")
+        direct_hyperparams_path = os.path.join(input_model_dir, "hyperparameters.json")
+        if os.path.exists(direct_hyperparams_path):
+            logger.info(f"Found hyperparameters.json directly in the input model directory")
+            hyperparams_path = direct_hyperparams_path
+    
+    # If we still haven't found it, search recursively
+    if hyperparams_path is None:
+        logger.info(f"Searching recursively for hyperparameters.json in {input_model_dir}")
+        for root, dirs, files in os.walk(input_model_dir):
+            if "hyperparameters.json" in files:
+                hyperparams_path = os.path.join(root, "hyperparameters.json")
+                logger.info(f"Found hyperparameters.json at {hyperparams_path}")
                 break
-        
-        if not hyperparams_info:
-            # List contents for debugging
-            contents = [m.name for m in tar.getmembers()]
-            logger.error(f"hyperparameters.json not found in tarball. Contents: {contents}")
-            raise FileNotFoundError("hyperparameters.json not found in model.tar.gz")
-            
-        # Extract only the hyperparameters file
-        tar.extract(hyperparams_info, WORKING_DIRECTORY)
+    
+    # If still not found, raise error
+    if hyperparams_path is None:
+        logger.error(f"hyperparameters.json not found in any location")
+        # List directory contents for debugging
+        contents = []
+        for root, dirs, files in os.walk(input_model_dir):
+            for file in files:
+                contents.append(os.path.join(root, file))
+        logger.error(f"Directory contents: {contents}")
+        raise FileNotFoundError("hyperparameters.json not found in model artifacts")
     
     # Load the hyperparameters
-    hyperparams_path = os.path.join(WORKING_DIRECTORY, "hyperparameters.json")
     with open(hyperparams_path, 'r') as f:
         hyperparams = json.load(f)
+    
+    # Copy to working directory if not already there
+    if not hyperparams_path.startswith(WORKING_DIRECTORY):
+        import shutil
+        dest_path = os.path.join(WORKING_DIRECTORY, "hyperparameters.json")
+        shutil.copy2(hyperparams_path, dest_path)
         
-    logger.info(f"Successfully extracted hyperparameters: {list(hyperparams.keys())}")
+    logger.info(f"Successfully loaded hyperparameters: {list(hyperparams.keys())}")
     return hyperparams
 
 def get_environment_content_types() -> List[str]:
@@ -306,6 +357,28 @@ def save_payloads(
         
     return file_paths
 
+def create_payload_archive(payload_files: List[str]) -> str:
+    """
+    Create a tar.gz archive containing only payload files (not metadata).
+    
+    Args:
+        payload_files: List of paths to payload files
+        
+    Returns:
+        Path to the created archive
+    """
+    # Create archive in the output directory
+    archive_path = os.path.join(OUTPUT_DIR, "payload.tar.gz")
+    
+    with tarfile.open(archive_path, "w:gz") as tar:
+        # Add payload files
+        for file_path in payload_files:
+            # Add file to archive with basename as name
+            tar.add(file_path, arcname=os.path.basename(file_path))
+    
+    logger.info(f"Created payload archive: {archive_path}")
+    return archive_path
+
 def main():
     """Main entry point for the script."""
     # Extract hyperparameters from model tarball
@@ -341,7 +414,7 @@ def main():
     os.makedirs(PAYLOAD_METADATA_DIR, exist_ok=True)
     
     # Generate and save payloads to the sample directory
-    save_payloads(
+    payload_file_paths = save_payloads(
         PAYLOAD_SAMPLE_DIR,
         var_type_list,
         content_types,
@@ -359,12 +432,17 @@ def main():
         'model_objective': model_objective
     }
     
-    with open(os.path.join(PAYLOAD_METADATA_DIR, 'payload_metadata.json'), 'w') as f:
+    metadata_file_path = os.path.join(PAYLOAD_METADATA_DIR, 'payload_metadata.json')
+    with open(metadata_file_path, 'w') as f:
         json.dump(metadata, f, indent=2)
+    
+    # Create tar.gz archive of only payload files (not metadata)
+    archive_path = create_payload_archive(payload_file_paths)
     
     logger.info(f"MIMS payload generation complete.")
     logger.info(f"Payload files saved to: {PAYLOAD_SAMPLE_DIR}")
     logger.info(f"Metadata files saved to: {PAYLOAD_METADATA_DIR}")
+    logger.info(f"Payload archive saved to: {archive_path}")
 
 if __name__ == '__main__':
     main()
