@@ -172,13 +172,9 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
                 # Always use the consistent logical name "model_input" for the inputs dictionary
                 model_key = "model_input"  # Use fixed logical name
                 
-                # Initialize inputs dict if needed
-                if "inputs" not in inputs:
-                    inputs["inputs"] = {}
-                    
-                # Add model artifact to inputs
-                inputs["inputs"][model_key] = model_uri
-                matched_inputs.add("inputs")
+                # Store directly at top level (not nested)
+                inputs[model_key] = model_uri
+                matched_inputs.add(model_key)  # Add the actual key name
                 logger.info("Matched model artifacts from training step (reference)")
         
         return matched_inputs

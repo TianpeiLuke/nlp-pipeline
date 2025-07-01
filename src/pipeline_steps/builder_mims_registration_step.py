@@ -180,6 +180,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Returns:
             A list of sagemaker.processing.ProcessingInput objects.
         """
+        # NEW: Normalize inputs first to handle both nested and flat structures
+        inputs = self._normalize_inputs(inputs)
+        
         # Use the standard helper method for input validation
         # We'll need to do a custom validation due to backward compatibility options
         if not inputs:
@@ -359,8 +362,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             if base_s3_loc and hasattr(self.config, 'pipeline_name'):
                 # Construct S3 path using pattern from generated outputs
                 s3_uri = f"{base_s3_loc}/package/packaged_model_output"
-                inputs["inputs"][model_package_key] = s3_uri
-                matched_inputs.add("inputs")
+                # Store directly at top level (not nested)
+                inputs[model_package_key] = s3_uri
+                matched_inputs.add(model_package_key)
                 self.log_info("Connected packaged model using fallback path from config: %s", s3_uri)
                 return matched_inputs
         except Exception as e:
@@ -389,8 +393,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             
             if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
                 s3_uri = first_output.S3Output.S3Uri
-                inputs["inputs"][model_package_key] = s3_uri
-                matched_inputs.add("inputs")
+                # Store directly at top level (not nested)
+                inputs[model_package_key] = s3_uri
+                matched_inputs.add(model_package_key)
                 logger.info("Connected packaged model using direct index access [0] for PropertiesList")
                 return matched_inputs
         except Exception as e:
@@ -484,8 +489,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                                         output = outputs[key]
                                         if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
                                             s3_uri = output.S3Output.S3Uri
-                                            inputs["inputs"][model_package_key] = s3_uri
-                                            matched_inputs.add("inputs")
+                                            # Store directly at top level (not nested)
+                                            inputs[model_package_key] = s3_uri
+                                            matched_inputs.add(model_package_key)  # Add the actual key name
                                             logger.info(f"Connected packaged model using safe key lookup: {key}")
                                             return matched_inputs
                                 except Exception as e:
@@ -497,8 +503,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                     if model_package_key not in inputs.get("inputs", {}) and hasattr(outputs, "__getitem__"):
                         try:
                             s3_uri = outputs[0].S3Output.S3Uri
-                            inputs["inputs"][model_package_key] = s3_uri
-                            matched_inputs.add("inputs")
+                            # Store directly at top level (not nested)
+                            inputs[model_package_key] = s3_uri
+                            matched_inputs.add(model_package_key)
                             logger.info("Connected packaged model using index access")
                             return matched_inputs
                         except Exception as e:
@@ -560,10 +567,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                                         output = getattr(outputs, key)
                                         if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
                                             s3_uri = output.S3Output.S3Uri
-                                            if "inputs" not in inputs:
-                                                inputs["inputs"] = {}
-                                            inputs["inputs"][payload_key] = s3_uri
-                                            matched_inputs.add("inputs")
+                                            # Store directly at top level (not nested)
+                                            inputs[payload_key] = s3_uri
+                                            matched_inputs.add(payload_key)
                                             logger.info(f"Connected payload sample using direct attribute access with key: {key}")
                                             return matched_inputs
                                 except Exception as e:
@@ -575,10 +581,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                                     output = outputs[i]
                                     if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
                                         s3_uri = output.S3Output.S3Uri
-                                        if "inputs" not in inputs:
-                                            inputs["inputs"] = {}
-                                        inputs["inputs"][payload_key] = s3_uri
-                                        matched_inputs.add("inputs")
+                                        # Store directly at top level (not nested)
+                                        inputs[payload_key] = s3_uri
+                                        matched_inputs.add(payload_key)
                                         self.log_info("Connected payload sample using index access: [%d]", i)
                                         return matched_inputs
                             except Exception as e:
@@ -602,10 +607,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                                         output = outputs[key]
                                         if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
                                             s3_uri = output.S3Output.S3Uri
-                                            if "inputs" not in inputs:
-                                                inputs["inputs"] = {}
-                                            inputs["inputs"][payload_key] = s3_uri
-                                            matched_inputs.add("inputs")
+                                            # Store directly at top level (not nested)
+                                            inputs[payload_key] = s3_uri
+                                            matched_inputs.add(payload_key)
                                             logger.info(f"Connected payload sample using key lookup: {key}")
                                             return matched_inputs
                                 except Exception as e:
@@ -619,16 +623,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                         first_output = outputs[0]
                         if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
                             s3_uri = first_output.S3Output.S3Uri
-                            if "inputs" not in inputs:
-                                inputs["inputs"] = {}
-                                
-                            # Store in nested structure
-                            inputs["inputs"][payload_key] = s3_uri
-                            
-                            # CRITICAL FIX: Also store at top level
+                            # Store directly at top level (not nested)
                             inputs[payload_key] = s3_uri
-                            
-                            matched_inputs.add("inputs")
+                            matched_inputs.add(payload_key)
                             logger.info(f"Connected payload sample using first output fallback")
                             self.log_info("CRITICAL: Storing payload at both nested and top level: %s=%s", payload_key, s3_uri)
                             return matched_inputs
@@ -666,12 +663,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                     else:
                         value = getattr(value, part)
                 
-                # Add extracted value to inputs
-                if "inputs" not in inputs:
-                    inputs["inputs"] = {}
-                
-                inputs["inputs"][logical_name] = value
-                matched_inputs.add("inputs")
+                # Add extracted value to inputs directly at top level
+                inputs[logical_name] = value
+                matched_inputs.add(logical_name)
                 logger.info(f"Found {logical_name} using registered property path")
             except Exception as e:
                 logger.debug(f"Could not extract {logical_name} using property path: {e}")
