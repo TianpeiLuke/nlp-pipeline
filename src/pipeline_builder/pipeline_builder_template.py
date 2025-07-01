@@ -801,12 +801,10 @@ class PipelineBuilderTemplate:
                 source_step_instance = self.step_instances[source_step]
                 
                 # Enhanced property path resolution with our new method
-                # First try direct attribute access (for backward compatibility)
+                # First try direct attribute access - store only in inputs dictionary
                 if hasattr(source_step_instance, source_output):
                     output_value = getattr(source_step_instance, source_output)
-                    # Add to top-level kwargs for backward compatibility
-                    kwargs[input_name] = output_value
-                    # Also add to inputs dictionary for newer steps
+                    # Store only in the inputs dictionary - all step builders now normalize with _normalize_inputs
                     kwargs['inputs'][input_name] = output_value
                     logger.info(f"Added input {input_name} from {source_step}.{source_output} (direct)")
                 else:
@@ -821,7 +819,7 @@ class PipelineBuilderTemplate:
                     for path in property_paths:
                         output_value = self._resolve_property_path(source_step_instance, path)
                         if output_value is not None:
-                            # Add to inputs dictionary
+                            # Add only to inputs dictionary - no dual storage
                             kwargs['inputs'][input_name] = output_value
                             logger.info(f"Added input {input_name} from {source_step}.{path}")
                             break
