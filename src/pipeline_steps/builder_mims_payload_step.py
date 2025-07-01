@@ -10,6 +10,40 @@ from sagemaker.sklearn.processing import SKLearnProcessor
 from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
 
+# Register property paths for MIMS Payload step outputs
+# Following standard pattern: use VALUE from output_names as property name key
+StepBuilderBase.register_property_path(
+    "PayloadStep", 
+    "GeneratedPayloadSamples",                                            # OUTPUT DESCRIPTOR (Value from output_names)
+    "properties.ProcessingOutputConfig.Outputs['GeneratedPayloadSamples'].S3Output.S3Uri"  # Runtime path
+)
+
+# Keep backward compatibility path using logical name
+StepBuilderBase.register_property_path(
+    "PayloadStep", 
+    "GeneratedPayloadSamples",                                            # OUTPUT DESCRIPTOR (Value from output_names)
+    "properties.ProcessingOutputConfig.Outputs['payload_sample'].S3Output.S3Uri"  # Runtime path with logical name
+)
+
+StepBuilderBase.register_property_path(
+    "PayloadStep",
+    "PayloadMetadata",                                                    # OUTPUT DESCRIPTOR (Value from output_names)
+    "properties.ProcessingOutputConfig.Outputs['PayloadMetadata'].S3Output.S3Uri"
+)
+
+# Register variants for better matching
+for step_type in ["Payload", "MIMSPayloadStepBuilder", "ProcessingStep"]:
+    StepBuilderBase.register_property_path(
+        step_type, 
+        "GeneratedPayloadSamples",                                       
+        "properties.ProcessingOutputConfig.Outputs['GeneratedPayloadSamples'].S3Output.S3Uri"  
+    )
+    StepBuilderBase.register_property_path(
+        step_type, 
+        "GeneratedPayloadSamples",                                     
+        "properties.ProcessingOutputConfig.Outputs['payload_sample'].S3Output.S3Uri"  
+    )
+
 logger = logging.getLogger(__name__)
 
 

@@ -85,12 +85,17 @@ class ModelRegistrationConfig(BasePipelineConfig):
     )
     
     # Input/output names for registration
+    # IMPORTANT: The KEY in input_names must match the VALUE in the upstream step's output_names 
+    # to enable automatic message propagation:
+    # 1. "PackagedModel" matches packaging step's output descriptor
+    # 2. "GeneratedPayloadSamples" matches payload step's output descriptor
+    # This follows the standard pattern where input KEYs match output VALUES.
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "packaged_model_output": "Output from packaging step (S3 path or Properties object)",
-            "payload_sample": "Directory containing the generated payload samples"
+            "PackagedModel": "ModelPackage",           # KEY matches packaging's output descriptor
+            "GeneratedPayloadSamples": "PayloadData"   # KEY matches payload's output descriptor
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
@@ -143,9 +148,11 @@ class ModelRegistrationConfig(BasePipelineConfig):
         """Ensure default input and output names are set if not provided or empty."""
         if self.input_names is None or len(self.input_names) == 0:
             # Use __dict__ to modify the attribute directly without triggering validation
+            # VALUES should be actual script parameter names, not descriptions
+            # KEYS should match output descriptors from upstream steps
             self.__dict__["input_names"] = {
-                "packaged_model_output": "Output from packaging step",
-                "payload_sample": "Directory containing the generated payload samples"
+                "PackagedModel": "ModelPackage",           # KEY matches packaging's output descriptor
+                "GeneratedPayloadSamples": "PayloadData"   # KEY matches payload's output descriptor
             }
         
         if self.output_names is None or len(self.output_names) == 0:

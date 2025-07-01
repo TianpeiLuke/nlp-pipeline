@@ -9,6 +9,30 @@ from sagemaker.sklearn import SKLearnProcessor
 from .config_mims_packaging_step import PackageStepConfig
 from .builder_step_base import StepBuilderBase
 
+# Register property path for MIMS packaging output - using the VALUE from output_names
+# This follows the standard pattern:
+# 1. In config classes: output_names = {"logical_name": "DescriptiveValue"}
+# 2. In step builders: use the VALUE ("PackagedModel") as the property path name
+StepBuilderBase.register_property_path(
+    "PackagingStep", 
+    "PackagedModel",                             # VALUE from output_names as property path name
+    "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"  # Runtime access path
+)
+
+# Also register with name-based access path for better robustness
+StepBuilderBase.register_property_path(
+    "PackagingStep", 
+    "PackagedModel",                             # VALUE from output_names as property path name
+    "properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri"  # Name-based path
+)
+
+# Register for backward compatibility, though this isn't following the standard pattern
+StepBuilderBase.register_property_path(
+    "PackagingStep", 
+    "packaged_model_output",                     # Logical name (KEY) in output_names
+    "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"  # Runtime access path
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -161,28 +185,45 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         This defines the S3 location where the results of the processing job will be stored.
 
         Args:
-            outputs: A dictionary mapping the logical output channel name ('packaged_model_output')
-                     to its S3 destination URI.
+            outputs: A dictionary mapping output descriptors (VALUES from output_names)
+                     to their S3 destination URIs.
 
         Returns:
             A list containing sagemaker.processing.ProcessingOutput objects.
         """
-        # Get VALUE from output_names (standard pattern for outputs)
-        key_out = self.config.output_names["packaged_model_output"]
+        # Following standard pattern:
+        # 1. Get logical_name first
+        logical_name = "packaged_model_output"
         
-        # Check if outputs contains the required VALUE (standard pattern)
-        if not outputs or key_out not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        # 2. Get VALUE from output_names using logical_name
+        # This follows the standard pattern: output_value = step.config.output_names["logical_name"]
+        output_descriptor = self.config.output_names[logical_name]
         
-        # Define the output for the model package
+        # 3. Validate that outputs contains the VALUE
+        # For outputs: validate using VALUES
+        if not outputs:
+            raise ValueError("Outputs dictionary is empty. Must supply outputs.")
+            
+        # Log available keys in outputs for debugging
+        logger.info(f"Available keys in outputs dictionary: {list(outputs.keys())}")
+        
+        # Check if our required output descriptor exists
+        if output_descriptor not in outputs:
+            # Extended error with more diagnostic info
+            available = ', '.join(list(outputs.keys()))
+            raise ValueError(f"Must supply an S3 URI for '{output_descriptor}' in 'outputs'. Available keys are: {available}")
+        
+        # 4. Define the output using the VALUE as the output_name and key in outputs dict
+        logger.info(f"Creating ProcessingOutput with output_name='{output_descriptor}' (value from output_names)")
         processing_outputs = [
             ProcessingOutput(
-                output_name=key_out,
+                output_name=output_descriptor,  # Use VALUE from output_names
                 source="/opt/ml/processing/output",
-                destination=outputs[key_out]
+                destination=outputs[output_descriptor]  # Use VALUE as key in outputs dict
             )
         ]
         
+        logger.info(f"Created ProcessingOutput with output_name='{output_descriptor}' and destination={outputs[output_descriptor]}")
         return processing_outputs
 
         
@@ -215,6 +256,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                                 prev_step: Step) -> Set[str]:
         """
         Match custom properties specific to MIMSPackaging step.
+        Uses a generic approach to find model artifacts from standard SageMaker step types.
         
         Args:
             inputs: Dictionary to add matched inputs to
@@ -226,37 +268,193 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         step_name = getattr(prev_step, 'name', str(prev_step))
+
+        # Register outputs using VALUES from output_names for future steps to find
+        # This ensures our outputs can be discovered following standard pattern
+        if hasattr(self.config, "output_names"):
+            # Log the complete output_names mapping for clarity
+            logger.info(f"Registering property paths from output_names: {self.config.output_names}")
+            
+            for logical_name, output_descriptor in self.config.output_names.items():
+                # Register using the VALUE for lookups as per standard pattern
+                StepBuilderBase.register_property_path(
+                    type(self).__name__,
+                    output_descriptor,  # Use VALUE as the property path name
+                    f"properties.ProcessingOutputConfig.Outputs['{output_descriptor}'].S3Output.S3Uri"
+                )
+                logger.info(f"Registered property path for {output_descriptor} (logical name: {logical_name}) following standard pattern")
+                
+                # Also register using name-based path for better robustness
+                StepBuilderBase.register_property_path(
+                    type(self).__name__,
+                    output_descriptor,  # Use VALUE as the property path name
+                    f"properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"
+                )
+                logger.info(f"Registered index-based property path for {output_descriptor}")
+                
+                # Register property paths under more general step types for better matching
+                for step_type in ["Package", "PackagingStep", "ProcessingStep"]:
+                    # Register with name-based access
+                    StepBuilderBase.register_property_path(
+                        step_type,
+                        output_descriptor,  # Use VALUE as property path name
+                        f"properties.ProcessingOutputConfig.Outputs['{output_descriptor}'].S3Output.S3Uri"
+                    )
+                    
+                    # Register with index-based access
+                    StepBuilderBase.register_property_path(
+                        step_type,
+                        output_descriptor,  # Use VALUE as property path name
+                        f"properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"
+                    )
+                
+                logger.info(f"Registered property paths for {output_descriptor} under multiple step types")
         
-        # Try to find ModelArtifacts.S3ModelArtifacts (standard SageMaker property)
+        # PART 1: Try TrainingStep standard paths
+        found_model = False
+        
+        # Log available properties for debugging
+        if hasattr(prev_step, "properties"):
+            logger.info(f"Available properties for {step_name}: {dir(prev_step.properties)}")
+            
+            # Add additional debug logging for model artifacts
+            if hasattr(prev_step.properties, "ModelArtifacts"):
+                logger.info(f"ModelArtifacts properties: {dir(prev_step.properties.ModelArtifacts)}")
+        
+        # Most common path for trained model artifacts from TrainingStep
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
             try:
-                # Extract model artifacts using the standard property path
                 model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                
-                # Use logical name (KEY from input_names) as key in inputs
-                model_input_key = "model_input"  # This is the logical name (KEY)
-                inputs[model_input_key] = model_artifacts  # Set at top level using logical name
+                model_input_key = "model_input"
+                inputs[model_input_key] = model_artifacts
                 matched_inputs.add(model_input_key)
-                logger.info(f"Found model artifacts from step {step_name}")
+                logger.info(f"Found model artifacts from TrainingStep path: {step_name}")
+                found_model = True
             except AttributeError as e:
-                logger.warning(f"Error getting ModelArtifacts.S3ModelArtifacts: {e}")
+                logger.info(f"Error accessing ModelArtifacts.S3ModelArtifacts: {e}")
         
-        # Fall back to model_data property if it exists
-        elif hasattr(prev_step, "model_data"):
-            model_input_key = "model_input"  # This is the logical name (KEY)
-            inputs[model_input_key] = prev_step.model_data
-            matched_inputs.add(model_input_key)
-            logger.info(f"Found model_data from step {step_name}")
+        # XGBoost-specific model output paths - check direct properties
+        if not found_model and "xgboost" in step_name.lower():
+            # Try direct attribute access for common model output properties
+            model_attrs = ["model_data", "output_path", "ModelOutputPath", "ModelArtifacts"]
+            for attr in model_attrs:
+                if hasattr(prev_step, attr):
+                    try:
+                        model_uri = getattr(prev_step, attr)
+                        model_input_key = "model_input"
+                        inputs[model_input_key] = model_uri
+                        matched_inputs.add(model_input_key)
+                        self.log_info("Found model via direct attribute: %s", attr)
+                        found_model = True
+                        break
+                    except Exception as e:
+                        logger.info(f"Error accessing {attr}: {e}")
         
-        # Add inference_scripts_input using the logical name (KEY)
-        inference_scripts_key = "inference_scripts_input"  # This is the logical name (KEY)
+        # PART 2: Try ProcessingStep standard paths (useful for packaging steps)
+        if not found_model and hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+            try:
+                outputs = prev_step.properties.ProcessingOutputConfig.Outputs
+                
+                # Log the type of outputs object to help with debugging
+                logger.info(f"Processing outputs of type: {outputs.__class__.__name__ if hasattr(outputs, '__class__') else type(outputs)}")
+                
+                # Special handling for PropertiesList type
+                if hasattr(outputs, "__class__") and outputs.__class__.__name__ == "PropertiesList":
+                    logger.info("Detected PropertiesList object - using direct attribute access")
+                    
+                    # Try common output names that might contain processed data
+                    model_output_names = ["ProcessedTabularData", "ModelOutputPath", "ModelArtifacts"]
+                    for name in model_output_names:
+                        if hasattr(outputs, name):
+                            try:
+                                s3_uri = outputs[name].S3Output.S3Uri
+                                model_input_key = "model_input"
+                                inputs[model_input_key] = s3_uri
+                                matched_inputs.add(model_input_key)
+                                self.log_info("Found model from PropertiesList attribute %s: %s", name, s3_uri)
+                                found_model = True
+                                break
+                            except (AttributeError, KeyError) as e:
+                                logger.debug(f"Error accessing PropertiesList attribute {name}: {e}")
+                                
+                # For indexed outputs - use safe iteration
+                if not found_model and hasattr(outputs, "__getitem__"):
+                    try:
+                        # Try getting first element safely with iteration
+                        first_item = next(iter(outputs), None)
+                        if first_item is not None:
+                            if hasattr(first_item, "S3Output") and hasattr(first_item.S3Output, "S3Uri"):
+                                s3_uri = first_item.S3Output.S3Uri
+                                model_input_key = "model_input"
+                                inputs[model_input_key] = s3_uri
+                                matched_inputs.add(model_input_key)
+                                logger.info(f"Found model from ProcessingStep first output: {step_name}")
+                                found_model = True
+                    except (TypeError, StopIteration) as e:
+                        logger.debug(f"Error getting first item from outputs: {e}")
+                
+                # Try by name if available (for model-related outputs)
+                if not found_model:
+                    model_output_names = ["model", "model_output", "packaged_model", "artifact"]
+                    for out_name in model_output_names:
+                        try:
+                            if out_name in outputs and hasattr(outputs[out_name], "S3Output"):
+                                s3_uri = outputs[out_name].S3Output.S3Uri
+                                model_input_key = "model_input"
+                                inputs[model_input_key] = s3_uri
+                                matched_inputs.add(model_input_key)
+                                logger.info(f"Found model from ProcessingStep named output: {out_name}")
+                                found_model = True
+                                break
+                        except (TypeError, KeyError) as e:
+                            logger.debug(f"Error accessing output {out_name}: {e}")
+            except Exception as e:
+                logger.warning(f"Error accessing ProcessingStep outputs: {e}")
+        
+        # PART 3: Try direct attribute access for common model properties
+        if not found_model:
+            # Direct attribute names that might contain model artifacts
+            model_attr_names = ["model_data", "model_uri", "model_path", "ModelOutputPath", "model_artifacts_path"]
+            
+            for attr_name in model_attr_names:
+                if hasattr(prev_step, attr_name):
+                    try:
+                        model_uri = getattr(prev_step, attr_name)
+                        if model_uri is not None:
+                            model_input_key = "model_input"
+                            inputs[model_input_key] = model_uri
+                            matched_inputs.add(model_input_key)
+                            self.log_info("Found model via direct attribute: %s", attr_name)
+                            found_model = True
+                            break
+                    except Exception:
+                        continue
+        
+        # PART 4: Try the outputs collection (used by some step types)
+        if not found_model and hasattr(prev_step, "outputs"):
+            try:
+                # Look for model-related output names
+                for output in prev_step.outputs:
+                    if hasattr(output, "output_name") and hasattr(output, "destination"):
+                        output_name = output.output_name.lower()
+                        if any(term in output_name for term in ["model", "artifact", "packaged"]):
+                            model_input_key = "model_input"
+                            inputs[model_input_key] = output.destination
+                            matched_inputs.add(model_input_key)
+                            logger.info(f"Found model in outputs collection: {output.output_name}")
+                            found_model = True
+                            break
+            except Exception as e:
+                logger.warning(f"Error checking step outputs: {e}")
+        
+        # PART 5: Always add inference_scripts_input
+        inference_scripts_key = "inference_scripts_input"
         if inference_scripts_key not in inputs:
             inference_scripts_path = self.config.source_dir
             if not inference_scripts_path:
-                # Fall back to notebook_root/inference
                 inference_scripts_path = str(self.notebook_root / "inference") if self.notebook_root else "inference"
             
-            inputs[inference_scripts_key] = inference_scripts_path  # Set using logical name
+            inputs[inference_scripts_key] = inference_scripts_path
             matched_inputs.add(inference_scripts_key)
             logger.info(f"Using inference scripts path: {inference_scripts_path}")
         

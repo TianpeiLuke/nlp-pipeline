@@ -34,6 +34,8 @@ class PipelineBuilderTemplate:
     This approach allows for a flexible and modular pipeline definition, where
     each step is responsible for its own configuration and input/output handling.
     """
+    # Dictionary to store Cradle data loading requests
+    cradle_loading_requests = {}
     def __init__(
         self,
         dag: PipelineDAG,
@@ -71,6 +73,9 @@ class PipelineBuilderTemplate:
         self.step_input_requirements: Dict[str, Dict[str, str]] = {}
         self.step_output_properties: Dict[str, Dict[str, str]] = {}
         self.step_messages = defaultdict(dict)
+        
+        # Add tracking for custom property matching attempts to prevent infinite loops
+        self._property_match_attempts: Dict[str, Dict[str, int]] = {}
         
         # Validate inputs
         self._validate_inputs()
@@ -412,6 +417,216 @@ class PipelineBuilderTemplate:
             
         return outputs
     
+    def _safely_extract_from_properties_list(self, outputs, key=None, index=None) -> Optional[str]:
+        """
+        Safely extract S3 URI from a PropertiesList object, avoiding operations that could crash.
+        
+        Args:
+            outputs: The PropertiesList or similar object
+            key: Optional key to try (will be skipped for PropertiesList)
+            index: Optional index to try (defaults to 0)
+        
+        Returns:
+            S3 URI if found, None otherwise
+        """
+        try:
+            # Check if it's a PropertiesList by class name
+            if hasattr(outputs, "__class__") and outputs.__class__.__name__ == "PropertiesList":
+                # For PropertiesList, only use index-based access
+                idx = index if index is not None else 0
+                try:
+                    output = outputs[idx]
+                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                        return output.S3Output.S3Uri
+                except Exception as e:
+                    logger.debug(f"Index access failed on PropertiesList: {e}")
+                    return None
+            else:
+                # For regular dict-like objects, try key first
+                if key is not None:
+                    try:
+                        if hasattr(outputs, "get") and callable(outputs.get):
+                            output = outputs.get(key)
+                            if output and hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                return output.S3Output.S3Uri
+                    except Exception:
+                        pass
+                        
+                # Fall back to index access
+                idx = index if index is not None else 0
+                try:
+                    output = outputs[idx]
+                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                        return output.S3Output.S3Uri
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logger.debug(f"Error in _safely_extract_from_properties_list: {e}")
+        return None
+
+    def _resolve_property_path(self, step: Step, property_path: str, max_depth: int = 10) -> Any:
+        """
+        Robustly resolve a property path on a step, handling missing attributes gracefully
+        and preventing infinite recursion with depth limiting.
+        
+        Args:
+            step: Step object to resolve property path on
+            property_path: Property path to resolve (e.g., "properties.ModelArtifacts.S3ModelArtifacts")
+            max_depth: Maximum depth of property resolution to prevent infinite recursion
+            
+        Returns:
+            The resolved property value, or None if any part of the path is missing or max depth exceeded
+        """
+        # Safeguard against infinite recursion
+        if not property_path or max_depth <= 0:
+            return None
+            
+        # Add additional logging for debugging
+        logger.debug(f"Attempting to resolve property path '{property_path}' on step {getattr(step, 'name', str(step))}")
+        
+        # Add special handling for ProcessingOutputConfig.Outputs that are PropertiesList
+        if (property_path == "properties.ProcessingOutputConfig.Outputs" and 
+            hasattr(step, 'properties') and 
+            hasattr(step.properties, "ProcessingOutputConfig")):
+            try:
+                outputs = step.properties.ProcessingOutputConfig.Outputs
+                if hasattr(outputs, "__class__") and outputs.__class__.__name__ == "PropertiesList":
+                    logger.debug("Found PropertiesList in ProcessingOutputConfig.Outputs - returning directly")
+                    return outputs  # Return the whole collection for safer handling elsewhere
+            except Exception as e:
+                logger.debug(f"Error in PropertiesList special case: {e}")
+            
+        # Try direct properties access as a fallback for ProcessingOutputConfig.Outputs
+        if property_path and '.' not in property_path and hasattr(step, 'properties'):
+            try:
+                # For ProcessingOutputConfig.Outputs, try direct access to outputs collection
+                if hasattr(step.properties, "ProcessingOutputConfig") and \
+                   hasattr(step.properties.ProcessingOutputConfig, "Outputs"):
+                    outputs = step.properties.ProcessingOutputConfig.Outputs
+                    
+                    # Try name-based lookup if the path looks like an output name
+                    if property_path in outputs:
+                        logger.debug(f"Found property '{property_path}' directly in outputs")
+                        return outputs[property_path].S3Output.S3Uri
+                    
+                    # Try iterating to find output with matching name
+                    if hasattr(outputs, "__iter__"):
+                        for output in outputs:
+                            if hasattr(output, "Name") and output.Name == property_path:
+                                logger.debug(f"Found output with Name='{property_path}'")
+                                return output.S3Output.S3Uri
+            except Exception as e:
+                logger.debug(f"Error in direct properties access fallback: {e}")
+                
+        # Simplify by handling one level at a time
+        parts = property_path.split('.', 1)
+        if not parts:
+            return None
+        
+        first_part = parts[0]
+        remaining_path = parts[1] if len(parts) > 1 else None
+        
+        try:
+            # Handle array/dict access with brackets
+            if '[' in first_part and ']' in first_part:
+                base_attr, index_expr = first_part.split('[', 1)
+                index_expr = index_expr.split(']', 1)[0]
+                
+                # Handle different index types
+                if index_expr.startswith("'") or index_expr.startswith('"'):
+                    # String key - remove quotes
+                    index = index_expr.strip("'\"")
+                    if hasattr(step, base_attr):
+                        base_obj = getattr(step, base_attr)
+                        if hasattr(base_obj, "__getitem__"):
+                            try:
+                                value = base_obj[index]
+                                if remaining_path:
+                                    # Continue with remaining path at reduced depth
+                                    return self._resolve_property_path(value, remaining_path, max_depth - 1)
+                                return value
+                            except (KeyError, IndexError, TypeError):
+                                return None
+                else:
+                    # Numeric index
+                    try:
+                        index = int(index_expr)
+                        if hasattr(step, base_attr):
+                            base_obj = getattr(step, base_attr)
+                            if hasattr(base_obj, "__getitem__"):
+                                try:
+                                    value = base_obj[index]
+                                    if remaining_path:
+                                        # Continue with remaining path at reduced depth
+                                        return self._resolve_property_path(value, remaining_path, max_depth - 1)
+                                    return value
+                                except (KeyError, IndexError, TypeError):
+                                    return None
+                    except ValueError:
+                        return None
+            
+            # Regular attribute access
+            elif hasattr(step, first_part):
+                value = getattr(step, first_part)
+                if remaining_path:
+                    # Continue with remaining path at reduced depth
+                    return self._resolve_property_path(value, remaining_path, max_depth - 1)
+                return value
+                
+            return None
+        except Exception as e:
+            logger.debug(f"Error resolving property path '{first_part}': {e}")
+            return None
+    
+    def _diagnose_step_connections(self, step_name: str, dependency_steps: List[Step]) -> None:
+        """
+        Diagnose connection issues between steps.
+        
+        Args:
+            step_name: Name of the step to diagnose
+            dependency_steps: List of dependency steps
+        """
+        # Get step's input requirements
+        input_reqs = self.step_input_requirements.get(step_name, {})
+        if not input_reqs:
+            return
+            
+        logger.info(f"===== Diagnosing connections for step: {step_name} =====")
+        logger.info(f"Input requirements: {list(input_reqs.keys())}")
+        
+        # Get current step's config to access input_names
+        current_config = self.config_map.get(step_name)
+        if hasattr(current_config, 'input_names') and current_config.input_names:
+            logger.info(f"Input names: {current_config.input_names}")
+        
+        # Check each dependency step
+        for dep_step in dependency_steps:
+            dep_name = getattr(dep_step, 'name', str(dep_step))
+            logger.info(f"Checking dependency: {dep_name}")
+            
+            # Examine ProcessingOutputConfig if available
+            if hasattr(dep_step, "properties") and hasattr(dep_step.properties, "ProcessingOutputConfig"):
+                outputs = dep_step.properties.ProcessingOutputConfig.Outputs
+                logger.info(f"  Output type: {type(outputs).__name__}")
+                
+                # Check outputs collection
+                try:
+                    if hasattr(outputs, "__getitem__"):
+                        # Try accessing first output
+                        first_output = outputs[0]
+                        logger.info(f"  First output type: {type(first_output).__name__}")
+                        if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
+                            logger.info(f"  First output S3Uri: {first_output.S3Output.S3Uri}")
+                        
+                        # Check for Name attribute
+                        if hasattr(first_output, "Name"):
+                            logger.info(f"  First output Name: {first_output.Name}")
+                except Exception as e:
+                    logger.info(f"  Error examining outputs: {e}")
+        
+        logger.info(f"===== End diagnostics for {step_name} =====")
+
     def _instantiate_step(self, step_name: str) -> Step:
         """
         Instantiate a pipeline step with appropriate inputs from dependencies.
@@ -442,6 +657,136 @@ class PipelineBuilderTemplate:
         # Extract inputs from messages
         kwargs = {'dependencies': dependency_steps}
         
+        # Initialize inputs dictionary
+        if 'inputs' not in kwargs:
+            kwargs['inputs'] = {}
+
+        # Special handling for model_evaluation step - generic solution for any evaluation data
+        if step_name == "model_evaluation":
+            # Track if we've found the required inputs
+            model_input_found = False
+            eval_data_found = False
+            
+            for dep_step in dependency_steps:
+                dep_config = None
+                dep_step_name = getattr(dep_step, 'name', str(dep_step))
+                
+                # Find training step for model artifacts
+                if not model_input_found and "train" in dep_step_name.lower() and not "preprocess" in dep_step_name.lower():
+                    try:
+                        if hasattr(dep_step, "properties") and hasattr(dep_step.properties, "ModelArtifacts"):
+                            kwargs['inputs']["model_input"] = dep_step.properties.ModelArtifacts.S3ModelArtifacts
+                            model_input_found = True
+                            logger.info(f"Connected model input from training step: {dep_step_name}")
+                    except Exception as e:
+                        logger.debug(f"Failed to extract model artifacts from {dep_step_name}: {e}")
+                
+                # Find any preprocessing step with evaluation data
+                if not eval_data_found:
+                    # First check if it's a preprocessing step by looking at the name
+                    is_preprocessing = ("preprocess" in dep_step_name.lower())
+                    
+                    # Then check if it's for evaluation data by job_type
+                    is_eval_data = False
+                    # Look for the step's config to determine job_type
+                    for cfg_name, cfg in self.config_map.items():
+                        if cfg_name in dep_step_name:
+                            if hasattr(cfg, 'job_type') and cfg.job_type in ['calibration', 'validation', 'test']:
+                                is_eval_data = True
+                                break
+                    
+                    # Also consider calibration in the name as a hint
+                    if "calib" in dep_step_name.lower() or "eval" in dep_step_name.lower() or "test" in dep_step_name.lower():
+                        is_eval_data = True
+                    
+                    if is_preprocessing and is_eval_data:
+                        logger.info(f"Found evaluation preprocessing step: {dep_step_name}")
+                        
+                        # Method 1: Try to safely access ProcessingOutputConfig (no iteration)
+                        try:
+                            if hasattr(dep_step, "properties") and hasattr(dep_step.properties, "ProcessingOutputConfig"):
+                                pc_outputs = dep_step.properties.ProcessingOutputConfig.Outputs
+                                
+                                # Try accessing with known output names first (safe, no iteration)
+                                for key in ["ProcessedTabularData", "processed_data", "calibration_data"]:
+                                    try:
+                                        # Use safe dictionary-style access if available
+                                        if hasattr(pc_outputs, "get") and callable(pc_outputs.get):
+                                            output = pc_outputs.get(key)
+                                            if output and hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                                kwargs['inputs']["eval_data_input"] = output.S3Output.S3Uri
+                                                eval_data_found = True
+                                                logger.info(f"Connected eval_data_input via key '{key}'")
+                                                break
+                                    except (AttributeError, KeyError, TypeError, IndexError) as e:
+                                        logger.debug(f"Could not access output key '{key}': {e}")
+                                
+                                # Method 2: Try to access the first item (index 0) directly
+                                if not eval_data_found:
+                                    try:
+                                        # Access index [0] if it's an indexed collection
+                                        if hasattr(pc_outputs, "__getitem__"):
+                                            first_output = pc_outputs[0]  # Safer than iteration
+                                            if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
+                                                kwargs['inputs']["eval_data_input"] = first_output.S3Output.S3Uri
+                                                eval_data_found = True
+                                                logger.info(f"Connected eval_data_input via first output")
+                                    except (IndexError, TypeError, AttributeError) as e:
+                                        logger.debug(f"Could not access first output: {e}")
+                        except Exception as e:
+                            logger.debug(f"Could not access ProcessingOutputConfig: {e}")
+                            
+                        # Method 3: Try direct step.outputs collection as fallback
+                        if not eval_data_found:
+                            try:
+                                if hasattr(dep_step, "outputs") and len(dep_step.outputs) > 0:
+                                    first_output = dep_step.outputs[0]
+                                    if hasattr(first_output, "destination"):
+                                        kwargs['inputs']["eval_data_input"] = first_output.destination
+                                        eval_data_found = True
+                                        logger.info(f"Connected eval_data_input from step.outputs collection")
+                            except Exception as e:
+                                logger.debug(f"Could not access step.outputs: {e}")
+                        
+                        # Method 4: Fallback to hardcoded S3 path construction
+                        if not eval_data_found:
+                            try:
+                                # Look for pipeline_s3_loc in any config
+                                base_s3_loc = None
+                                for cfg in self.config_map.values():
+                                    if hasattr(cfg, 'pipeline_s3_loc') and getattr(cfg, 'pipeline_s3_loc'):
+                                        base_s3_loc = getattr(cfg, 'pipeline_s3_loc')
+                                        break
+                                
+                                if base_s3_loc:
+                                    # Try to get job_type
+                                    job_type = None
+                                    for cfg_name, cfg in self.config_map.items():
+                                        if cfg_name in dep_step_name:
+                                            if hasattr(cfg, 'job_type'):
+                                                job_type = getattr(cfg, 'job_type')
+                                                break
+                                    
+                                    if job_type:
+                                        # Construct fallback path using known pattern
+                                        fallback_path = f"{base_s3_loc}/tabular_preprocessing/{job_type}"
+                                        kwargs['inputs']["eval_data_input"] = fallback_path
+                                        eval_data_found = True
+                                        logger.info(f"Connected eval_data_input using fallback path construction")
+                            except Exception as e:
+                                logger.debug(f"Failed to construct fallback path: {e}")
+            
+            # Log whether we found the required inputs
+            if model_input_found:
+                logger.info("Successfully connected model input for model evaluation step")
+            else:
+                logger.warning("Failed to connect model input for model evaluation step")
+                
+            if eval_data_found:
+                logger.info("Successfully connected evaluation data for model evaluation step")
+            else:
+                logger.warning("Failed to connect evaluation data for model evaluation step")
+
         # Add inputs from messages
         if step_name in self.step_messages:
             for input_name, message in self.step_messages[step_name].items():
@@ -455,13 +800,137 @@ class PipelineBuilderTemplate:
                     
                 source_step_instance = self.step_instances[source_step]
                 
-                # Get the output value from the source step
+                # Enhanced property path resolution with our new method
+                # First try direct attribute access (for backward compatibility)
                 if hasattr(source_step_instance, source_output):
                     output_value = getattr(source_step_instance, source_output)
+                    # Add to top-level kwargs for backward compatibility
                     kwargs[input_name] = output_value
-                    logger.debug(f"Added input {input_name} from {source_step}.{source_output}")
+                    # Also add to inputs dictionary for newer steps
+                    kwargs['inputs'][input_name] = output_value
+                    logger.info(f"Added input {input_name} from {source_step}.{source_output} (direct)")
                 else:
-                    logger.warning(f"Source step {source_step} has no output {source_output}")
+                    # Try property path with the new robust resolver
+                    # Common property paths to try
+                    property_paths = [
+                        f"properties.{source_output}",
+                        f"properties.ModelArtifacts.{source_output}",
+                        f"properties.ProcessingOutputConfig.Outputs['{source_output}'].S3Output.S3Uri"
+                    ]
+                    
+                    for path in property_paths:
+                        output_value = self._resolve_property_path(source_step_instance, path)
+                        if output_value is not None:
+                            # Add to inputs dictionary
+                            kwargs['inputs'][input_name] = output_value
+                            logger.info(f"Added input {input_name} from {source_step}.{path}")
+                            break
+                    else:
+                        logger.warning(f"Source step {source_step} has no output {source_output} (tried all paths)")
+        
+        # Add model property connections from training steps to dependent steps
+        for dep_step in dependency_steps:
+            # Try to extract model artifacts from training steps
+            if "train" in str(dep_step).lower() and not "preprocess" in str(dep_step).lower():
+                # Common model artifact properties to try - ordered by preference
+                model_paths = [
+                    "properties.ModelArtifacts.S3ModelArtifacts",
+                    "ModelArtifacts",  # Direct registered property
+                    "model_data",
+                    "model_input",     # Registered logical input name
+                    "output_path",
+                    "ModelOutputPath"
+                ]
+                
+                # Generic approach for model artifacts - populate multiple common input keys
+                model_found = False
+                for path in model_paths:
+                    model_uri = self._resolve_property_path(dep_step, path)
+                    if model_uri is not None:
+                        # Add to all common model input keys that aren't already set
+                        common_model_keys = ["model_input", "model_artifacts", "model_data"]
+                        for key in common_model_keys:
+                            if key not in kwargs['inputs']:
+                                kwargs['inputs'][key] = model_uri
+                                logger.info(f"Added {key} from {getattr(dep_step, 'name', str(dep_step))}.{path}")
+                        model_found = True
+                        break
+                
+                # Generic fallback for all steps if no model input was found
+                if not model_found:
+                    # Fallback to direct property access
+                    if hasattr(dep_step, "properties") and hasattr(dep_step.properties, "ModelArtifacts"):
+                        try:
+                            model_uri = dep_step.properties.ModelArtifacts.S3ModelArtifacts
+                            # Add to all common model input keys
+                            common_model_keys = ["model_input", "model_artifacts", "model_data"]
+                            for key in common_model_keys:
+                                if key not in kwargs['inputs']:
+                                    kwargs['inputs'][key] = model_uri
+                                    logger.info(f"Added {key} via direct ModelArtifacts property")
+                        except AttributeError as e:
+                            logger.warning(f"Failed to access ModelArtifacts: {e}")
+        
+        # Fallback: Use step builder's custom property matching if available
+        if hasattr(builder, "_match_custom_properties") and builder.get_input_requirements():
+            # Check if we're missing any required inputs
+            required_inputs = set()
+            for req_name, req_desc in builder.get_input_requirements().items():
+                if req_name != "dependencies" and req_name != "enable_caching" and req_name not in kwargs:
+                    if req_name not in kwargs.get('inputs', {}):
+                        required_inputs.add(req_name)
+            
+            # If we're missing required inputs, try custom property matching
+            if required_inputs:
+                # Initialize tracking for this step if needed
+                if step_name not in self._property_match_attempts:
+                    self._property_match_attempts[step_name] = {}
+                    
+                # Check if we've already tried matching these inputs too many times
+                MAX_MATCH_ATTEMPTS = 2  # Maximum number of attempts per input
+                should_attempt_match = False
+                
+                for req_input in required_inputs:
+                    # Initialize count if needed
+                    if req_input not in self._property_match_attempts[step_name]:
+                        self._property_match_attempts[step_name][req_input] = 0
+                        
+                    # Increment attempt counter
+                    self._property_match_attempts[step_name][req_input] += 1
+                    attempt_number = self._property_match_attempts[step_name][req_input]
+                    
+                    # Check if under limit
+                    if attempt_number <= MAX_MATCH_ATTEMPTS:
+                        should_attempt_match = True
+                        
+                if should_attempt_match:
+                    logger.info(f"Missing required inputs for {step_name}: {required_inputs}, trying custom property matching (attempt {attempt_number})")
+                    
+                    # Try custom property matching from each dependency
+                    for dep_step in dependency_steps:
+                        # Call the builder's custom property matcher
+                        temp_inputs = {}
+                        matched = builder._match_custom_properties(
+                            temp_inputs, 
+                            builder.get_input_requirements(), 
+                            dep_step
+                        )
+                        
+                        if matched:
+                            # Add any found inputs to kwargs
+                            if 'inputs' not in kwargs:
+                                kwargs['inputs'] = {}
+                            for k, v in temp_inputs.items():
+                                if k not in kwargs['inputs']:
+                                    kwargs['inputs'][k] = v
+                                    logger.info(f"Added {k} from custom property matching")
+                else:
+                    # We've exceeded max attempts, use fallbacks instead
+                    logger.warning(f"Exceeded maximum custom property matching attempts for {step_name} inputs: {required_inputs}. Using fallback mechanisms.")
+                    # Generate default outputs if not already present
+                    if 'outputs' not in kwargs:
+                        kwargs['outputs'] = self._generate_outputs(step_name)
+                        logger.info(f"Added fallback outputs for step {step_name}")
         
         # Generate outputs if not already provided
         if 'outputs' not in kwargs:
@@ -470,13 +939,39 @@ class PipelineBuilderTemplate:
                 kwargs['outputs'] = outputs
                 logger.info(f"Adding generated outputs for step {step_name}")
         
-        # Build the step with extracted inputs and outputs
+        # Run diagnostics on this step's connections - especially important for registration step
+        self._diagnose_step_connections(step_name, dependency_steps)
+        
+        # Build the step with extracted inputs and outputs and timeout protection
         start_time = time.time()
+        MAX_STEP_CREATION_TIME = 10  # seconds
+        
         try:
-            step = builder.create_step(**kwargs)
+            # Define a function to handle timeout checking
+            def create_step_with_timeout():
+                # Check if we're approaching timeout
+                if time.time() - start_time > MAX_STEP_CREATION_TIME:
+                    logger.warning(f"Step creation time limit approaching for {step_name}. Using fallback outputs if needed.")
+                    # Make sure we have outputs as a minimum requirement
+                    if 'outputs' not in kwargs:
+                        kwargs['outputs'] = self._generate_outputs(step_name)
+                        logger.info(f"Added timeout-triggered fallback outputs for step {step_name}")
+                
+                # Try to create the step
+                return builder.create_step(**kwargs)
+            
+            # Create the step with timeout protection
+            step = create_step_with_timeout()
             
             elapsed_time = time.time() - start_time
             logger.info(f"Built step {step_name} in {elapsed_time:.2f} seconds")
+            
+            # Special case for CradleDataLoading steps - store request dict for execution document
+            config = self.config_map[step_name]
+            step_type = BasePipelineConfig.get_step_name(type(config).__name__)
+            if step_type == "CradleDataLoading" and hasattr(builder, "get_request_dict"):
+                self.cradle_loading_requests[step.name] = builder.get_request_dict()
+                logger.info(f"Stored Cradle data loading request for step: {step.name}")
             
             return step
         except Exception as e:

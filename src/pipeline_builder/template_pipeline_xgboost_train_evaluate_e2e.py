@@ -4,6 +4,7 @@ import logging
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
+from sagemaker.image_uris import retrieve
 
 from src.pipeline_steps.utils import load_configs
 from src.pipeline_builder.pipeline_builder_template import PipelineBuilderTemplate
@@ -205,7 +206,9 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             (ModelRegistrationConfig, "model_registration"),
             (XGBoostModelEvalConfig, "model_evaluation")
         ]:
-            instances = [cfg for _, cfg in self.configs.items() if isinstance(cfg, cfg_type)]
+            # Use exact type matching (type(cfg) is cfg_type) instead of isinstance()
+            # This prevents subclasses (like PayloadConfig) from matching when looking for parent class (ModelRegistrationConfig)
+            instances = [cfg for _, cfg in self.configs.items() if type(cfg) is cfg_type]
             if instances:
                 config_map[step_name] = instances[0]
         
@@ -219,6 +222,54 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             raise ValueError(f"Missing required configurations: {missing_configs}")
         
         return config_map
+
+    def _create_execution_doc_config(self, image_uri: str) -> Dict[str, Any]:
+        """
+        Helper to create the execution document configuration dictionary.
+        
+        Args:
+            image_uri: The URI of the inference image to use
+            
+        Returns:
+            Dictionary with execution document configuration
+        """
+        # Find needed configs
+        registration_cfg = next((cfg for _, cfg in self.configs.items() 
+                               if isinstance(cfg, ModelRegistrationConfig)), None)
+        payload_cfg = next((cfg for _, cfg in self.configs.items() 
+                           if isinstance(cfg, PayloadConfig)), None)
+        package_cfg = next((cfg for _, cfg in self.configs.items() 
+                           if isinstance(cfg, PackageStepConfig)), None)
+        
+        if not registration_cfg or not payload_cfg or not package_cfg:
+            raise ValueError("Missing required configs for execution document")
+        
+        return {
+            "model_domain": registration_cfg.model_registration_domain,
+            "model_objective": registration_cfg.model_registration_objective,
+            "source_model_inference_content_types": registration_cfg.source_model_inference_content_types,
+            "source_model_inference_response_types": registration_cfg.source_model_inference_response_types,
+            "source_model_inference_input_variable_list": registration_cfg.source_model_inference_input_variable_list,
+            "source_model_inference_output_variable_list": registration_cfg.source_model_inference_output_variable_list,
+            "model_registration_region": registration_cfg.region,
+            "source_model_inference_image_arn": image_uri,
+            "source_model_region": registration_cfg.aws_region,
+            "model_owner": registration_cfg.model_owner,
+            "source_model_environment_variable_map": {
+                "SAGEMAKER_CONTAINER_LOG_LEVEL": "20",
+                "SAGEMAKER_PROGRAM": registration_cfg.inference_entry_point,
+                "SAGEMAKER_REGION": registration_cfg.aws_region,
+                "SAGEMAKER_SUBMIT_DIRECTORY": '/opt/ml/model/code',
+            },
+            'load_testing_info_map': {
+                "sample_payload_s3_bucket": registration_cfg.bucket,
+                "sample_payload_s3_key": payload_cfg.sample_payload_s3_key,
+                "expected_tps": payload_cfg.expected_tps,
+                "max_latency_in_millisecond": payload_cfg.max_latency_in_millisecond,
+                "instance_type_list": [package_cfg.get_instance_type() if hasattr(package_cfg, 'get_instance_type') else package_cfg.processing_instance_type_small],
+                "max_acceptable_error_rate": payload_cfg.max_acceptable_error_rate,
+            },
+        }
 
     def _create_pipeline_dag(self) -> PipelineDAG:
         """Create the DAG structure for the pipeline."""
@@ -252,6 +303,62 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
         
         return dag
 
+    def _store_registration_step_configs(self, template: PipelineBuilderTemplate) -> None:
+        """
+        Store execution document configs for registration steps.
+        
+        Args:
+            template: The pipeline builder template containing the step instances
+        """
+        try:
+            # Find registration steps
+            registration_steps = []
+            for step_name, step_instance in template.step_instances.items():
+                if "registration" in step_name.lower() or "modelregistration" in str(type(step_instance)).lower():
+                    registration_steps.append(step_instance)
+                    logger.info(f"Found registration step: {step_name}")
+            
+            if not registration_steps:
+                logger.warning("No registration steps found in pipeline")
+                return
+            
+            # Try to retrieve the image URI for registration configs
+            registration_cfg = next((cfg for _, cfg in self.configs.items() 
+                                   if isinstance(cfg, ModelRegistrationConfig)), None)
+            if not registration_cfg:
+                logger.warning("No ModelRegistrationConfig found, skipping execution doc config")
+                return
+            
+            # Get image URI
+            try:
+                image_uri = retrieve(
+                    framework=registration_cfg.framework,
+                    region=registration_cfg.aws_region,
+                    version=registration_cfg.framework_version,
+                    py_version=registration_cfg.py_version,
+                    instance_type=registration_cfg.inference_instance_type,
+                    image_scope="inference"
+                )
+                logger.info(f"Retrieved image URI: {image_uri}")
+            except Exception as e:
+                logger.warning(f"Could not retrieve image URI: {e}")
+                image_uri = "image-uri-placeholder"  # Use placeholder for template
+            
+            # Create execution document config
+            exec_config = self._create_execution_doc_config(image_uri)
+            
+            # Store configs for all registration steps found
+            for step in registration_steps:
+                if hasattr(step, 'name'):
+                    self.registration_configs[step.name] = exec_config
+                    logger.info(f"Stored execution doc config for registration step: {step.name}")
+                elif isinstance(step, dict):
+                    for name, s in step.items():
+                        self.registration_configs[s.name] = exec_config
+                        logger.info(f"Stored execution doc config for registration step: {s.name}")
+        except Exception as e:
+            logger.warning(f"Failed to store registration step configs: {e}")
+
     def generate_pipeline(self) -> Pipeline:
         """
         Build and return a SageMaker Pipeline object using the template.
@@ -279,8 +386,24 @@ class XGBoostTrainEvaluateE2ETemplateBuilder:
             notebook_root=self.notebook_root,
         )
         
+        # Property path registrations are now handled by the respective step builders
+        # This follows the architectural principle that step builders should be responsible
+        # for registering their own property paths, maintaining separation of concerns
+        
+        # NOTE: The redundant registration for packaging step has been removed from here
+        # as builder_mims_packaging_step.py already implements comprehensive property path
+        # registrations at module level and in the _match_custom_properties method
+        
         # Generate the pipeline
-        return template.generate_pipeline(pipeline_name)
+        pipeline = template.generate_pipeline(pipeline_name)
+        
+        # Import Cradle data loading requests from the template
+        self.cradle_loading_requests = template.cradle_loading_requests
+        
+        # Store registration step configs
+        self._store_registration_step_configs(template)
+        
+        return pipeline
 
     def fill_execution_document(self, execution_document: Dict[str, Any]) -> Dict[str, Any]:
         """

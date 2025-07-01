@@ -9,6 +9,19 @@ from sagemaker.xgboost import XGBoostProcessor
 from .config_model_eval_step_xgboost import XGBoostModelEvalConfig
 from .builder_step_base import StepBuilderBase
 
+# Register property paths for XGBoost Model Evaluation outputs
+StepBuilderBase.register_property_path(
+    "XGBoostModelEvaluationStep",
+    "eval_output",                                                      # Logical name
+    "properties.ProcessingOutputConfig.Outputs['EvaluationResults'].S3Output.S3Uri"  # Actual path
+)
+
+StepBuilderBase.register_property_path(
+    "XGBoostModelEvaluationStep", 
+    "metrics_output",
+    "properties.ProcessingOutputConfig.Outputs['EvaluationMetrics'].S3Output.S3Uri"
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,7 +280,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
         """
-        Match custom properties specific to XGBoostModelEval step.
+        Match custom properties specific to XGBoostModelEval step with safe property access.
         
         Args:
             inputs: Dictionary to add matched inputs to
@@ -278,6 +291,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             Set of input names that were successfully matched
         """
         matched_inputs = set()
+        step_name = getattr(prev_step, 'name', str(prev_step))
         
         # Look for model artifacts from a TrainingStep
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
@@ -291,11 +305,94 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
                 if model_key not in inputs.get("inputs", {}):
                     inputs["inputs"][model_key] = model_artifacts
                     matched_inputs.add("inputs")
-                    logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
+                    logger.info(f"Found model artifacts from TrainingStep: {step_name}")
             except AttributeError as e:
-                logger.warning(f"Could not extract model artifacts from step: {e}")
+                logger.debug(f"Could not extract model artifacts from step: {e}")
+        
+        # ENHANCED: Special handling for calibration preprocessing step with SAFE property access
+        if hasattr(prev_step, 'name') and ('calibration' in prev_step.name.lower() or 'calib' in prev_step.name.lower() or 
+                                         'validation' in prev_step.name.lower() or 'test' in prev_step.name.lower()):
+            logger.info(f"Found evaluation preprocessing step: {step_name}")
+            
+            # Method 1: Check for properties.ProcessingOutputConfig.Outputs with SAFE access patterns
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                try:
+                    outputs = prev_step.properties.ProcessingOutputConfig.Outputs
+                    
+                    # Safe Method 1: Try accessing with known output names first
+                    for key_name in ["ProcessedTabularData", "processed_data", "calibration_data"]:
+                        try:
+                            # Use safe dictionary-style access if available
+                            if hasattr(outputs, "get") and callable(outputs.get):
+                                output = outputs.get(key_name)
+                                if output and hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
+                                    if "inputs" not in inputs:
+                                        inputs["inputs"] = {}
+                                    
+                                    inputs["inputs"]["eval_data_input"] = output.S3Output.S3Uri
+                                    matched_inputs.add("inputs")
+                                    self.log_info("Found evaluation data using key: %s", key_name)
+                                    return matched_inputs
+                        except (AttributeError, KeyError, TypeError) as e:
+                            logger.debug(f"Could not access output key '{key_name}': {e}")
+                    
+                    # Safe Method 2: Try to access the first item (index 0) directly
+                    try:
+                        # Access index [0] if it's an indexed collection
+                        if hasattr(outputs, "__getitem__"):
+                            first_output = outputs[0]  # Safer than iteration
+                            if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
+                                if "inputs" not in inputs:
+                                    inputs["inputs"] = {}
+                                
+                                inputs["inputs"]["eval_data_input"] = first_output.S3Output.S3Uri
+                                matched_inputs.add("inputs")
+                                self.log_info("Found evaluation data via first output")
+                                return matched_inputs
+                    except (IndexError, TypeError, AttributeError) as e:
+                        logger.debug(f"Could not access first output: {e}")
+                except Exception as e:
+                    logger.debug(f"Error accessing ProcessingOutputConfig: {e}")
+            
+            # Method 2: Check for outputs attribute (list of outputs)
+            if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+                try:
+                    # Look for an output that might be processed data
+                    for output in prev_step.outputs:
+                        if hasattr(output, "output_name") and hasattr(output, "destination"):
+                            output_name = output.output_name.lower()
+                            if any(term in output_name for term in ["processed", "data", "calibration"]):
+                                if "inputs" not in inputs:
+                                    inputs["inputs"] = {}
+                                
+                                eval_data_key = "eval_data_input"
+                                if eval_data_key not in inputs.get("inputs", {}):
+                                    inputs["inputs"][eval_data_key] = output.destination
+                                    matched_inputs.add("inputs")
+                                    self.log_info("Found calibration data from output: %s", output.output_name)
+                                    return matched_inputs
+                except Exception as e:
+                    logger.warning(f"Error accessing outputs attribute: {e}")
                 
-        # Look for validation data from a ProcessingStep
+            # Fallback: Look for any output if we still haven't found calibration data
+            if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
+                try:
+                    # Just use the first output as a last resort
+                    output = prev_step.outputs[0]
+                    if hasattr(output, "destination"):
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                        
+                        eval_data_key = "eval_data_input"
+                        if eval_data_key not in inputs.get("inputs", {}):
+                            inputs["inputs"][eval_data_key] = output.destination
+                            matched_inputs.add("inputs")
+                            self.log_info("Using fallback calibration data from first output")
+                            return matched_inputs
+                except Exception as e:
+                    logger.warning(f"Error accessing fallback output: {e}")
+        
+        # Standard output pattern matching for any Processing step
         if hasattr(prev_step, "outputs") and len(prev_step.outputs) > 0:
             try:
                 # Use the hardcoded eval_data_input key
@@ -303,14 +400,14 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
                 # Look for an output with a name that might contain evaluation data
                 for output in prev_step.outputs:
                         if hasattr(output, "output_name") and any(term in output.output_name.lower() 
-                                                                for term in ["valid", "test", "eval"]):
+                                                                for term in ["valid", "test", "eval", "calib", "processed"]):
                             if "inputs" not in inputs:
                                 inputs["inputs"] = {}
                             
                             if eval_data_key not in inputs.get("inputs", {}):
                                 inputs["inputs"][eval_data_key] = output.destination
                                 matched_inputs.add("inputs")
-                                logger.info(f"Found evaluation data from step: {getattr(prev_step, 'name', str(prev_step))}")
+                                self.log_info("Found evaluation data from step: %s", step_name)
                                 break
             except AttributeError as e:
                 logger.warning(f"Could not extract validation data from step: {e}")
@@ -392,5 +489,5 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)
         )
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
+        self.log_info("Created ProcessingStep with name: %s", processing_step.name)
         return processing_step

@@ -17,6 +17,62 @@ from .config_training_step_xgboost import XGBoostTrainingConfig
 from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
 
+# Register property paths for XGBoost Training outputs
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep",
+    "model_output",                                # Logical name in output_names
+    "properties.ModelArtifacts.S3ModelArtifacts"   # Runtime property path
+)
+
+# Register path to training metrics
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep",
+    "metrics_output",
+    "properties.TrainingMetrics"
+)
+
+# Register path to training job name
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep", 
+    "training_job_name",
+    "properties.TrainingJobName"
+)
+
+# Register path to model data for compatibility with different naming patterns
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep", 
+    "model_data",
+    "properties.ModelArtifacts.S3ModelArtifacts"
+)
+
+# Register path to output directory with both logical names
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep",
+    "output_path",
+    "properties.ModelArtifacts.S3ModelArtifacts"
+)
+
+# Critical fix - Register ModelOutputPath specifically to match the descriptor used in pattern matching
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep",
+    "ModelOutputPath",
+    "properties.ModelArtifacts.S3ModelArtifacts"
+)
+
+# Add more registrations for the model artifacts with names that might be used by different steps
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep",
+    "ModelArtifacts",
+    "properties.ModelArtifacts.S3ModelArtifacts"
+)
+
+# Add mapping for common model input key names
+StepBuilderBase.register_property_path(
+    "XGBoostTrainingStep",
+    "model_input",  # Common key name used by many step builders
+    "properties.ModelArtifacts.S3ModelArtifacts"
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -175,11 +231,15 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             if "model" in key.lower():
                 model_artifacts_key = value  # Use the VALUE here
                 output_props[value] = "S3 URI of the model artifacts"
+                
+                # Add alias property for pipeline template compatibility
+                output_props["ModelOutputPath"] = "S3 URI for model output directory"
                 break
         
         # If no model key found, use a default
         if not output_props:
             output_props["ModelArtifacts"] = "S3 URI of the model artifacts"
+            output_props["ModelOutputPath"] = "S3 URI for model output directory"
         
         # Also add the standard SageMaker property for backward compatibility
         output_props["ModelArtifacts.S3ModelArtifacts"] = "S3 URI for model artifacts"
@@ -205,7 +265,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         
         # Handle Pipeline step references with Get key - return as is
         if isinstance(uri, dict) and 'Get' in uri:
-            logger.info(f"Found Pipeline step reference during normalization: {uri}")
+            self.log_info("Found Pipeline step reference during normalization: %s", uri)
             return uri
         
         return S3PathHandler.normalize(uri, description)
@@ -228,7 +288,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             
         # Handle Pipeline step references with Get key - return as is
         if isinstance(uri, dict) and 'Get' in uri:
-            logger.info(f"Found Pipeline step reference in directory path: {uri}")
+            self.log_info("Found Pipeline step reference in directory path: %s", uri)
             return uri
             
         return S3PathHandler.ensure_directory(uri, filename)
@@ -279,7 +339,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             val_path = Join(on='/', values=[input_base_path, "val/"])
             test_path = Join(on='/', values=[input_base_path, "test/"])
             
-            # Log the path expressions (safely handling Pipeline references)
+            # Log the path expressions (safely handling Pipeline variables)
             logger.info("Created training data paths using config input_path")
             
             # Create separate channels for each data split
@@ -318,9 +378,9 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                     test_path = Join(on='/', values=[base_path, "test/"])
                     
                     # Log the path expressions
-                    logger.info(f"Train data path expression: {train_path.expr if hasattr(train_path, 'expr') else train_path}")
-                    logger.info(f"Validation data path expression: {val_path.expr if hasattr(val_path, 'expr') else val_path}")
-                    logger.info(f"Test data path expression: {test_path.expr if hasattr(test_path, 'expr') else test_path}")
+                    self.log_info("Train data path expression: %s", train_path)
+                    self.log_info("Validation data path expression: %s", val_path)
+                    self.log_info("Test data path expression: %s", test_path)
                 
                 # Create separate channels for each data split
                 training_inputs["train"] = TrainingInput(s3_data=train_path)
@@ -568,37 +628,31 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         
-        # Check if hyperparameters are available in the step outputs
-        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
-            try:
-                if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
-                    hyperparameters_s3_uri = prev_step.properties.Outputs["hyperparameters_s3_uri"]
-                    
-                    # Instead of adding to inputs, store directly in hyperparameters_s3_uri key
-                    # which will be handled in create_step method
-                    inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-                    matched_inputs.add("hyperparameters_s3_uri")
-                    logger.info(f"Found hyperparameters_s3_uri: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
-            except (AttributeError, KeyError) as e:
-                logger.warning(f"Error matching HyperparameterPrepStep outputs: {e}")
+        # Check if this step has the expected output structure
+        if not hasattr(prev_step, "properties") or not hasattr(prev_step.properties, "ProcessingOutputConfig"):
+            return matched_inputs
+            
+        try:
+            # Try to get the hyperparameters output
+            hyperparameters_s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs["hyperparameters"].S3Output.S3Uri
+            
+            # Initialize inputs dict if needed
+            if "inputs" not in inputs:
+                inputs["inputs"] = {}
                 
-        # Check for direct hyperparameters property (older pattern)
-        if hasattr(prev_step, "hyperparameters_s3_uri"):
-            try:
-                hyperparameters_s3_uri = prev_step.hyperparameters_s3_uri
-                
-                # Store directly in hyperparameters_s3_uri key
-                inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-                matched_inputs.add("hyperparameters_s3_uri")
-                logger.info(f"Found hyperparameters_s3_uri directly on step: {hyperparameters_s3_uri}")
-            except AttributeError as e:
-                logger.warning(f"Error accessing hyperparameters_s3_uri property: {e}")
-                
+            # Add hyperparameters S3 URI
+            inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
+            matched_inputs.add("hyperparameters_s3_uri")
+            logger.info(f"Added hyperparameters from HyperparameterPrepStep (reference)")
+            
+        except (KeyError, AttributeError) as e:
+            logger.warning(f"Error matching hyperparameter outputs: {e}")
+            
         return matched_inputs
         
     def _match_generic_outputs(self, inputs: Dict[str, Any], prev_step: Step) -> Set[str]:
         """
-        Generic matching for other step types.
+        Match generic outputs from any step.
         
         Args:
             inputs: Dictionary to add matched inputs to
@@ -609,208 +663,165 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         """
         matched_inputs = set()
         
-        # Get the configured input path key from config
+        # Get input path key from config
         input_path_key = self.config.input_names.get("input_path", "input_path")
         
-        # Look for outputs from a ProcessingStep
-        if hasattr(prev_step, "outputs") and prev_step.outputs:
-            # Try to detect if this might be a TabularPreprocessingStep based on output structure
-            # even if not explicitly identified by name
-            if len(prev_step.outputs) == 1 and hasattr(prev_step.outputs[0], "destination"):
-                # Check if this single output might be a base path with train/val/test subdirectories
-                base_path = prev_step.outputs[0].destination.rstrip("/")
-                output_name = prev_step.outputs[0].output_name.lower() if hasattr(prev_step.outputs[0], "output_name") else ""
-                
-                # If this appears to be a processed data output, use it as the base input path
-                if "processed" in output_name or "data" in output_name:
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                    
-                    # Add base path directly - contains all subdirectories needed
-                    if input_path_key not in inputs.get("inputs", {}):
-                        inputs["inputs"][input_path_key] = base_path
-                        matched_inputs.add("inputs")
-                        logger.info(f"Generic match - found input path: {base_path}")
-                        
-                    # If we've matched the input path, return early
-                    if matched_inputs:
-                        return matched_inputs
-            
-            # Fallback to standard matching by name patterns
-            # Look for outputs that might contain input data
-            self._match_output_by_name(inputs, prev_step, matched_inputs, 
-                                     input_path_key, ["data", "processed", "input"])
-        
-        # Look for hyperparameters from a step with standard SageMaker Pipeline output
-        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "Outputs"):
-            try:
-                # Try to get the hyperparameters_s3_uri from standard SageMaker Pipeline output
-                if "hyperparameters_s3_uri" in prev_step.properties.Outputs:
-                    hyperparameters_s3_uri = prev_step.properties.Outputs["hyperparameters_s3_uri"]
-                    
-                    # Store directly in hyperparameters_s3_uri key for handling in create_step
-                    inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-                    matched_inputs.add("hyperparameters_s3_uri")
-                    logger.info(f"Found hyperparameters_s3_uri in outputs: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
-            except (AttributeError, KeyError) as e:
-                logger.warning(f"Could not extract hyperparameters from step outputs: {e}")
-                
-        return matched_inputs
-        
-    def _match_output_by_name(self, inputs: Dict[str, Any], step: Step, 
-                             matched_inputs: Set[str], input_key: str, 
-                             output_name_patterns: List[str]) -> None:
-        """
-        Match a specific output by name patterns.
-        
-        Args:
-            inputs: Dictionary to add matched inputs to
-            step: The dependency step
-            matched_inputs: Set to add matched input names to
-            input_key: Name of the input key to use
-            output_name_patterns: List of patterns to look for in output names
-        """
         try:
-            # Look for an output with a name that matches any of the patterns
-            for output in step.outputs:
-                if hasattr(output, "output_name"):
-                    matches_pattern = any(pattern in output.output_name.lower() 
-                                        for pattern in output_name_patterns)
+            # Try to find a generic output path that might contain training data
+            if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+                outputs = prev_step.properties.ProcessingOutputConfig.Outputs
+                
+                # Log the type of outputs object to help with debugging
+                logger.info(f"Processing outputs of type: {outputs.__class__.__name__ if hasattr(outputs, '__class__') else type(outputs)}")
+                
+                # Special handling for PropertiesList type
+                if hasattr(outputs, "__class__") and outputs.__class__.__name__ == "PropertiesList":
+                    logger.info("Detected PropertiesList object - using direct attribute access")
                     
-                    # Ensure we don't match more specific patterns
-                    if not matches_pattern:
-                        continue
-                    
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                    
-                    # Add output destination to inputs
-                    if input_key not in inputs.get("inputs", {}):
-                        inputs["inputs"][input_key] = output.destination
-                        matched_inputs.add("inputs")
-                        logger.info(f"Found {input_key} path from output: {output.output_name}")
-                        break
+                    # Try common output names that might contain processed data
+                    common_names = ["ProcessedTabularData", "Data", "OutputData"]
+                    for name in common_names:
+                        if hasattr(outputs, name):
+                            try:
+                                output_uri = outputs[name].S3Output.S3Uri
+                                
+                                # Initialize inputs dict if needed
+                                if "inputs" not in inputs:
+                                    inputs["inputs"] = {}
+                                    
+                                # Add as input_path, which maps to TrainingDataDirectory
+                                if input_path_key not in inputs.get("inputs", {}):
+                                    inputs["inputs"][input_path_key] = output_uri
+                                    matched_inputs.add("inputs")
+                                    logger.info(f"Added input path from PropertiesList attribute {name}: {output_uri}")
+                                    return matched_inputs
+                            except (AttributeError, KeyError) as e:
+                                logger.debug(f"Error accessing PropertiesList attribute {name}: {e}")
+                
+                # Safe iteration approach instead of using len()
+                try:
+                    # Try to get the first item safely
+                    output_name = next(iter(outputs), None)
+                    if output_name is not None:
+                        output_uri = outputs[output_name].S3Output.S3Uri
                         
-        except Exception as e:
-            logger.warning(f"Error matching output for {input_key}: {e}")
-    
+                        # Initialize inputs dict if needed
+                        if "inputs" not in inputs:
+                            inputs["inputs"] = {}
+                            
+                        # Add as input_path, which maps to TrainingDataDirectory
+                        if input_path_key not in inputs.get("inputs", {}):
+                            inputs["inputs"][input_path_key] = output_uri
+                            matched_inputs.add("inputs")
+                            logger.info(f"Added input path from generic step: {output_uri} (reference)")
+                except (TypeError, StopIteration) as e:
+                    logger.debug(f"Error iterating through outputs: {e}")
+                    
+        except (AttributeError, KeyError, IndexError) as e:
+            logger.warning(f"Error matching generic outputs: {e}")
+            
+        return matched_inputs
+
     def create_step(self, **kwargs) -> TrainingStep:
         """
-        Creates the final, fully configured SageMaker TrainingStep for the pipeline
-        using the standardized input handling approach.
-
+        Creates a SageMaker TrainingStep for the pipeline.
+        
+        This method creates the XGBoost estimator, sets up training inputs from the input data,
+        uploads hyperparameters, and creates the SageMaker TrainingStep.
+        
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
-                - outputs: A dictionary mapping output channel names to their S3 destinations.
-                - hyperparameters_s3_uri: Optional S3 URI to a JSON file containing hyperparameters.
+                - inputs: Dictionary mapping input channel names to their S3 locations,
+                  or a nested dictionary with input_path and hyperparameters_s3_uri
+                - input_path: Direct parameter for training data input path (for backward compatibility)
+                - output_path: Direct parameter for model output path (for backward compatibility)
                 - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache the results of this step
-                                to speed up subsequent pipeline runs with the same inputs.
-
+                - enable_caching: Whether to enable caching for this step.
+                
         Returns:
-            A configured sagemaker.workflow.steps.TrainingStep instance.
+            A configured TrainingStep instance.
         """
-        logger.info("Creating XGBoost TrainingStep...")
-
-        # Extract parameters using standard methods
+        # Extract common parameters
         inputs_raw = self._extract_param(kwargs, 'inputs', {})
-        outputs = self._extract_param(kwargs, 'outputs', {})
-        hyperparameters_s3_uri = self._extract_param(kwargs, 'hyperparameters_s3_uri')
+        input_path = self._extract_param(kwargs, 'input_path')
+        output_path = self._extract_param(kwargs, 'output_path')
         dependencies = self._extract_param(kwargs, 'dependencies', [])
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Normalize inputs using standard helper method
+        logger.info("Creating XGBoost TrainingStep...")
+        
+        # Get the step name
+        step_name = self._get_step_name('XGBoostTraining')
+        
+        # Construct inputs dictionary - handle both nested and flat structures
         inputs = self._normalize_inputs(inputs_raw)
         
-        # Extract output_path from outputs dictionary if available
-        model_output_path = self.config.output_path  # Default to config value
-        
-        # Look for output path in outputs dictionary
-        if outputs:
-            # First check for standardized output name value
-            output_key = None
-            for key, value in self.config.output_names.items():
-                if value in outputs:
-                    model_output_path = outputs[value]
-                    output_key = value
-                    logger.info(f"Using model output path from output_names value '{output_key}': {model_output_path}")
-                    break
+        # Add direct input_path parameter if provided
+        if input_path is not None:
+            inputs["input_path"] = input_path
+            self.log_info("Using directly provided input_path: %s", input_path)
             
-            # Backward compatibility checks
-            if output_key is None:
-                if "ModelArtifacts.S3ModelArtifacts" in outputs:
-                    model_output_path = outputs["ModelArtifacts.S3ModelArtifacts"]
-                    logger.info(f"Using model output path from ModelArtifacts key: {model_output_path}")
-                elif "output_path" in outputs:
-                    model_output_path = outputs["output_path"]
-                    logger.info(f"Using model output path from output_path key: {model_output_path}")
-        
-        # Prepare hyperparameters
-        if not hyperparameters_s3_uri:
+        # Ensure we have hyperparameters - either generate them or use provided ones
+        if "hyperparameters_s3_uri" not in inputs:
+            # Generate hyperparameters file
             hyperparameters_s3_uri = self._prepare_hyperparameters_file()
+            inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
             logger.info(f"Generated hyperparameters at: {hyperparameters_s3_uri}")
-        else:
-            # Normalize the provided hyperparameters_s3_uri
-            hyperparameters_s3_uri = self._normalize_s3_uri(hyperparameters_s3_uri, "provided hyperparameters URI")
-            logger.info(f"Using normalized hyperparameters URI: {hyperparameters_s3_uri}")
-        
-        # Add hyperparameters URI to the inputs
-        inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-        
-        # Auto-detect inputs from dependencies if needed
-        if dependencies:
+            
+        # Look for inputs from dependencies if we don't have what we need
+        if "input_path" not in inputs and dependencies:
             input_requirements = self.get_input_requirements()
             
             # Extract inputs from dependencies
             for dep_step in dependencies:
-                matched = self._match_custom_properties(inputs, input_requirements, dep_step)
+                # Temporary dictionary to collect inputs from matching
+                temp_inputs = {}
+                matched = self._match_custom_properties(temp_inputs, input_requirements, dep_step)
+                
                 if matched:
-                    logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', str(dep_step))}")
+                    # Normalize any nested inputs from the matching
+                    normalized_deps = self._normalize_inputs(temp_inputs)
+                    
+                    # Add to our main inputs dictionary
+                    inputs.update(normalized_deps)
+                    logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', None)}")
+                    
+        # Get training inputs (TrainingInput objects)
+        training_inputs = self._get_training_inputs(inputs)
+        
+        # Make sure we have the inputs we need
+        if len(training_inputs) == 0:
+            raise ValueError("No training inputs available. Provide input_path or ensure dependencies supply necessary outputs.")
+        
+        logger.info(f"Final training inputs: {list(training_inputs.keys())}")
+        
+        # Create estimator with output path if provided
+        estimator = self._create_estimator(output_path)
+        
+        # Create the training step
+        try:
+            training_step = TrainingStep(
+                name=step_name,
+                estimator=estimator,
+                inputs=training_inputs,
+                depends_on=dependencies,
+                cache_config=self._get_cache_config(enable_caching)
+            )
             
-            # If hyperparameters_s3_uri was found in inputs during matching, use that instead
-            if not hyperparameters_s3_uri and 'hyperparameters_s3_uri' in inputs:
-                hyperparameters_s3_uri = inputs.pop('hyperparameters_s3_uri')
-                logger.info(f"Found hyperparameters_s3_uri in inputs: {hyperparameters_s3_uri.expr if hasattr(hyperparameters_s3_uri, 'expr') else hyperparameters_s3_uri}")
-        
-        # Log input keys for debugging
-        logger.info(f"Input keys after normalization: {list(inputs.keys())}")
-        
-        # Get the configured input path key
-        input_path_key = next((k for k in self.config.input_names if "input_path" in k.lower()), "input_path")
-        
-        # Check for required input path either directly in config or in inputs
-        if hasattr(self.config, 'input_path') and self.config.input_path:
-            logger.info(f"Using input_path directly from config: {self.config.input_path}")
-        elif input_path_key not in inputs:
-            # Check for input path in normalized inputs
-            raise ValueError(f"Missing required input path ('{input_path_key}'). "
-                          f"Could not extract it from dependencies or provided inputs.")
-
-        # Create estimator and training inputs
-        estimator = self._create_estimator(model_output_path)
-        train_inputs = self._get_training_inputs(inputs)
-        logger.info(f"Final training inputs: {list(train_inputs.keys())}")
-        
-        # Check for required data channels
-        required_channels = ["train", "val", "test"]
-        missing_channels = [ch for ch in required_channels if ch not in train_inputs]
-        if missing_channels:
-            raise ValueError(f"Missing required data channels: {', '.join(missing_channels)}. "
-                          f"Ensure the input path contains train/val/test subdirectories.")
-
-        # Create step name
-        step_name = self._get_step_name('XGBoostTraining')
-        
-        # Create and return the step
-        training_step = TrainingStep(
-            name=step_name,
-            estimator=estimator,
-            inputs=train_inputs,
-            depends_on=dependencies,
-            cache_config=self._get_cache_config(enable_caching)
-        )
-        logger.info(f"Created TrainingStep with name: {training_step.name}")
-        return training_step
+            # Add model output properties
+            model_output_key = None
+            if hasattr(self.config, 'output_names'):
+                # Find the output name mapped to model artifacts
+                for key, value in self.config.output_names.items():
+                    if "model" in key.lower():
+                        model_output_key = key
+                        break
+            
+            # Log successful creation
+            logger.info(f"Created TrainingStep with name: {training_step.name}")
+            
+            return training_step
+            
+        except Exception as e:
+            logger.error(f"Error creating XGBoost TrainingStep: {str(e)}")
+            raise ValueError(f"Failed to create XGBoostTrainingStep: {str(e)}") from e

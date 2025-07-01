@@ -46,8 +46,6 @@ except ImportError:
 from .config_data_load_step_cradle import CradleDataLoadConfig
 from .builder_step_base import StepBuilderBase
 
-logger = logging.getLogger(__name__)
-
 # Import constants from the same module used by the data loading step
 try:
     from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
@@ -60,6 +58,27 @@ except ImportError:
     OUTPUT_TYPE_DATA = "DATA"  # Upper Case, correct one
     OUTPUT_TYPE_METADATA = "METADATA"  # Upper Case, correct one
     OUTPUT_TYPE_SIGNATURE = "SIGNATURE"  # Upper Case, correct one
+
+# Register property paths for Cradle Data Loading outputs
+StepBuilderBase.register_property_path(
+    "CradleDataLoadingStep",
+    "data_output",                                               # Logical name
+    "properties.ProcessingOutputConfig.Outputs['DATA'].S3Output.S3Uri"  # Runtime path
+)
+
+StepBuilderBase.register_property_path(
+    "CradleDataLoadingStep",
+    "metadata_output",
+    "properties.ProcessingOutputConfig.Outputs['METADATA'].S3Output.S3Uri"
+)
+
+StepBuilderBase.register_property_path(
+    "CradleDataLoadingStep",
+    "signature_output",
+    "properties.ProcessingOutputConfig.Outputs['SIGNATURE'].S3Output.S3Uri"
+)
+
+logger = logging.getLogger(__name__)
 
 
 class CradleDataLoadingStepBuilder(StepBuilderBase):

@@ -9,6 +9,20 @@ from sagemaker.sklearn import SKLearnProcessor
 from .config_tabular_preprocessing_step import TabularPreprocessingConfig
 from .builder_step_base import StepBuilderBase
 
+# Register property path for Tabular Preprocessing outputs with template for output_descriptor
+StepBuilderBase.register_property_path(
+    "TabularPreprocessingStep",
+    "processed_data",                                                           # Logical name
+    "properties.ProcessingOutputConfig.Outputs['{output_descriptor}'].S3Output.S3Uri"  # Template path
+)
+
+# Register additional property paths for calibration data handling
+StepBuilderBase.register_property_path(
+    "TabularPreprocessingStep",
+    "calibration_data",                                                         # Logical name
+    "properties.ProcessingOutputConfig.Outputs['{output_descriptor}'].S3Output.S3Uri"  # Template path
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -244,7 +258,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             logger.info(f"Successfully created standard processing output for '{output_key}'")
         except ValueError as e:
             # Enhanced helper failed - implement fallback mechanism
-            logger.warning(f"Standard output helper failed: {e}, using fallback mechanism")
+            self.log_warning("Standard output helper failed: %s, using fallback mechanism", e)
             
             # Follow pattern from mods_pipeline_xgboost_train_evaluate_e2e.py
             # Construct predictable S3 path based on config properties
@@ -276,7 +290,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
                 logger.info(f"Successfully created standard processing output for '{full_data_output_name}'")
             except ValueError as e:
                 # Enhanced helper failed - implement fallback for full_data
-                logger.warning(f"Full data output helper failed: {e}, using fallback mechanism")
+                self.log_warning("Full data output helper failed: %s, using fallback mechanism", e)
                 
                 # Construct fallback path for full_data
                 full_data_fallback_path = f"{self.config.pipeline_s3_loc}/tabular_preprocessing/{self.config.job_type}/full_data"

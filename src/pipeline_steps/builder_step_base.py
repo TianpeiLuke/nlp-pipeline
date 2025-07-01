@@ -13,6 +13,33 @@ from .config_base import BasePipelineConfig
 logger = logging.getLogger(__name__)
 
 
+def safe_value_for_logging(value):
+    """
+    Safely format a value for logging, handling Pipeline variables appropriately.
+    
+    Args:
+        value: Any value that might be a Pipeline variable
+        
+    Returns:
+        A string representation safe for logging
+    """
+    # Check if it's a Pipeline variable or has the expr attribute
+    if hasattr(value, 'expr'):
+        return f"[Pipeline Variable: {value.__class__.__name__}]"
+    
+    # Handle collections containing Pipeline variables
+    if isinstance(value, dict):
+        return "{...}"  # Avoid iterating through dict values which might contain Pipeline variables
+    if isinstance(value, (list, tuple, set)):
+        return f"[{type(value).__name__} with {len(value)} items]" 
+    
+    # For simple values, return the string representation
+    try:
+        return str(value)
+    except Exception:
+        return f"[Object of type: {type(value).__name__}]"
+
+
 STEP_NAMES = {
     'Base':                 'BaseStep',
     'Processing':           'ProcessingStep',
@@ -36,6 +63,18 @@ STEP_NAMES = {
 class StepBuilderBase(ABC):
     """
     Base class for all step builders
+    
+    ## Safe Logging Methods
+    
+    To handle Pipeline variables safely in logs, use these methods:
+    
+    ```python
+    # Instead of:
+    logger.info(f"Using input path: {input_path}")  # May raise TypeError for Pipeline variables
+    
+    # Use:
+    self.log_info("Using input path: %s", input_path)  # Handles Pipeline variables safely
+    ```
     
     Standard Pattern for `input_names` and `output_names`:
     
@@ -77,6 +116,15 @@ class StepBuilderBase(ABC):
     - `_get_output_destination_name()`: Maps logical name to output destination name
     - `_create_standard_processing_input()`: Creates standardized ProcessingInput
     - `_create_standard_processing_output()`: Creates standardized ProcessingOutput
+    
+    Property Path Registry:
+    
+    To bridge the gap between definition-time and runtime, step builders can register
+    property paths that define how to access their outputs at runtime. This solves the
+    issue where outputs are defined statically but only accessible via specific runtime paths.
+    
+    - `register_property_path()`: Registers a property path for a logical output name
+    - `get_property_paths()`: Gets all registered property paths for this step
     """
 
     REGION_MAPPING: Dict[str, str] = {
@@ -114,6 +162,10 @@ class StepBuilderBase(ABC):
         "data": ["data", "dataset", "input_data", "training_data"],
         "output": ["output", "result", "artifacts", "s3_uri"]
     }
+    
+    # Class-level property path registry
+    # Maps step types to dictionaries of {logical_name: property_path}
+    _PROPERTY_PATH_REGISTRY = {}
 
     def __init__(
         self,
@@ -143,6 +195,9 @@ class StepBuilderBase(ABC):
                 f"Invalid region code: {self.config.region}. "
                 f"Must be one of: {', '.join(self.REGION_MAPPING.keys())}"
             )
+
+        # Initialize instance-specific property paths
+        self._instance_property_paths = {}
 
         logger.info(f"Initializing {self.__class__.__name__} with region: {self.config.region}")
         self.validate_configuration()
@@ -178,6 +233,129 @@ class StepBuilderBase(ABC):
             logger.warning(f"Unknown step type: {step_type}. Using default name.")
             return f"Default{step_type}Step"
         return self.STEP_NAMES[step_type]
+        
+    @classmethod
+    def register_property_path(cls, step_type: str, logical_name: str, property_path: str):
+        """
+        Register a runtime property path for a step type and logical name.
+        
+        This classmethod registers how to access a specific output at runtime
+        by mapping a step type and logical output name to a property path.
+        
+        Args:
+            step_type (str): The type of step (e.g., 'XGBoostTrainingStep')
+            logical_name (str): Logical name of the output (KEY in output_names)
+            property_path (str): Runtime property path to access this output
+                               Can include placeholders like {output_descriptor}
+        
+        Example:
+            ```python
+            # Register how to access model artifacts from XGBoostTrainingStep
+            StepBuilderBase.register_property_path(
+                "XGBoostTrainingStep",
+                "model_output",
+                "properties.ModelArtifacts.S3ModelArtifacts"
+            )
+            
+            # Register how to access processing outputs with placeholders
+            StepBuilderBase.register_property_path(
+                "ProcessingStep",
+                "data_output",
+                "properties.ProcessingOutputConfig.Outputs['{output_descriptor}'].S3Output.S3Uri"
+            )
+            ```
+        """
+        if step_type not in cls._PROPERTY_PATH_REGISTRY:
+            cls._PROPERTY_PATH_REGISTRY[step_type] = {}
+        
+        cls._PROPERTY_PATH_REGISTRY[step_type][logical_name] = property_path
+        logger.debug(f"Registered property path for {step_type}.{logical_name}: {property_path}")
+        
+    def register_instance_property_path(self, logical_name: str, property_path: str):
+        """
+        Register a property path specific to this instance.
+        
+        This instance method registers how to access a specific output at runtime
+        for this specific instance of a step builder. This is useful for dynamic paths
+        that depend on instance configuration.
+        
+        Args:
+            logical_name (str): Logical name of the output (KEY in output_names)
+            property_path (str): Runtime property path to access this output
+        
+        Example:
+            ```python
+            # In __init__ method of a custom step builder
+            self.register_instance_property_path(
+                "model_output",
+                f"properties.{self.config.custom_output_property}"
+            )
+            ```
+        """
+        self._instance_property_paths[logical_name] = property_path
+        logger.debug(f"Registered instance property path for {logical_name}: {property_path}")
+        
+    def get_property_paths(self) -> Dict[str, str]:
+        """
+        Get the runtime property paths registered for this step type.
+        
+        Returns:
+            dict: Mapping from logical output names to runtime property paths
+        """
+        # Get the step type from the class name
+        step_type = self.__class__.__name__.replace("Builder", "Step")
+        return self._PROPERTY_PATH_REGISTRY.get(step_type, {})
+        
+    def get_all_property_paths(self) -> Dict[str, str]:
+        """
+        Get all property paths for this step, combining class-level and instance-level.
+        
+        Returns:
+            dict: Combined mapping from logical output names to runtime property paths
+        """
+        # Start with class-level paths
+        paths = self.get_property_paths().copy()
+        
+        # Override with instance-specific paths
+        paths.update(self._instance_property_paths)
+        
+        return paths
+        
+    def log_info(self, message, *args, **kwargs):
+        """
+        Safely log info messages, handling Pipeline variables.
+        
+        Args:
+            message: The log message
+            *args, **kwargs: Values to format into the message
+        """
+        try:
+            # Convert args and kwargs to safe strings
+            safe_args = [safe_value_for_logging(arg) for arg in args]
+            safe_kwargs = {k: safe_value_for_logging(v) for k, v in kwargs.items()}
+            
+            # Log with safe values
+            logger.info(message, *safe_args, **safe_kwargs)
+        except Exception as e:
+            logger.info(f"Original logging failed ({e}), logging raw message: {message}")
+    
+    def log_debug(self, message, *args, **kwargs):
+        """Debug version of safe logging"""
+        try:
+            safe_args = [safe_value_for_logging(arg) for arg in args]
+            safe_kwargs = {k: safe_value_for_logging(v) for k, v in kwargs.items()}
+            logger.debug(message, *safe_args, **safe_kwargs)
+        except Exception as e:
+            logger.debug(f"Original logging failed ({e}), logging raw message: {message}")
+    
+    def log_warning(self, message, *args, **kwargs):
+        """Warning version of safe logging"""
+        try:
+            safe_args = [safe_value_for_logging(arg) for arg in args]
+            safe_kwargs = {k: safe_value_for_logging(v) for k, v in kwargs.items()}
+            logger.warning(message, *safe_args, **safe_kwargs)
+        except Exception as e:
+            logger.warning(f"Original logging failed ({e}), logging raw message: {message}")
 
     def _get_cache_config(self, enable_caching: bool = True) -> Dict[str, Any]:
         """
