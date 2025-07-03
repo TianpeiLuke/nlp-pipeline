@@ -24,6 +24,14 @@ class DependencyType(Enum):
     CUSTOM_PROPERTY = "custom_property"
 
 
+class NodeType(Enum):
+    """Types of nodes in the pipeline based on their dependency/output characteristics."""
+    SOURCE = "source"      # No dependencies, has outputs (e.g., data loading)
+    INTERNAL = "internal"  # Has both dependencies and outputs (e.g., processing, training)
+    SINK = "sink"         # Has dependencies, no outputs (e.g., model registration)
+    SINGULAR = "singular" # No dependencies, no outputs (e.g., standalone operations)
+
+
 @dataclass
 class DependencySpec:
     """Declarative specification for a step's dependency requirement."""
@@ -83,7 +91,7 @@ class StepSpecification:
     """Complete specification for a step's dependencies and outputs."""
     
     def __init__(self, step_type: str, dependencies: List[DependencySpec], 
-                 outputs: List[OutputSpec]):
+                 outputs: List[OutputSpec], node_type: NodeType):
         """
         Initialize step specification.
         
@@ -91,11 +99,15 @@ class StepSpecification:
             step_type: Type identifier for this step
             dependencies: List of dependency specifications
             outputs: List of output specifications
+            node_type: Node type classification for validation
         """
         if not step_type:
             raise ValueError("step_type cannot be empty")
+        if not isinstance(node_type, NodeType):
+            raise ValueError("node_type must be a NodeType enum")
         
         self.step_type = step_type
+        self.node_type = node_type
         self.dependencies = {dep.logical_name: dep for dep in dependencies}
         self.outputs = {out.logical_name: out for out in outputs}
         
@@ -104,6 +116,35 @@ class StepSpecification:
             raise ValueError("Duplicate dependency logical names found")
         if len(self.outputs) != len(outputs):
             raise ValueError("Duplicate output logical names found")
+        
+        # Validate node type constraints
+        self._validate_node_type_constraints()
+    
+    def _validate_node_type_constraints(self):
+        """Validate that dependencies and outputs match the node type."""
+        has_deps = len(self.dependencies) > 0
+        has_outputs = len(self.outputs) > 0
+        
+        if self.node_type == NodeType.SOURCE:
+            if has_deps:
+                raise ValueError(f"SOURCE node '{self.step_type}' cannot have dependencies")
+            if not has_outputs:
+                raise ValueError(f"SOURCE node '{self.step_type}' must have outputs")
+        elif self.node_type == NodeType.INTERNAL:
+            if not has_deps:
+                raise ValueError(f"INTERNAL node '{self.step_type}' must have dependencies")
+            if not has_outputs:
+                raise ValueError(f"INTERNAL node '{self.step_type}' must have outputs")
+        elif self.node_type == NodeType.SINK:
+            if not has_deps:
+                raise ValueError(f"SINK node '{self.step_type}' must have dependencies")
+            if has_outputs:
+                raise ValueError(f"SINK node '{self.step_type}' cannot have outputs")
+        elif self.node_type == NodeType.SINGULAR:
+            if has_deps:
+                raise ValueError(f"SINGULAR node '{self.step_type}' cannot have dependencies")
+            if has_outputs:
+                raise ValueError(f"SINGULAR node '{self.step_type}' cannot have outputs")
     
     def get_dependency(self, logical_name: str) -> Optional[DependencySpec]:
         """Get dependency specification by logical name."""
@@ -133,8 +174,8 @@ class StepSpecification:
         """Validate the specification for consistency."""
         errors = []
         
-        # Check for empty collections
-        if not self.dependencies and not self.outputs:
+        # Check for empty collections (except for SINGULAR nodes which should have neither)
+        if not self.dependencies and not self.outputs and self.node_type != NodeType.SINGULAR:
             errors.append(f"Step '{self.step_type}' has no dependencies or outputs")
         
         # Validate dependency specifications

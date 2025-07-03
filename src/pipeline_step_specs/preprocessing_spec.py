@@ -5,11 +5,12 @@ This module defines the declarative specification for tabular preprocessing step
 including their dependencies and outputs based on the actual implementation.
 """
 
-from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
+from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 
 # Tabular Preprocessing Step Specification
 PREPROCESSING_SPEC = StepSpecification(
     step_type="TabularPreprocessing",
+    node_type=NodeType.INTERNAL,
     dependencies=[
         DependencySpec(
             logical_name="DATA",
@@ -67,6 +68,20 @@ PREPROCESSING_SPEC = StepSpecification(
             property_path="properties.ProcessingOutputConfig.Outputs['CalibrationData'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Calibration data for model calibration (optional)"
+        ),
+        OutputSpec(
+            logical_name="FullData",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
+            data_type="S3Uri",
+            description="Full processed dataset (alias for full_data)"
+        ),
+        OutputSpec(
+            logical_name="CalibrationData",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['CalibrationData'].S3Output.S3Uri",
+            data_type="S3Uri",
+            description="Calibration data (alias for calibration_data)"
         )
     ]
 )

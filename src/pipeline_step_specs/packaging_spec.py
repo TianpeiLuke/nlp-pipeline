@@ -5,11 +5,12 @@ This module defines the declarative specification for MIMS model packaging steps
 including their dependencies and outputs based on the actual implementation.
 """
 
-from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
+from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 
 # MIMS Packaging Step Specification
 PACKAGING_SPEC = StepSpecification(
     step_type="Package",
+    node_type=NodeType.INTERNAL,
     dependencies=[
         DependencySpec(
             logical_name="model_input",
