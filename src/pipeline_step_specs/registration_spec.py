@@ -5,7 +5,7 @@ This module defines the declarative specification for MIMS model registration st
 including their dependencies and outputs based on the actual implementation.
 """
 
-from ..base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
+from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
 
 # Model Registration Step Specification
 REGISTRATION_SPEC = StepSpecification(

@@ -5,7 +5,7 @@ This module defines the declarative specification for XGBoost training steps,
 including their dependencies and outputs based on the actual implementation.
 """
 
-from ..base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
+from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
 
 # XGBoost Training Step Specification
 XGBOOST_TRAINING_SPEC = StepSpecification(

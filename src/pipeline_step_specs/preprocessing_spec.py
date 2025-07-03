@@ -5,7 +5,7 @@ This module defines the declarative specification for tabular preprocessing step
 including their dependencies and outputs based on the actual implementation.
 """
 
-from ..base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
+from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
 
 # Tabular Preprocessing Step Specification
 PREPROCESSING_SPEC = StepSpecification(

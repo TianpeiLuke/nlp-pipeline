@@ -5,7 +5,7 @@ This module defines the declarative specification for Cradle data loading steps,
 including their dependencies and outputs based on the actual implementation.
 """
 
-from ..base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
+from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType
 
 # Cradle Data Loading Step Specification
 DATA_LOADING_SPEC = StepSpecification(

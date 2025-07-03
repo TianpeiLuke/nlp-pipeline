@@ -7,7 +7,7 @@ This system provides intelligent, automatic dependency resolution for ML pipelin
 The pipeline dependency management system consists of several key components:
 
 1. **Base Specifications** (`base_specifications.py`): Core data structures and registry
-2. **Step Specifications** (`step_specifications/`): Declarative specifications for each step type
+2. **Step Specifications** (`../pipeline_step_specs/`): Declarative specifications for each step type
 3. **Semantic Matcher** (`semantic_matcher.py`): Intelligent name matching using semantic similarity
 4. **Dependency Resolver** (`dependency_resolver.py`): Main resolution engine
 5. **Enhanced DAG** (`../pipeline_dag/enhanced_dag.py`): DAG structure with dependency metadata
@@ -86,7 +86,7 @@ The pipeline dependency management system consists of several key components:
 
 ```python
 from src.pipeline_deps import UnifiedDependencyResolver, SpecificationRegistry
-from src.pipeline_deps.step_specifications import *
+from src.pipeline_step_specs import *
 
 # Create resolver with specifications
 resolver = UnifiedDependencyResolver()
