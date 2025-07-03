@@ -109,10 +109,10 @@ compatible_outputs = global_registry.find_compatible_outputs(dependency_spec)
 ```
 
 ### With Smart Proxies
-Smart Proxies use specifications for intelligent dependency resolution and validation.
+[Smart Proxies](smart_proxy.md) use specifications for intelligent dependency resolution and validation.
 
 ### With Step Builders
-Step Builders implement the behavior defined by specifications:
+[Step Builders](step_builder.md) implement the behavior defined by specifications:
 
 ```python
 class XGBoostTrainingStepBuilder(BuilderStepBase):
@@ -163,4 +163,4 @@ XGBOOST_TRAINING_SPEC = StepSpecification(
 errors = XGBOOST_TRAINING_SPEC.validate()  # Returns empty list if valid
 ```
 
-Step Specifications are the **architectural foundation** that enables all higher-level abstractions (Smart Proxies, Fluent APIs, Step Contracts) to work intelligently and safely together.
+Step Specifications are the **architectural foundation** that enables all higher-level abstractions ([Smart Proxies](smart_proxy.md), [Fluent APIs](fluent_api.md), [Step Contracts](step_contract.md)) to work intelligently and safely together.

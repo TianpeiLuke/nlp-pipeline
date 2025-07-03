@@ -2,15 +2,15 @@
 
 ## What is the Purpose of Step Builder?
 
-Step Builders serve as the **implementation bridge** that translates abstract specifications into executable SageMaker pipeline steps. They represent the "how" while specifications represent the "what", handling the concrete implementation details of pipeline step execution.
+Step Builders serve as the **implementation bridge** that translates abstract [specifications](step_specification.md) into executable SageMaker pipeline steps. They represent the "how" while [specifications](step_specification.md) represent the "what", handling the concrete implementation details of pipeline step execution.
 
 ## Core Purpose
 
 Step Builders provide the **concrete implementation layer** that:
 
-1. **Implementation Bridge** - Convert specifications into SageMaker steps
+1. **Implementation Bridge** - Convert [specifications](step_specification.md) into SageMaker steps
 2. **Input/Output Transformation** - Map logical names to SageMaker properties
-3. **Configuration Integration** - Apply step-specific settings from configs
+3. **Configuration Integration** - Apply step-specific settings from [configs](config.md)
 4. **Validation and Error Handling** - Runtime validation with meaningful errors
 5. **SageMaker Integration** - Handle SageMaker-specific complexities
 
@@ -18,7 +18,7 @@ Step Builders provide the **concrete implementation layer** that:
 
 ### 1. Implementation Bridge
 
-Step Builders translate abstract specifications into executable SageMaker steps:
+Step Builders translate abstract [specifications](step_specification.md) into executable SageMaker steps:
 
 ```python
 class XGBoostTrainingStepBuilder(BuilderStepBase):
@@ -67,7 +67,7 @@ def get_output_reference(self, logical_name: str):
 
 ### 3. Configuration Integration
 
-Integrate with the configuration system to apply step-specific settings:
+Integrate with the [configuration system](config.md) to apply step-specific settings:
 
 ```python
 def _create_xgboost_estimator(self):
@@ -133,7 +133,7 @@ def _get_sagemaker_step_kwargs(self):
 
 ### With Step Specifications
 
-Step Builders implement the behavior defined by specifications:
+Step Builders implement the behavior defined by [specifications](step_specification.md):
 
 ```python
 class XGBoostTrainingStepBuilder(BuilderStepBase):
@@ -150,7 +150,7 @@ class XGBoostTrainingStepBuilder(BuilderStepBase):
 
 ### With Configs
 
-Step Builders use dependency injection pattern with configs:
+Step Builders use dependency injection pattern with [configs](config.md):
 
 ```python
 class XGBoostTrainingStepBuilder(BuilderStepBase):
@@ -166,7 +166,7 @@ class XGBoostTrainingStepBuilder(BuilderStepBase):
 
 ### With Smart Proxies
 
-Smart Proxies use builders for actual step creation:
+[Smart Proxies](smart_proxy.md) use builders for actual step creation:
 
 ```python
 class XGBoostTrainingProxy:
@@ -260,7 +260,7 @@ class TrainingStepBuilder(BuilderStepBase):
 Step Builders provide:
 
 1. **Implementation Abstraction**: Hide SageMaker complexity from users
-2. **Specification Compliance**: Ensure implementations match specifications
+2. **Specification Compliance**: Ensure implementations match [specifications](step_specification.md)
 3. **Validation Logic**: Runtime validation and comprehensive error handling
 4. **Integration Points**: Bridge between logical and physical pipeline layers
 5. **Reusability**: Common patterns can be shared across different step types
@@ -285,4 +285,4 @@ model_artifacts = builder.get_output_reference("model_output")
 training_job_name = builder.get_output_reference("training_job_name")
 ```
 
-Step Builders form the **implementation foundation** that makes the declarative specification system practical and usable in real-world ML pipeline development, handling all the complex details of SageMaker integration while maintaining clean, specification-driven interfaces.
+Step Builders form the **implementation foundation** that makes the declarative [specification system](step_specification.md) practical and usable in real-world ML pipeline development, handling all the complex details of SageMaker integration while maintaining clean, specification-driven interfaces.

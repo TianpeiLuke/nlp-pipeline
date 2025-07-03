@@ -2,7 +2,7 @@
 
 ## What is the Purpose of Smart Proxy?
 
-Smart Proxies serve as an **intelligent abstraction layer** that bridges the gap between declarative specification system and imperative pipeline construction reality. They provide a fluent, developer-friendly interface that hides complexity while leveraging the specification system for intelligent behavior.
+Smart Proxies serve as an **intelligent abstraction layer** that bridges the gap between declarative [specification system](step_specification.md) and imperative pipeline construction reality. They provide a fluent, developer-friendly interface that hides complexity while leveraging the [specification system](step_specification.md) for intelligent behavior.
 
 ## Core Purpose
 
@@ -11,14 +11,14 @@ Smart Proxies provide the **intelligent abstraction layer** that:
 1. **Abstraction Layer for Complex Pipeline Construction** - Hide SageMaker complexity behind intuitive interfaces
 2. **Intelligent Dependency Resolution** - Automatically resolve dependencies using semantic matching
 3. **Type-Safe Pipeline Construction** - Provide compile-time validation and IntelliSense support
-4. **Dynamic Configuration Management** - Auto-populate configurations based on connected steps
-5. **Enhanced Developer Experience** - Enable fluent API design and contextual error messages
+4. **Dynamic Configuration Management** - Auto-populate [configurations](config.md) based on connected steps
+5. **Enhanced Developer Experience** - Enable [fluent API](fluent_api.md) design and contextual error messages
 
 ## Key Features
 
 ### 1. Abstraction Layer for Complex Pipeline Construction
 
-Smart Proxies act as an intelligent abstraction layer between high-level specifications and low-level SageMaker implementation:
+Smart Proxies act as an intelligent abstraction layer between high-level [specifications](step_specification.md) and low-level SageMaker implementation:
 
 ```python
 # Traditional Approach (Manual) - error-prone and verbose
@@ -49,7 +49,7 @@ pipeline.validate()  # Checks topology, dependencies, configurations
 
 ### 2. Intelligent Dependency Resolution
 
-Smart Proxies leverage the specification system for automatic dependency resolution:
+Smart Proxies leverage the [specification system](step_specification.md) for automatic dependency resolution:
 
 ```python
 class XGBoostTrainingProxy:
@@ -131,7 +131,7 @@ preprocess_step.connect_from(data_step)  # IntelliSense shows available methods
 
 ### 4. Dynamic Configuration Management
 
-Smart Proxies can auto-populate configurations based on connected steps:
+Smart Proxies can auto-populate [configurations](config.md) based on connected steps:
 
 ```python
 class PreprocessingProxy:
@@ -159,7 +159,7 @@ class PreprocessingProxy:
 
 ### 5. Enhanced Developer Experience
 
-Smart Proxies enable fluent API design and contextual error messages:
+Smart Proxies enable [fluent API](fluent_api.md) design and contextual error messages:
 
 ```python
 class XGBoostTrainingProxy:
@@ -188,7 +188,7 @@ training_step = (pipeline.add_xgboost_training(config)
 
 ## Specification-Driven Intelligence
 
-Smart Proxies use step specifications for intelligent behavior:
+Smart Proxies use [step specifications](step_specification.md) for intelligent behavior:
 
 ```python
 class SmartProxy:
@@ -261,7 +261,7 @@ class OptimizedSmartProxy:
 
 ### With Step Specifications
 
-Smart Proxies consume step specifications for intelligent behavior:
+Smart Proxies consume [step specifications](step_specification.md) for intelligent behavior:
 
 ```python
 class SmartProxy:
@@ -276,7 +276,7 @@ class SmartProxy:
 
 ### With Step Builders
 
-Smart Proxies use builders for actual step creation:
+Smart Proxies use [builders](step_builder.md) for actual step creation:
 
 ```python
 class SmartProxy:
@@ -291,7 +291,7 @@ class SmartProxy:
 
 ### With Fluent APIs
 
-Smart Proxies serve as the foundation for fluent API construction:
+Smart Proxies serve as the foundation for [fluent API](fluent_api.md) construction:
 
 ```python
 class FluentPipeline:
@@ -329,8 +329,8 @@ Smart Proxies provide:
 2. **Error Prevention**: Eliminate entire classes of errors (wrong property paths, type mismatches)
 3. **Rapid Prototyping**: Enable quick construction of complex pipelines
 4. **Upgrade Path**: Provide modern interfaces while maintaining backward compatibility
-5. **Intelligent Automation**: Leverage specifications for smart behavior
-6. **Developer Productivity**: Fluent APIs and IntelliSense support
+5. **Intelligent Automation**: Leverage [specifications](step_specification.md) for smart behavior
+6. **Developer Productivity**: [Fluent APIs](fluent_api.md) and IntelliSense support
 
 ## Example Usage
 
@@ -366,4 +366,4 @@ if validation_errors:
 sagemaker_pipeline = pipeline.build()
 ```
 
-Smart Proxies represent the **evolution from manual pipeline construction to intelligent, specification-driven automation**, making pipeline development feel natural and intuitive while maintaining the robustness and type safety of the underlying specification system.
+Smart Proxies represent the **evolution from manual pipeline construction to intelligent, specification-driven automation**, making pipeline development feel natural and intuitive while maintaining the robustness and type safety of the underlying [specification system](step_specification.md).

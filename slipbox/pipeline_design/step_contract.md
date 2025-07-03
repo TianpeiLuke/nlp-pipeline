@@ -253,7 +253,7 @@ class ConfigContract:
 
 ### With Step Specifications
 
-Step Contracts complement and extend Step Specifications:
+Step Contracts complement and extend [Step Specifications](step_specification.md):
 
 ```python
 # Step Specification defines the structural interface
@@ -299,6 +299,50 @@ class QualityGate:
         
         if violations:
             raise QualityGateFailure(f"Step failed quality checks: {violations}")
+```
+
+### With Step Builders
+
+Step Contracts work with [Step Builders](step_builder.md) to ensure implementation compliance:
+
+```python
+class ContractValidatedStepBuilder(BuilderStepBase):
+    def __init__(self, config, contract):
+        super().__init__(config)
+        self.contract = contract
+    
+    def build_step(self, inputs):
+        # Validate inputs against contract before building
+        self.contract.validate_inputs(inputs)
+        
+        # Build step using parent implementation
+        step = super().build_step(inputs)
+        
+        # Ensure step can fulfill contract guarantees
+        self.contract.validate_step_capabilities(step)
+        
+        return step
+```
+
+### With Standardization Rules
+
+Step Contracts enforce [standardization rules](standardization_rules.md) at the interface level:
+
+```python
+class StandardizedStepContract(StepContract):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Enforce standardization rules
+        self._validate_naming_conventions()
+        self._validate_interface_standards()
+        self._validate_documentation_requirements()
+    
+    def _validate_naming_conventions(self):
+        """Ensure contract follows naming standards"""
+        for input_name in self.required_inputs.keys():
+            if not re.match(r'^[a-z][a-z0-9_]*$', input_name):
+                raise StandardizationError(f"Input name '{input_name}' violates naming convention")
 ```
 
 ### Cross-Team Collaboration

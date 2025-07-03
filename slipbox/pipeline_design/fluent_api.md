@@ -276,7 +276,7 @@ sales_pipeline = PipelineTemplate.regression_pipeline("s3://sales-data/", "xgboo
 
 ### With Smart Proxies
 
-Fluent APIs use Smart Proxies as the underlying implementation:
+Fluent APIs use [Smart Proxies](smart_proxy.md) as the underlying implementation:
 
 ```python
 class FluentPipeline:
@@ -307,7 +307,7 @@ class FluentPipeline:
 
 ### With Step Specifications
 
-Fluent APIs leverage specifications for validation and intelligent behavior:
+Fluent APIs leverage [specifications](step_specification.md) for validation and intelligent behavior:
 
 ```python
 class SpecificationAwareFluentAPI:
@@ -334,6 +334,27 @@ class FluentStepProxy:
             raise ConnectionError(f"Cannot connect {self.step_type} to {target_step}")
         
         return self
+```
+
+### With Step Contracts
+
+Fluent APIs enforce [step contracts](step_contract.md) during construction:
+
+```python
+class ContractEnforcingFluentAPI:
+    def train_xgboost(self, **kwargs) -> 'FluentPipeline':
+        """Train XGBoost with contract enforcement"""
+        
+        # Check preconditions from step contract
+        contract = self._get_step_contract("XGBoostTraining")
+        precondition_errors = contract.validate_preconditions(self.current_state)
+        
+        if precondition_errors:
+            raise ContractViolationError(
+                f"XGBoost training preconditions not met: {precondition_errors}"
+            )
+        
+        return self._add_training_step("xgboost", **kwargs)
 ```
 
 ## Error Prevention and Validation
