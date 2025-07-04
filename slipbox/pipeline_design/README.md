@@ -122,51 +122,166 @@ The architecture favors declarative specifications that describe "what" rather t
 
 ### 2. Layered Abstraction
 Components are organized in clear layers with defined responsibilities:
-```
-┌─────────────────────────────────────┐
-│           Fluent API Layer          │  # Natural language interface
-├─────────────────────────────────────┤
-│    Pipeline Template Builder V2    │  # Modern orchestration coordination
-├─────────────────────────────────────┤
-│          Smart Proxy Layer          │  # Intelligent abstraction
-├─────────────────────────────────────┤
-│         Step Builder Layer          │  # Implementation bridge
-├─────────────────────────────────────┤
-│       Configuration Layer           │  # Centralized config management
-├─────────────────────────────────────┤
-│       Step Specification Layer      │  # Comprehensive step definition
-├─────────────────────────────────────┤
-│      Dependency Resolution Layer    │  # Intelligent dependency matching
-│  ┌─────────────────────────────────┐ │
-│  │    Dependency Resolver          │ │  # Multi-criteria compatibility scoring
-│  │    (composition pattern)        │ │  # Semantic matching & type safety
-│  └─────────────────────────────────┘ │
-├─────────────────────────────────────┤
-│         Registry Layer              │  # Context-aware specification storage
-│  ┌─────────────────────────────────┐ │
-│  │    Registry Manager             │ │  # Multi-context coordination
-│  │    ├── SpecificationRegistry    │ │  # Context-isolated storage
-│  │    ├── SpecificationRegistry    │ │  # (pipeline_a, pipeline_b, etc.)
-│  │    └── SpecificationRegistry    │ │
-│  └─────────────────────────────────┘ │
-├─────────────────────────────────────┤
-│         Foundation Layer            │  # Core infrastructure
-│  ┌─────────────────────────────────┐ │
-│  │    Pipeline DAG                 │ │  # Topology & execution modeling
-│  │    Base Specifications          │ │  # Pydantic V2 models
-│  │    Semantic Matcher             │ │  # Name similarity scoring
-│  └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
+
+```mermaid
+flowchart TD
+    subgraph "🎯 Fluent API Layer"
+        FluentAPI["Fluent API<br/>Natural language interface<br/>Method chaining & context building"]
+    end
+    
+    subgraph "🏗️ Orchestration Layer"
+        PipelineBuilder["Pipeline Template Builder V2<br/>Modern orchestration coordination<br/>Component coordination & validation"]
+    end
+    
+    subgraph "🧠 Abstraction Layer"
+        SmartProxy["Smart Proxy<br/>Intelligent abstraction<br/>Type-safe construction & dynamic config"]
+    end
+    
+    subgraph "🔧 Implementation Layer"
+        StepBuilder["Step Builder<br/>Implementation bridge<br/>SageMaker translation & I/O transformation"]
+    end
+    
+    subgraph "⚙️ Configuration Layer"
+        Config["Configuration Management<br/>Centralized config management<br/>Environment overrides & validation"]
+    end
+    
+    subgraph "📋 Specification Layer"
+        StepSpec["Step Specification<br/>Comprehensive step definition<br/>Interface contracts & quality gates"]
+    end
+    
+    subgraph "🔗 Dependency Resolution Layer"
+        DependencyResolver["Dependency Resolver<br/>Intelligent dependency matching<br/>Multi-criteria scoring & semantic matching<br/>(composition pattern)"]
+    end
+    
+    subgraph "📚 Registry Layer"
+        RegistryManager["Registry Manager<br/>Multi-context coordination"]
+        SpecReg1["SpecificationRegistry<br/>Context A (pipeline_a)"]
+        SpecReg2["SpecificationRegistry<br/>Context B (pipeline_b)"]
+        SpecRegN["SpecificationRegistry<br/>Context N (etc.)"]
+        
+        RegistryManager --> SpecReg1
+        RegistryManager --> SpecReg2
+        RegistryManager --> SpecRegN
+    end
+    
+    subgraph "🏛️ Foundation Layer"
+        PipelineDAG["Pipeline DAG<br/>Topology & execution modeling"]
+        BaseSpecs["Base Specifications<br/>Pydantic V2 models"]
+        SemanticMatcher["Semantic Matcher<br/>Name similarity scoring"]
+    end
+    
+    FluentAPI --> PipelineBuilder
+    PipelineBuilder --> SmartProxy
+    SmartProxy --> StepBuilder
+    StepBuilder --> Config
+    StepBuilder --> StepSpec
+    Config --> DependencyResolver
+    StepSpec --> DependencyResolver
+    DependencyResolver --> RegistryManager
+    RegistryManager --> PipelineDAG
+    RegistryManager --> BaseSpecs
+    RegistryManager --> SemanticMatcher
 ```
 
-### 3. Specification-Driven Intelligence
+### 3. User Input to Implementation Flow
+The architecture supports a natural flow from user intent to executable SageMaker pipelines:
+
+```mermaid
+flowchart TD
+    %% User Input Entry Points
+    UserInput1["🧑‍💻 Simple API<br/>pipeline.auto_train_xgboost('s3://data/')"]
+    UserInput2["🧑‍💻 Fluent API<br/>Pipeline('fraud').load_data().train().deploy()"]
+    UserInput3["🧑‍💻 Specification Config<br/>PipelineSpec with detailed configuration"]
+    UserInput4["🧑‍💻 Direct Builder<br/>Manual step builder usage"]
+    
+    %% Processing Flow
+    UserInput1 --> FluentAPI
+    UserInput2 --> FluentAPI
+    UserInput3 --> PipelineBuilder
+    UserInput4 --> StepBuilder
+    
+    subgraph "🎯 Fluent API Processing"
+        FluentAPI["• Parse natural language methods<br/>• Build context progressively<br/>• Apply intelligent defaults<br/>• Generate specifications"]
+    end
+    
+    FluentAPI --> PipelineBuilder
+    
+    subgraph "🏗️ Orchestration Processing"
+        PipelineBuilder["• Validate user specifications<br/>• Coordinate component assembly<br/>• Manage pipeline lifecycle<br/>• Handle error reporting"]
+    end
+    
+    PipelineBuilder --> SmartProxy
+    
+    subgraph "🧠 Intelligent Processing"
+        SmartProxy["• Auto-resolve dependencies<br/>• Apply type safety checks<br/>• Generate dynamic configurations<br/>• Optimize pipeline structure"]
+    end
+    
+    SmartProxy --> StepBuilder
+    
+    subgraph "🔧 Implementation Processing"
+        StepBuilder["• Translate specs to SageMaker steps<br/>• Handle input/output transformation<br/>• Apply runtime configurations<br/>• Generate step definitions"]
+    end
+    
+    StepBuilder --> ConfigValidation
+    StepBuilder --> SpecValidation
+    
+    subgraph "⚙️ Configuration Processing"
+        ConfigValidation["• Resolve environment variables<br/>• Apply configuration templates<br/>• Validate parameter constraints<br/>• Handle overrides"]
+    end
+    
+    subgraph "📋 Specification Processing"
+        SpecValidation["• Validate step interfaces<br/>• Check quality requirements<br/>• Enforce contracts<br/>• Generate documentation"]
+    end
+    
+    ConfigValidation --> DependencyResolution
+    SpecValidation --> DependencyResolution
+    
+    subgraph "🔗 Dependency Processing"
+        DependencyResolution["• Score compatibility matches<br/>• Resolve semantic dependencies<br/>• Validate type safety<br/>• Generate property references"]
+    end
+    
+    DependencyResolution --> RegistryLookup
+    
+    subgraph "📚 Registry Processing"
+        RegistryLookup["• Query context-specific registries<br/>• Find compatible specifications<br/>• Manage isolation boundaries<br/>• Cache resolution results"]
+    end
+    
+    RegistryLookup --> FoundationValidation
+    
+    subgraph "🏛️ Foundation Processing"
+        FoundationValidation["• Validate pipeline topology<br/>• Check for cycles<br/>• Optimize execution order<br/>• Generate final DAG"]
+    end
+    
+    FoundationValidation --> SageMakerPipeline
+    
+    %% Final Output
+    subgraph "🚀 Implementation Output"
+        SageMakerPipeline["SageMaker Pipeline<br/>• Executable step definitions<br/>• Resolved dependencies<br/>• Validated configurations<br/>• Optimized execution plan"]
+    end
+    
+    %% Error and Feedback Flows
+    DependencyResolution -.->|"❌ Resolution Errors"| UserFeedback
+    ConfigValidation -.->|"❌ Configuration Errors"| UserFeedback
+    SpecValidation -.->|"❌ Validation Errors"| UserFeedback
+    FoundationValidation -.->|"❌ Topology Errors"| UserFeedback
+    
+    subgraph "📋 User Feedback"
+        UserFeedback["Error Reports & Suggestions<br/>• Detailed error messages<br/>• Resolution recommendations<br/>• Debug information<br/>• Performance metrics"]
+    end
+    
+    UserFeedback -.->|"🔄 Iterative Refinement"| UserInput1
+    UserFeedback -.->|"🔄 Iterative Refinement"| UserInput2
+    UserFeedback -.->|"🔄 Iterative Refinement"| UserInput3
+```
+
+### 4. Specification-Driven Intelligence
 All intelligent behavior stems from rich, declarative specifications:
 - Automatic dependency resolution
 - Compatibility checking
 - Validation and error prevention
 - Documentation generation
 
-### 4. Progressive Disclosure
+### 5. Progressive Disclosure
 The system supports multiple levels of abstraction:
 - **Simple**: One-liner pipeline creation for prototyping
 - **Configured**: Basic configuration for common use cases
