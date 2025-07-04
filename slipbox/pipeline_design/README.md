@@ -66,15 +66,10 @@ The pipeline design represents a sophisticated, specification-driven architectur
     - **Key Features**: Multi-context management, simplified API, backward compatibility, global coordination
     - **Strategic Value**: Enables sophisticated multi-registry architectures while maintaining simplicity
 
-11. **[Pipeline Registry](pipeline_registry.md)** - Unified dependency management layer
-    - **Purpose**: Pipeline-scoped specification storage with embedded intelligent dependency resolution
-    - **Key Features**: Pipeline isolation, embedded dependency resolution, unified API, centralized management
-    - **Strategic Value**: Eliminates manual coordination between registry and resolver while maintaining pipeline boundaries
-
-12. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
-    - **Purpose**: Automatically connect pipeline steps through semantic compatibility analysis
-    - **Key Features**: Multi-criteria scoring, type safety validation, pipeline-scoped resolution, performance optimization
-    - **Strategic Value**: Eliminates manual dependency wiring while ensuring type safety and semantic correctness
+11. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
+    - **Purpose**: Automatically connect pipeline steps through semantic compatibility analysis using composition pattern
+    - **Key Features**: Multi-criteria scoring, type safety validation, context-scoped resolution, performance optimization, caching
+    - **Strategic Value**: Eliminates manual dependency wiring while ensuring type safety and semantic correctness through intelligent automation
 
 ### Governance Components
 
@@ -131,7 +126,7 @@ Components are organized in clear layers with defined responsibilities:
 ┌─────────────────────────────────────┐
 │           Fluent API Layer          │  # Natural language interface
 ├─────────────────────────────────────┤
-│    Pipeline Template Builder V2   │  # Modern orchestration coordination
+│    Pipeline Template Builder V2    │  # Modern orchestration coordination
 ├─────────────────────────────────────┤
 │          Smart Proxy Layer          │  # Intelligent abstraction
 ├─────────────────────────────────────┤
@@ -139,9 +134,28 @@ Components are organized in clear layers with defined responsibilities:
 ├─────────────────────────────────────┤
 │       Configuration Layer           │  # Centralized config management
 ├─────────────────────────────────────┤
-│       Step Specification Layer     │  # Comprehensive step definition
+│       Step Specification Layer      │  # Comprehensive step definition
 ├─────────────────────────────────────┤
-│         Foundation Layer            │  # Atomized registries, DAG, dependency resolver
+│      Dependency Resolution Layer    │  # Intelligent dependency matching
+│  ┌─────────────────────────────────┐ │
+│  │    Dependency Resolver          │ │  # Multi-criteria compatibility scoring
+│  │    (composition pattern)        │ │  # Semantic matching & type safety
+│  └─────────────────────────────────┘ │
+├─────────────────────────────────────┤
+│         Registry Layer              │  # Context-aware specification storage
+│  ┌─────────────────────────────────┐ │
+│  │    Registry Manager             │ │  # Multi-context coordination
+│  │    ├── SpecificationRegistry    │ │  # Context-isolated storage
+│  │    ├── SpecificationRegistry    │ │  # (pipeline_a, pipeline_b, etc.)
+│  │    └── SpecificationRegistry    │ │
+│  └─────────────────────────────────┘ │
+├─────────────────────────────────────┤
+│         Foundation Layer            │  # Core infrastructure
+│  ┌─────────────────────────────────┐ │
+│  │    Pipeline DAG                 │ │  # Topology & execution modeling
+│  │    Base Specifications          │ │  # Pydantic V2 models
+│  │    Semantic Matcher             │ │  # Name similarity scoring
+│  └─────────────────────────────────┘ │
 └─────────────────────────────────────┘
 ```
 
