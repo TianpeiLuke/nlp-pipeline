@@ -169,14 +169,14 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         self.assertIsInstance(model_input, ProcessingInput)
         self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
         self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
-        self.assertEqual(model_input.input_name, "model_input")
+        self.assertEqual(model_input.input_name, "Model artifacts input")
         
         # Check eval data input
         eval_input = processing_inputs[1]
         self.assertIsInstance(eval_input, ProcessingInput)
         self.assertEqual(eval_input.source, "s3://bucket/eval_data")
         self.assertEqual(eval_input.destination, "/opt/ml/processing/input/eval_data")
-        self.assertEqual(eval_input.input_name, "eval_data_input")
+        self.assertEqual(eval_input.input_name, "Evaluation data input")
 
     def test_get_processor_inputs_missing_required(self):
         """Test that _get_processor_inputs raises ValueError with missing required inputs."""
@@ -191,8 +191,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
     def test_get_processor_outputs(self):
         """Test that processor outputs are created correctly."""
         outputs = {
-            "eval_output": "s3://bucket/eval_output",
-            "metrics_output": "s3://bucket/metrics_output"
+            "Output name for evaluation predictions": "s3://bucket/eval_output",
+            "Output name for evaluation metrics": "s3://bucket/metrics_output"
         }
         
         processing_outputs = self.builder._get_processor_outputs(outputs)
@@ -204,20 +204,20 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         self.assertIsInstance(eval_output, ProcessingOutput)
         self.assertEqual(eval_output.source, "/opt/ml/processing/output/eval")
         self.assertEqual(eval_output.destination, "s3://bucket/eval_output")
-        self.assertEqual(eval_output.output_name, "eval_output")
+        self.assertEqual(eval_output.output_name, "Output name for evaluation predictions")
         
         # Check metrics output
         metrics_output = processing_outputs[1]
         self.assertIsInstance(metrics_output, ProcessingOutput)
         self.assertEqual(metrics_output.source, "/opt/ml/processing/output/metrics")
         self.assertEqual(metrics_output.destination, "s3://bucket/metrics_output")
-        self.assertEqual(metrics_output.output_name, "metrics_output")
+        self.assertEqual(metrics_output.output_name, "Output name for evaluation metrics")
 
     def test_get_processor_outputs_missing_required(self):
         """Test that _get_processor_outputs raises ValueError with missing required outputs."""
         # Missing metrics_output
         outputs = {
-            "eval_output": "s3://bucket/eval_output"
+            "Output name for evaluation predictions": "s3://bucket/eval_output"
         }
         
         with self.assertRaises(ValueError):
@@ -270,8 +270,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         }
         
         outputs = {
-            "eval_output": "s3://bucket/eval_output",
-            "metrics_output": "s3://bucket/metrics_output"
+            "Output name for evaluation predictions": "s3://bucket/eval_output",
+            "Output name for evaluation metrics": "s3://bucket/metrics_output"
         }
         
         step = self.builder.create_step(inputs=inputs, outputs=outputs)
@@ -323,8 +323,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         }
         
         outputs = {
-            "eval_output": "s3://bucket/eval_output",
-            "metrics_output": "s3://bucket/metrics_output"
+            "Output name for evaluation predictions": "s3://bucket/eval_output",
+            "Output name for evaluation metrics": "s3://bucket/metrics_output"
         }
         
         step = self.builder.create_step(inputs=inputs, outputs=outputs, dependencies=dependencies)
@@ -360,8 +360,8 @@ class TestXGBoostModelEvalStepBuilder(unittest.TestCase):
         }
         
         outputs = {
-            "eval_output": "s3://bucket/eval_output",
-            "metrics_output": "s3://bucket/metrics_output"
+            "Output name for evaluation predictions": "s3://bucket/eval_output",
+            "Output name for evaluation metrics": "s3://bucket/metrics_output"
         }
         
         # Mock the _get_cache_config method to return None when enable_caching is False

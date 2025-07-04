@@ -303,10 +303,10 @@ class TestMIMSPackagingStepBuilder(unittest.TestCase):
         matched = self.builder._match_custom_properties(inputs, input_requirements, prev_step)
         
         # Verify inputs were matched
-        self.assertIn("inputs", matched)
-        self.assertIn("inputs", inputs)
-        self.assertIn("model_input", inputs["inputs"])
-        self.assertEqual(inputs["inputs"]["model_input"], "s3://bucket/model.tar.gz")
+        self.assertIn("model_input", matched)
+        self.assertIn("inference_scripts_input", matched)
+        self.assertIn("model_input", inputs)
+        self.assertEqual(inputs["model_input"], "s3://bucket/model.tar.gz")
         
     def test_match_custom_properties_no_model_artifacts(self):
         """Test _match_custom_properties method when no model artifacts are available."""
@@ -322,9 +322,9 @@ class TestMIMSPackagingStepBuilder(unittest.TestCase):
         inputs = {}
         matched = self.builder._match_custom_properties(inputs, input_requirements, prev_step)
         
-        # Verify no inputs were matched
-        self.assertEqual(matched, set())
-        self.assertEqual(inputs, {})
+        # Verify only inference_scripts_input was matched
+        self.assertEqual(matched, {"inference_scripts_input"})
+        self.assertIn("inference_scripts_input", inputs)
         
     def test_get_input_requirements(self):
         """Test get_input_requirements method."""
