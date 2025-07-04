@@ -39,46 +39,51 @@ The pipeline design represents a sophisticated, specification-driven architectur
 
 ### Orchestration Components
 
-6. **[Pipeline Specification](pipeline_specification.md)** - Declarative blueprint layer
-   - **Purpose**: Complete pipeline definition through declarative specifications
-   - **Key Features**: Configuration integration, type safety validation, quality requirements embedding
-   - **Strategic Value**: Enables template reusability and cross-component consistency checking
-
-7. **[Pipeline Template Builder V1](pipeline_template_builder_v1.md)** - Current monolithic orchestration layer
+6. **[Pipeline Template Builder V1](pipeline_template_builder_v1.md)** - Current monolithic orchestration layer
    - **Purpose**: Build SageMaker pipelines through imperative step instantiation and manual dependency resolution
    - **Key Features**: DAG-based ordering, manual property resolution, pattern matching, comprehensive error handling
    - **Strategic Value**: Production-ready but complex (600+ lines) with maintenance overhead
 
-8. **[Pipeline Template Builder V2](pipeline_template_builder_v2.md)** - Modern lightweight orchestration layer
+7. **[Pipeline Template Builder V2](pipeline_template_builder_v2.md)** - Modern lightweight orchestration layer
    - **Purpose**: Transform declarative specifications into executable SageMaker pipelines
    - **Key Features**: Component coordination, dependency resolution, specification validation
    - **Strategic Value**: 90% code reduction while maintaining quality assurance and extensibility
 
 ### Infrastructure Components
 
-9. **[Pipeline DAG](pipeline_dag.md)** - Structural foundation layer
+8. **[Pipeline DAG](pipeline_dag.md)** - Structural foundation layer
     - **Purpose**: Mathematical framework for pipeline topology and execution
     - **Key Features**: Cycle detection, execution optimization, dependency modeling
     - **Strategic Value**: Provides computational backbone for all higher-level abstractions
 
-10. **[Pipeline Registry](pipeline_registry.md)** - Unified dependency management layer
+9. **[Specification Registry](specification_registry.md)** - Context-aware specification storage layer
+    - **Purpose**: Isolated, testable specification management with built-in compatibility analysis
+    - **Key Features**: Context isolation, specification validation, compatibility checking, testable architecture
+    - **Strategic Value**: Enables atomized, maintainable dependency management with perfect test isolation
+
+10. **[Registry Manager](registry_manager.md)** - Multi-registry coordination layer
+    - **Purpose**: Centralized orchestration of multiple specification registries with lifecycle management
+    - **Key Features**: Multi-context management, simplified API, backward compatibility, global coordination
+    - **Strategic Value**: Enables sophisticated multi-registry architectures while maintaining simplicity
+
+11. **[Pipeline Registry](pipeline_registry.md)** - Unified dependency management layer
     - **Purpose**: Pipeline-scoped specification storage with embedded intelligent dependency resolution
     - **Key Features**: Pipeline isolation, embedded dependency resolution, unified API, centralized management
     - **Strategic Value**: Eliminates manual coordination between registry and resolver while maintaining pipeline boundaries
 
-11. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
+12. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
     - **Purpose**: Automatically connect pipeline steps through semantic compatibility analysis
     - **Key Features**: Multi-criteria scoring, type safety validation, pipeline-scoped resolution, performance optimization
     - **Strategic Value**: Eliminates manual dependency wiring while ensuring type safety and semantic correctness
 
 ### Governance Components
 
-12. **[Design Principles](design_principles.md)** - Architectural philosophy layer
+13. **[Design Principles](design_principles.md)** - Architectural philosophy layer
     - **Purpose**: Guide system development and evolution decisions
     - **Key Features**: Declarative over imperative, composition over inheritance, fail fast
     - **Strategic Value**: Ensures architectural consistency and quality over time
 
-13. **[Standardization Rules](standardization_rules.md)** - Enhanced constraint enforcement layer
+14. **[Standardization Rules](standardization_rules.md)** - Enhanced constraint enforcement layer
     - **Purpose**: Enforce universal patterns and consistency across all components
     - **Key Features**: Automated validation, quality gates, evolution governance
     - **Strategic Value**: Maintains system-wide coherence while enabling controlled growth
@@ -134,11 +139,9 @@ Components are organized in clear layers with defined responsibilities:
 ├─────────────────────────────────────┤
 │       Configuration Layer           │  # Centralized config management
 ├─────────────────────────────────────┤
-│     Pipeline Specification Layer   │  # Declarative blueprint
-├─────────────────────────────────────┤
 │       Step Specification Layer     │  # Comprehensive step definition
 ├─────────────────────────────────────┤
-│         Foundation Layer            │  # DAG, pipeline registry, dependency resolver
+│         Foundation Layer            │  # Atomized registries, DAG, dependency resolver
 └─────────────────────────────────────┘
 ```
 

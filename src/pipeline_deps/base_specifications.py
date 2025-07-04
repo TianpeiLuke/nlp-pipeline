@@ -385,20 +385,20 @@ class StepSpecification(BaseModel):
             raise ValueError("step_type cannot be empty or whitespace")
         return v.strip()
     
-    @field_validator('node_type')
+    @field_validator('node_type', mode='before')
     @classmethod
     def validate_node_type(cls, v) -> NodeType:
         """Validate node type is a valid enum value."""
-        if isinstance(v, str):
+        if isinstance(v, NodeType):
+            return v
+        elif isinstance(v, str):
             try:
                 return NodeType(v)
             except ValueError:
                 valid_values = [e.value for e in NodeType]
-                raise ValueError(f"node_type must be one of: {valid_values}")
-        elif isinstance(v, NodeType):
-            return v
+                raise ValueError(f"node_type must be one of: {valid_values}, got: {v}")
         else:
-            raise ValueError("node_type must be a NodeType enum or valid string value")
+            raise ValueError(f"node_type must be a NodeType enum or valid string value, got: {type(v).__name__}")
     
     @model_validator(mode='after')
     def validate_node_type_constraints(self) -> 'StepSpecification':

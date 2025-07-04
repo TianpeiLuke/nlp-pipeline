@@ -16,8 +16,9 @@ from typing import List, Dict
 
 from src.pipeline_deps.base_specifications import (
     DependencySpec, OutputSpec, PropertyReference, StepSpecification,
-    DependencyType, NodeType, SpecificationRegistry
+    DependencyType, NodeType
 )
+from src.pipeline_deps.specification_registry import SpecificationRegistry
 
 
 class TestDependencySpec(unittest.TestCase):

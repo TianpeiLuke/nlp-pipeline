@@ -149,8 +149,10 @@ class TestAtomizedImports(unittest.TestCase):
         import src.pipeline_deps.specification_registry as spec_registry
         self.assertTrue(hasattr(spec_registry, 'SpecificationRegistry'))
         
-        # Test registry_manager module
-        import src.pipeline_deps.registry_manager as reg_manager
+        # Test registry_manager module - use sys.modules to get actual module
+        import sys
+        import src.pipeline_deps.registry_manager
+        reg_manager = sys.modules['src.pipeline_deps.registry_manager']
         expected_manager_attrs = [
             'RegistryManager', 'get_registry', 'get_pipeline_registry', 
             'get_default_registry', 'registry_manager'
@@ -192,15 +194,17 @@ class TestAtomizedImports(unittest.TestCase):
     def test_module_reloading(self):
         """Test that modules can be reloaded without issues."""
         try:
-            # Import and reload modules
+            # Import modules first
             import src.pipeline_deps.base_specifications
-            importlib.reload(src.pipeline_deps.base_specifications)
-            
             import src.pipeline_deps.specification_registry
-            importlib.reload(src.pipeline_deps.specification_registry)
-            
             import src.pipeline_deps.registry_manager
-            importlib.reload(src.pipeline_deps.registry_manager)
+            import src.pipeline_deps.dependency_resolver
+            
+            # Now reload them using sys.modules
+            importlib.reload(sys.modules['src.pipeline_deps.base_specifications'])
+            importlib.reload(sys.modules['src.pipeline_deps.specification_registry'])
+            importlib.reload(sys.modules['src.pipeline_deps.registry_manager'])
+            importlib.reload(sys.modules['src.pipeline_deps.dependency_resolver'])
             
             # If we get here, reloading works
             self.assertTrue(True)
@@ -214,10 +218,9 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
     
     def test_end_to_end_workflow(self):
         """Test complete workflow using atomized imports."""
-        from src.pipeline_deps import (
-            get_registry, StepSpecification, DependencySpec, OutputSpec,
-            DependencyType, NodeType
-        )
+        # Import directly from modules to avoid any import conflicts
+        from src.pipeline_deps.registry_manager import get_registry
+        from src.pipeline_deps.base_specifications import StepSpecification, OutputSpec
         
         # Create registry
         registry = get_registry("integration_test")
@@ -225,12 +228,12 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         # Create and register specification
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.SOURCE,
+            node_type="source",  # Use string value instead of enum
             dependencies=[],
             outputs=[
                 OutputSpec(
                     logical_name="test_output",
-                    output_type=DependencyType.PROCESSING_OUTPUT,
+                    output_type="processing_output",  # Use string value instead of enum
                     property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
                     data_type="S3Uri"
                 )

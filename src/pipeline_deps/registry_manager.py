@@ -170,6 +170,19 @@ def get_default_registry() -> SpecificationRegistry:
     return get_registry("default")
 
 
+__all__ = [
+    'RegistryManager',
+    'registry_manager',
+    'get_registry',
+    'get_pipeline_registry',
+    'get_default_registry',
+    'integrate_with_pipeline_builder',
+    'list_contexts',
+    'clear_context',
+    'get_context_stats'
+]
+
+
 # Integration with PipelineBuilderTemplate
 def integrate_with_pipeline_builder(pipeline_builder_cls):
     """

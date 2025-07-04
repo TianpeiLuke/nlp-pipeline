@@ -6,7 +6,7 @@ for pipeline step dependencies.
 """
 
 from .base_specifications import (
-    DependencyType, DependencySpec, OutputSpec, PropertyReference, 
+    DependencyType, NodeType, DependencySpec, OutputSpec, PropertyReference, 
     StepSpecification
 )
 from .specification_registry import SpecificationRegistry
@@ -21,6 +21,7 @@ from .semantic_matcher import SemanticMatcher, semantic_matcher
 __all__ = [
     # Core specification classes
     'DependencyType',
+    'NodeType',
     'DependencySpec', 
     'OutputSpec',
     'PropertyReference',
