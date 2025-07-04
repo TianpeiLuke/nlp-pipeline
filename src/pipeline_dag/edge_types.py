@@ -5,7 +5,7 @@ This module defines the various types of edges that can exist between
 pipeline steps, including typed dependency edges with confidence scoring.
 """
 
-from dataclasses import dataclass
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any
 from enum import Enum
 import logging
@@ -21,31 +21,44 @@ class EdgeType(Enum):
     SEQUENTIAL = "sequential"       # Sequential execution requirement
 
 
-@dataclass
-class DependencyEdge:
+class DependencyEdge(BaseModel):
     """Represents a typed dependency edge between step ports."""
-    source_step: str                    # Name of the source step
-    target_step: str                    # Name of the target step
-    source_output: str                  # Logical name of source output
-    target_input: str                   # Logical name of target input
-    confidence: float = 1.0             # Confidence score for auto-resolved edges
-    edge_type: EdgeType = EdgeType.DEPENDENCY  # Type of edge
-    metadata: Dict[str, Any] = None     # Additional metadata
+    source_step: str = Field(
+        description="Name of the source step",
+        min_length=1
+    )
+    target_step: str = Field(
+        description="Name of the target step", 
+        min_length=1
+    )
+    source_output: str = Field(
+        description="Logical name of source output",
+        min_length=1
+    )
+    target_input: str = Field(
+        description="Logical name of target input",
+        min_length=1
+    )
+    confidence: float = Field(
+        default=1.0,
+        description="Confidence score for auto-resolved edges",
+        ge=0.0,
+        le=1.0
+    )
+    edge_type: EdgeType = Field(
+        default=EdgeType.DEPENDENCY,
+        description="Type of edge"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata"
+    )
     
-    def __post_init__(self):
-        """Post-initialization validation."""
-        if not self.source_step:
-            raise ValueError("source_step cannot be empty")
-        if not self.target_step:
-            raise ValueError("target_step cannot be empty")
-        if not self.source_output:
-            raise ValueError("source_output cannot be empty")
-        if not self.target_input:
-            raise ValueError("target_input cannot be empty")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError("confidence must be between 0.0 and 1.0")
-        if self.metadata is None:
-            self.metadata = {}
+    model_config = {
+        "arbitrary_types_allowed": True,
+        "validate_assignment": True,
+        "use_enum_values": True
+    }
     
     def to_property_reference_dict(self) -> Dict[str, Any]:
         """Convert edge to a property reference dictionary for SageMaker."""
@@ -70,26 +83,36 @@ class DependencyEdge:
                 f"confidence={self.confidence:.3f})")
 
 
-@dataclass
 class ConditionalEdge(DependencyEdge):
     """Represents a conditional dependency edge."""
-    condition: str = ""                 # Condition expression
+    condition: str = Field(
+        default="",
+        description="Condition expression"
+    )
+    edge_type: EdgeType = Field(
+        default=EdgeType.CONDITIONAL,
+        description="Type of edge"
+    )
     
-    def __post_init__(self):
-        super().__post_init__()
-        self.edge_type = EdgeType.CONDITIONAL
+    @model_validator(mode='after')
+    def validate_condition(self) -> 'ConditionalEdge':
+        """Validate condition and log warning if empty."""
         if not self.condition:
             logger.warning(f"ConditionalEdge {self} has no condition specified")
+        return self
 
 
-@dataclass
 class ParallelEdge(DependencyEdge):
     """Represents a parallel execution hint edge."""
-    max_parallel: Optional[int] = None  # Maximum parallel executions
-    
-    def __post_init__(self):
-        super().__post_init__()
-        self.edge_type = EdgeType.PARALLEL
+    max_parallel: Optional[int] = Field(
+        default=None,
+        description="Maximum parallel executions",
+        ge=1
+    )
+    edge_type: EdgeType = Field(
+        default=EdgeType.PARALLEL,
+        description="Type of edge"
+    )
 
 
 class EdgeCollection:
