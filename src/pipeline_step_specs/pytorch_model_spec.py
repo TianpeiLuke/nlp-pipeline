@@ -31,32 +31,11 @@ PYTORCH_MODEL_SPEC = StepSpecification(
             description="SageMaker model name"
         ),
         OutputSpec(
-            logical_name="model_artifacts_path",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="S3 path to model artifacts"
-        ),
-        OutputSpec(
             logical_name="ModelName",
             output_type=DependencyType.CUSTOM_PROPERTY,
             property_path="properties.ModelName",
             data_type="String",
             description="SageMaker model name (alias for model)"
-        ),
-        OutputSpec(
-            logical_name="ModelArtifactsPath",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="S3 path to model artifacts (alias for model_artifacts_path)"
-        ),
-        OutputSpec(
-            logical_name="model_input",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model input reference (alias for model_artifacts_path)"
         )
     ]
 )

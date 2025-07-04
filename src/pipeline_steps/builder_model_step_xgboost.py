@@ -16,13 +16,6 @@ StepBuilderBase.register_property_path(
     "properties.ModelName"                  # Runtime property path
 )
 
-# Register path to model artifacts path
-StepBuilderBase.register_property_path(
-    "XGBoostModelStep",
-    "model_artifacts_path",
-    "properties.ModelArtifactsPath"
-)
-
 # Register path to model name for compatibility with different naming patterns
 StepBuilderBase.register_property_path(
     "XGBoostModelStep", 
