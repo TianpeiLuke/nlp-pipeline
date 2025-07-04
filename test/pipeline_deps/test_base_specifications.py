@@ -16,7 +16,7 @@ from typing import List, Dict
 
 from src.pipeline_deps.base_specifications import (
     DependencySpec, OutputSpec, PropertyReference, StepSpecification,
-    DependencyType, NodeType, SpecificationRegistry, global_registry
+    DependencyType, NodeType, SpecificationRegistry
 )
 
 

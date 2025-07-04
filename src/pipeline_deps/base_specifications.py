@@ -559,5 +559,5 @@ class SpecificationRegistry:
         return min(score, 1.0)  # Cap at 1.0
 
 
-# Global registry instance
-global_registry = SpecificationRegistry()
+# Note: Global registry has been removed in favor of pipeline-scoped registries
+# See pipeline_registry.py for the new registry management approach

@@ -6,11 +6,12 @@ This system provides intelligent, automatic dependency resolution for ML pipelin
 
 The pipeline dependency management system consists of several key components:
 
-1. **Base Specifications** (`base_specifications.py`): Core data structures and registry
-2. **Step Specifications** (`../pipeline_step_specs/`): Declarative specifications for each step type
-3. **Semantic Matcher** (`semantic_matcher.py`): Intelligent name matching using semantic similarity
-4. **Dependency Resolver** (`dependency_resolver.py`): Main resolution engine
-5. **Enhanced DAG** (`../pipeline_dag/enhanced_dag.py`): DAG structure with dependency metadata
+1. **Base Specifications** (`base_specifications.py`): Core data structures and specification classes
+2. **Pipeline Registry** (`pipeline_registry.py`): Pipeline-scoped registry management
+3. **Step Specifications** (`../pipeline_step_specs/`): Declarative specifications for each step type
+4. **Semantic Matcher** (`semantic_matcher.py`): Intelligent name matching using semantic similarity
+5. **Dependency Resolver** (`dependency_resolver.py`): Main resolution engine
+6. **Enhanced DAG** (`../pipeline_dag/enhanced_dag.py`): DAG structure with dependency metadata
 
 ## Key Features
 
@@ -45,9 +46,15 @@ The pipeline dependency management system consists of several key components:
                                       │                           │
                                       ▼                           ▼
                            ┌──────────────────────┐    ┌─────────────────────┐
-                           │  Semantic Matcher    │    │  Enhanced DAG       │
-                           │  (Name Similarity)   │    │  (Pipeline Graph)   │
+                           │  Pipeline Registry   │───▶│  Enhanced DAG       │
+                           │  (Scoped Context)    │    │  (Pipeline Graph)   │
                            └──────────────────────┘    └─────────────────────┘
+                                      │
+                                      ▼
+                           ┌──────────────────────┐
+                           │  Semantic Matcher    │
+                           │  (Name Similarity)   │
+                           └──────────────────────┘
 ```
 
 ## Supported Step Types
@@ -85,20 +92,25 @@ The pipeline dependency management system consists of several key components:
 ## Usage Example
 
 ```python
-from src.pipeline_deps import UnifiedDependencyResolver, SpecificationRegistry
+from src.pipeline_deps import (
+    UnifiedDependencyResolver, get_pipeline_registry,
+    integrate_with_pipeline_builder
+)
 from src.pipeline_step_specs import *
 
-# Create resolver with specifications
-resolver = UnifiedDependencyResolver()
-registry = resolver.registry
+# Get pipeline-specific registry
+pipeline_registry = get_pipeline_registry("my_training_pipeline")
 
-# Register step specifications
-registry.register("data_loading", DATA_LOADING_SPEC)
-registry.register("preprocessing", PREPROCESSING_SPEC)
-registry.register("training", XGBOOST_TRAINING_SPEC)
-registry.register("packaging", PACKAGING_SPEC)
-registry.register("payload", PAYLOAD_SPEC)
-registry.register("registration", REGISTRATION_SPEC)
+# Register step specifications in the pipeline registry
+pipeline_registry.register("data_loading", DATA_LOADING_SPEC)
+pipeline_registry.register("preprocessing", PREPROCESSING_SPEC)
+pipeline_registry.register("training", XGBOOST_TRAINING_SPEC)
+pipeline_registry.register("packaging", PACKAGING_SPEC)
+pipeline_registry.register("payload", PAYLOAD_SPEC)
+pipeline_registry.register("registration", REGISTRATION_SPEC)
+
+# Create resolver with pipeline-specific registry
+resolver = UnifiedDependencyResolver(registry=pipeline_registry)
 
 # Resolve dependencies for a pipeline
 available_steps = ["data_loading", "preprocessing", "training", "packaging", "payload", "registration"]
@@ -107,6 +119,19 @@ resolved_dependencies = resolver.resolve_all_dependencies(available_steps)
 # Get resolution report
 report = resolver.get_resolution_report(available_steps)
 print(f"Resolution rate: {report['resolution_summary']['resolution_rate']:.2%}")
+
+# Integrate with pipeline builder
+@integrate_with_pipeline_builder
+class MyPipelineBuilder:
+    def __init__(self, config):
+        self.base_config = config
+        self.base_config.pipeline_name = "my_training_pipeline"
+        # self.registry is automatically set to the pipeline registry
+    
+    def build(self):
+        # Use self.registry for dependency resolution
+        # All steps in this pipeline will share the same registry
+        pass
 ```
 
 ## Dependency Types
@@ -160,3 +185,5 @@ The system is highly configurable:
 - **Dynamic Property Discovery**: Automatically discover available properties
 - **Dependency Validation**: Runtime validation of resolved dependencies
 - **Visual Dependency Graph**: Interactive visualization of dependency relationships
+- **Cross-Pipeline Dependencies**: Support for dependencies between pipelines
+- **Registry Inheritance**: Hierarchical registries for shared specifications

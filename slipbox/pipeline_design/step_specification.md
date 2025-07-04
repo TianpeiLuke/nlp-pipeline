@@ -100,12 +100,16 @@ invalid_spec = StepSpecification(
 
 ### With Registry System
 ```python
+# Get pipeline-specific registry
+from src.pipeline_deps import get_pipeline_registry
+pipeline_registry = get_pipeline_registry("my_pipeline")
+
 # Register specifications for discovery
-global_registry.register("data_loading", DATA_LOADING_SPEC)
-global_registry.register("preprocessing", PREPROCESSING_SPEC)
+pipeline_registry.register("data_loading", DATA_LOADING_SPEC)
+pipeline_registry.register("preprocessing", PREPROCESSING_SPEC)
 
 # Find compatible outputs for a dependency
-compatible_outputs = global_registry.find_compatible_outputs(dependency_spec)
+compatible_outputs = pipeline_registry.find_compatible_outputs(dependency_spec)
 ```
 
 ### With Smart Proxies
