@@ -7,27 +7,47 @@ from datetime import datetime
 from .config_base import BasePipelineConfig
 
 
-class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepConfig for clarity
-    """Configuration specific to the SageMaker Model creation (for inference)."""
-    inference_instance_type: str = Field(default='ml.m5.large', description="Instance type for inference endpoint/transform job.")
-    inference_entry_point: str = Field(default='inference.py', description="Entry point script for inference.")
-    # source_dir is inherited from BasePipelineConfig, assumed to contain inference_entry_point
-    # framework_version, py_version are inherited from BasePipelineConfig
+class PyTorchModelStepConfig(BasePipelineConfig): # Renamed from PytorchModelCreationConfig for consistency
+    """Configuration specific to the SageMaker PyTorch Model creation (for inference)."""
+    # Renamed from inference_instance_type for consistency with builder
+    instance_type: str = Field(default='ml.m5.large', description="Instance type for inference endpoint/transform job.")
+    # Renamed from inference_entry_point for consistency with builder
+    entry_point: str = Field(default='inference.py', description="Entry point script for inference.")
+    # source_dir is inherited from BasePipelineConfig, assumed to contain entry_point
     
-    # Input/output names for model creation
+    # Framework versions for SageMaker PyTorch container
+    framework_version: str = Field(default="1.12.0", description="SageMaker PyTorch framework version.")
+    py_version: str = Field(default="py38", description="Python version for the SageMaker PyTorch container.")
+    
+    # Flag to indicate whether to use PyTorch framework or custom container
+    use_pytorch_framework: bool = Field(default=True, description="Whether to use PyTorch framework or custom container.")
+    
+    # Custom image URI for the model (required if use_pytorch_framework is False)
+    image_uri: Optional[str] = Field(default=None, description="Custom image URI for the model.")
+    
+    # Accelerator type for inference
+    accelerator_type: Optional[str] = Field(default=None, description="Accelerator type for inference endpoint.")
+    
+    # Model name
+    model_name: Optional[str] = Field(default=None, description="Name for the SageMaker model.")
+    
+    # Tags for the model
+    tags: Optional[List[Dict[str, str]]] = Field(default=None, description="Tags for the model.")
+    
+    # Input/output names for model creation - updated to follow standard pattern
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_data": "S3 path to model artifacts (.tar.gz file)"
+            "model_data": "ModelArtifacts"  # KEY: logical name, VALUE: script input name
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_artifacts_path": "S3 path to model artifacts",
-            "model": "SageMaker model object"
+            "model": "ModelName",  # KEY: logical name, VALUE: output descriptor
+            "model_artifacts_path": "ModelArtifactsPath"  # KEY: logical name, VALUE: output descriptor
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
 
     # Endpoint / Container specific settings
@@ -43,25 +63,30 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
         pass
     
     @model_validator(mode='after')
-    def validate_configuration(self) -> 'PytorchModelCreationConfig':
+    def validate_configuration(self) -> 'PyTorchModelStepConfig':
         """Validate the complete configuration"""
         self._validate_memory_constraints()
         self._validate_timeouts()
         self._validate_entry_point()
+        
+        # Validate image_uri if not using PyTorch framework
+        if not self.use_pytorch_framework and not self.image_uri:
+            raise ValueError("image_uri must be provided when use_pytorch_framework is False")
+            
         return self
 
     @model_validator(mode='after')
-    def set_default_names(self) -> 'PytorchModelCreationConfig':
+    def set_default_names(self) -> 'PyTorchModelStepConfig':
         """Ensure default input and output names are set if not provided."""
         if not self.input_names:
             self.input_names = {
-                "model_data": "S3 path to model artifacts (.tar.gz file)"
+                "model_data": "ModelArtifacts"
             }
         
         if not self.output_names:
             self.output_names = {
-                "model_artifacts_path": "S3 path to model artifacts",
-                "model": "SageMaker model object"
+                "model": "ModelName",
+                "model_artifacts_path": "ModelArtifactsPath"
             }
         
         return self
@@ -84,7 +109,7 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
     def _validate_entry_point(self) -> None:
         """Validate entry point script"""
         if self.source_dir and not self.source_dir.startswith('s3://'):
-            entry_point_path = Path(self.source_dir) / self.inference_entry_point
+            entry_point_path = Path(self.source_dir) / self.entry_point
             if not entry_point_path.exists():
                 raise ValueError(f"Inference entry point script not found: {entry_point_path}")
     
@@ -96,7 +121,7 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
             raise ValueError("Inference memory limit cannot exceed container memory limit")
         return v
 
-    @field_validator('inference_instance_type')
+    @field_validator('instance_type')
     @classmethod
     def _validate_sagemaker_inference_instance_type(cls, v: str) -> str:
         if not v.startswith('ml.'):
@@ -105,7 +130,10 @@ class PytorchModelCreationConfig(BasePipelineConfig): # Renamed from ModelStepCo
 
     
     def get_model_name(self) -> str:
-        """Generate a unique model name"""
+        """Generate a unique model name if not provided"""
+        if self.model_name:
+            return self.model_name
+            
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         return f"{self.pipeline_name}-model-{timestamp}"
 

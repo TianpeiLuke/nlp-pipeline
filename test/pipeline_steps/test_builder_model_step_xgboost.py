@@ -1,89 +1,199 @@
 import unittest
 from types import SimpleNamespace
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-import logging
-import jsonschema
-from sagemaker.config.config import validate_sagemaker_config
 
-from sagemaker.workflow.model_step import ModelStep
-from botocore.exceptions import ClientError
+from sagemaker.workflow.steps import CreateModelStep
 
-# Add the project root to the Python path to allow for absolute imports
-import sys
-import os
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-# Import the builder class to be tested
+# Import the builder class
 from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
 
 class TestXGBoostModelStepBuilder(unittest.TestCase):
     def setUp(self):
-        """Set up a minimal, mocked configuration and builder instance for each test."""
-        logging.getLogger().setLevel(logging.CRITICAL)  # Suppress logging output
+        # Build a minimal config namespace
         self.config = SimpleNamespace()
-        self.config.inference_entry_point = 'inference_xgb.py'
-        self.config.source_dir = 'src/inference_scripts'
-        self.config.inference_instance_type = 'ml.m5.large'
-        self.config.framework_version = '1.7-1'
-        self.config.container_startup_health_check_timeout = 300
-        self.config.container_memory_limit = 2048
-        self.config.data_download_timeout = 600
-        self.config.inference_memory_limit = 1024
-        self.config.max_concurrent_invocations = 10
-        self.config.max_payload_size = 5
-        self.config.current_date = '2025-06-12'
+        self.config.region = 'NA'
+        self.config.current_date = '20250610'
+        
+        # Required attributes
+        self.config.entry_point = 'inference.py'
+        self.config.source_dir = 'src'
+        self.config.instance_type = 'ml.m5.large'
+        self.config.framework_version = '1.5-1'
+        self.config.py_version = 'py3'
+        self.config.use_xgboost_framework = True
+        
+        # Add input_names and output_names
+        self.config.input_names = {"model_data": "ModelArtifacts"}
+        self.config.output_names = {
+            "model": "ModelName",
+            "model_artifacts_path": "ModelArtifactsPath"
+        }
+        
+        # Model name generation
+        self.config.get_model_name = lambda: 'test-xgboost-model'
 
+        # Instantiate builder bypassing __init__
         self.builder = object.__new__(XGBoostModelStepBuilder)
         self.builder.config = self.config
         self.builder.session = MagicMock()
         self.builder.role = 'arn:aws:iam::000000000000:role/DummyRole'
-        self.builder.aws_region = 'us-east-1'
-        self.builder._get_step_name = MagicMock(return_value='XGBoostModelStep')
+        self.builder.notebook_root = Path('.')
+        self.builder.aws_region = XGBoostModelStepBuilder.REGION_MAPPING['NA']
+        self.builder.log_info = MagicMock()
 
-    @patch('src.pipeline_steps.builder_model_step_xgboost.image_uris.retrieve')
-    def test_get_image_uri(self, mock_image_uris_retrieve):
-        """Test that the correct image URI is retrieved."""
-        mock_image_uris_retrieve.return_value = '123456789012.dkr.ecr.us-east-1.amazonaws.com/xgboost:1.7-1'
-        image_uri = self.builder._get_image_uri()
-        mock_image_uris_retrieve.assert_called_once_with(
-            framework="xgboost",
-            region=self.builder.aws_region,
-            version=self.config.framework_version,
-            instance_type=self.config.inference_instance_type,
-            image_scope="inference"
-        )
-        self.assertEqual(image_uri, '123456789012.dkr.ecr.us-east-1.amazonaws.com/xgboost:1.7-1')
-
-    def test_create_env_config(self):
-        """Test that the environment configuration is created correctly."""
-        env_config = self.builder._create_env_config()
-        self.assertEqual(env_config['SAGEMAKER_PROGRAM'], self.config.inference_entry_point)
-        self.assertEqual(env_config['SAGEMAKER_CONTAINER_MEMORY_LIMIT'], str(self.config.container_memory_limit))
-        self.assertEqual(env_config['AWS_REGION'], self.builder.aws_region)
+    def test_validate_configuration_missing_attr(self):
+        # Missing required attrs should raise
+        cfg2 = SimpleNamespace(region='NA')
+        builder2 = object.__new__(XGBoostModelStepBuilder)
+        builder2.config = cfg2
+        builder2.session = None
+        builder2.role = None
+        builder2.notebook_root = Path('.')
+        builder2.aws_region = builder2.REGION_MAPPING['NA']
+        with self.assertRaises(ValueError):
+            builder2.validate_configuration()
 
     @patch('src.pipeline_steps.builder_model_step_xgboost.XGBoostModel')
     def test_create_xgboost_model(self, mock_xgboost_model_cls):
-        """Test that the XGBoost model is created with the correct parameters."""
-        mock_model_instance = MagicMock()
-        mock_xgboost_model_cls.return_value = mock_model_instance
+        # Setup mock
+        mock_model = MagicMock()
+        mock_xgboost_model_cls.return_value = mock_model
+        
+        # Call _create_xgboost_model
+        model = self.builder._create_xgboost_model('s3://bucket/model.tar.gz')
+        
+        # Verify XGBoostModel was called with correct args
+        mock_xgboost_model_cls.assert_called_once()
+        args, kwargs = mock_xgboost_model_cls.call_args
+        self.assertEqual(kwargs['model_data'], 's3://bucket/model.tar.gz')
+        self.assertEqual(kwargs['role'], self.builder.role)
+        self.assertEqual(kwargs['entry_point'], self.config.entry_point)
+        self.assertEqual(kwargs['source_dir'], self.config.source_dir)
+        self.assertEqual(kwargs['framework_version'], self.config.framework_version)
+        self.assertEqual(kwargs['py_version'], self.config.py_version)
+        
+        # Verify the returned model
+        self.assertEqual(model, mock_model)
 
-        model_data = 's3://bucket/model.tar.gz'
-        model = self.builder._create_xgboost_model(model_data)
+    def test_match_custom_properties(self):
+        # Create a mock TrainingStep
+        step = MagicMock()
+        step.name = 'XGBoostTrainingStep'
+        
+        # Setup properties for the step
+        step.properties = SimpleNamespace()
+        step.properties.ModelArtifacts = SimpleNamespace()
+        step.properties.ModelArtifacts.S3ModelArtifacts = 's3://bucket/model.tar.gz'
+        
+        # Call _match_custom_properties
+        inputs = {}
+        input_requirements = {'model_data': 'S3 URI of the model artifacts'}
+        matched = self.builder._match_custom_properties(inputs, input_requirements, step)
+        
+        # Check that inputs are correctly matched
+        self.assertIn('inputs', matched)
+        self.assertIn('model_data', inputs.get('inputs', {}))
+        self.assertEqual(inputs['inputs']['model_data'], 's3://bucket/model.tar.gz')
 
-        mock_xgboost_model_cls.assert_called_once_with(
-            name='xgb-model-2025-06-12',
-            model_data=model_data,
-            role=self.builder.role,
-            entry_point=self.config.inference_entry_point,
-            source_dir=self.config.source_dir,
-            framework_version=self.config.framework_version,
-            sagemaker_session=self.builder.session,
-            env=self.builder._create_env_config(),
-            image_uri=self.builder._get_image_uri()
-        )
-        self.assertEqual(model, mock_model_instance)
+    @patch('src.pipeline_steps.builder_model_step_xgboost.XGBoostModel')
+    def test_create_step(self, mock_xgboost_model_cls):
+        # Setup mocks
+        mock_model = MagicMock()
+        mock_xgboost_model_cls.return_value = mock_model
+        
+        # Setup model.create to return step_args
+        mock_model.create.return_value = {'ModelName': 'test-xgboost-model'}
+        
+        # Call create_step
+        step = self.builder.create_step(model_data='s3://bucket/model.tar.gz')
+        
+        # Verify the step is created correctly
+        self.assertIsInstance(step, CreateModelStep)
+        self.assertEqual(step.step_args, {'ModelName': 'test-xgboost-model'})
+        
+        # Verify XGBoostModel.create was called with correct args
+        mock_model.create.assert_called_once()
+        args, kwargs = mock_model.create.call_args
+        self.assertEqual(kwargs['instance_type'], self.config.instance_type)
+        self.assertEqual(kwargs['model_name'], 'test-xgboost-model')
+
+    @patch('src.pipeline_steps.builder_model_step_xgboost.XGBoostModel')
+    def test_create_step_with_dependencies(self, mock_xgboost_model_cls):
+        # Setup mocks
+        mock_model = MagicMock()
+        mock_xgboost_model_cls.return_value = mock_model
+        
+        # Setup model.create to return step_args
+        mock_model.create.return_value = {'ModelName': 'test-xgboost-model'}
+        
+        # Create a mock dependency step
+        dep_step = MagicMock()
+        dep_step.name = 'XGBoostTrainingStep'
+        
+        # Setup properties for the dependency step
+        dep_step.properties = SimpleNamespace()
+        dep_step.properties.ModelArtifacts = SimpleNamespace()
+        dep_step.properties.ModelArtifacts.S3ModelArtifacts = 's3://bucket/model.tar.gz'
+        
+        # Call create_step with the dependency
+        step = self.builder.create_step(dependencies=[dep_step])
+        
+        # Verify the step is created correctly
+        self.assertIsInstance(step, CreateModelStep)
+        self.assertEqual(step.step_args, {'ModelName': 'test-xgboost-model'})
+        self.assertEqual(step.depends_on, [dep_step])
+        
+        # Verify XGBoostModel was called with correct model_data
+        args, kwargs = mock_xgboost_model_cls.call_args
+        self.assertEqual(kwargs['model_data'], 's3://bucket/model.tar.gz')
+
+    @patch('src.pipeline_steps.builder_model_step_xgboost.XGBoostModel')
+    def test_create_step_with_custom_container(self, mock_xgboost_model_cls):
+        # Setup config for custom container
+        self.config.use_xgboost_framework = False
+        self.config.image_uri = 'custom-image-uri'
+        
+        # Setup mocks
+        mock_model = MagicMock()
+        
+        # Patch the _create_model method
+        with patch.object(self.builder, '_create_model', return_value=mock_model) as mock_create_model:
+            # Setup model.create to return step_args
+            mock_model.create.return_value = {'ModelName': 'test-xgboost-model'}
+            
+            # Call create_step
+            step = self.builder.create_step(model_data='s3://bucket/model.tar.gz')
+            
+            # Verify _create_model was called instead of _create_xgboost_model
+            mock_create_model.assert_called_once_with('s3://bucket/model.tar.gz')
+            mock_xgboost_model_cls.assert_not_called()
+            
+            # Verify the step is created correctly
+            self.assertIsInstance(step, CreateModelStep)
+            self.assertEqual(step.step_args, {'ModelName': 'test-xgboost-model'})
+
+    def test_get_input_requirements(self):
+        # Test that input requirements are correctly generated
+        input_reqs = self.builder.get_input_requirements()
+        
+        # Check that model_data is included
+        self.assertIn('model_data', input_reqs)
+        self.assertEqual(input_reqs['model_data'], 'S3 path for ModelArtifacts')
+        
+        # Check that common properties are included
+        self.assertIn('dependencies', input_reqs)
+        self.assertIn('enable_caching', input_reqs)
+
+    def test_get_output_properties(self):
+        # Test that output properties are correctly generated
+        output_props = self.builder.get_output_properties()
+        
+        # Check that output properties match config.output_names
+        self.assertIn('model', output_props)
+        self.assertEqual(output_props['model'], 'ModelName')
+        self.assertIn('model_artifacts_path', output_props)
+        self.assertEqual(output_props['model_artifacts_path'], 'ModelArtifactsPath')
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

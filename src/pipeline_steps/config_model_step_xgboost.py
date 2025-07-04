@@ -7,13 +7,15 @@ from datetime import datetime
 from .config_base import BasePipelineConfig
 
 
-class XGBoostModelCreationConfig(BasePipelineConfig):
+class XGBoostModelStepConfig(BasePipelineConfig):
     """Configuration specific to the SageMaker XGBoost Model creation (for inference)."""
-    inference_instance_type: str = Field(
+    # Renamed from inference_instance_type for consistency with builder
+    instance_type: str = Field(
         default='ml.m5.large', 
         description="Instance type for inference endpoint/transform job."
     )
-    inference_entry_point: str = Field(
+    # Renamed from inference_entry_point for consistency with builder
+    entry_point: str = Field(
         default='inference.py', 
         description="Entry point script for inference."
     )
@@ -23,20 +25,56 @@ class XGBoostModelCreationConfig(BasePipelineConfig):
     )
     # source_dir is inherited from BasePipelineConfig
     
-    # Input/output names for model creation
+    # Python version for the SageMaker XGBoost container
+    py_version: str = Field(
+        default="py3",
+        description="Python version for the SageMaker XGBoost container."
+    )
+    
+    # Flag to indicate whether to use XGBoost framework or custom container
+    use_xgboost_framework: bool = Field(
+        default=True, 
+        description="Whether to use XGBoost framework or custom container."
+    )
+    
+    # Custom image URI for the model (required if use_xgboost_framework is False)
+    image_uri: Optional[str] = Field(
+        default=None, 
+        description="Custom image URI for the model."
+    )
+    
+    # Accelerator type for inference
+    accelerator_type: Optional[str] = Field(
+        default=None, 
+        description="Accelerator type for inference endpoint."
+    )
+    
+    # Model name
+    model_name: Optional[str] = Field(
+        default=None, 
+        description="Name for the SageMaker model."
+    )
+    
+    # Tags for the model
+    tags: Optional[List[Dict[str, str]]] = Field(
+        default=None, 
+        description="Tags for the model."
+    )
+    
+    # Input/output names for model creation - updated to follow standard pattern
     input_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_data": "S3 path to model artifacts (.tar.gz file)"
+            "model_data": "ModelArtifacts"  # KEY: logical name, VALUE: script input name
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Mapping of logical input names (keys) to script input names (values)."
     )
     
     output_names: Optional[Dict[str, str]] = Field(
         default_factory=lambda: {
-            "model_artifacts_path": "S3 path to model artifacts",
-            "model": "SageMaker model object"
+            "model": "ModelName",  # KEY: logical name, VALUE: output descriptor
+            "model_artifacts_path": "ModelArtifactsPath"  # KEY: logical name, VALUE: output descriptor
         },
-        description="Mapping of output channel names to their descriptions."
+        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
 
     # Endpoint / Container specific settings
@@ -81,26 +119,31 @@ class XGBoostModelCreationConfig(BasePipelineConfig):
         pass
     
     @model_validator(mode='after')
-    def validate_configuration(self) -> 'XGBoostModelCreationConfig':
+    def validate_configuration(self) -> 'XGBoostModelStepConfig':
         """Validate the complete configuration"""
         self._validate_memory_constraints()
         self._validate_timeouts()
         self._validate_entry_point()
         self._validate_framework_version()
+        
+        # Validate image_uri if not using XGBoost framework
+        if not self.use_xgboost_framework and not self.image_uri:
+            raise ValueError("image_uri must be provided when use_xgboost_framework is False")
+            
         return self
 
     @model_validator(mode='after')
-    def set_default_names(self) -> 'XGBoostModelCreationConfig':
+    def set_default_names(self) -> 'XGBoostModelStepConfig':
         """Ensure default input and output names are set if not provided."""
         if not self.input_names:
             self.input_names = {
-                "model_data": "S3 path to model artifacts (.tar.gz file)"
+                "model_data": "ModelArtifacts"
             }
         
         if not self.output_names:
             self.output_names = {
-                "model_artifacts_path": "S3 path to model artifacts",
-                "model": "SageMaker model object"
+                "model": "ModelName",
+                "model_artifacts_path": "ModelArtifactsPath"
             }
         
         return self
@@ -123,7 +166,7 @@ class XGBoostModelCreationConfig(BasePipelineConfig):
     def _validate_entry_point(self) -> None:
         """Validate entry point script"""
         if self.source_dir and not self.source_dir.startswith('s3://'):
-            entry_point_path = Path(self.source_dir) / self.inference_entry_point
+            entry_point_path = Path(self.source_dir) / self.entry_point
             if not entry_point_path.exists():
                 raise ValueError(f"Inference entry point script not found: {entry_point_path}")
 
@@ -144,7 +187,7 @@ class XGBoostModelCreationConfig(BasePipelineConfig):
             raise ValueError("Inference memory limit cannot exceed container memory limit")
         return v
 
-    @field_validator('inference_instance_type')
+    @field_validator('instance_type')
     @classmethod
     def _validate_sagemaker_inference_instance_type(cls, v: str) -> str:
         if not v.startswith('ml.'):
@@ -152,7 +195,10 @@ class XGBoostModelCreationConfig(BasePipelineConfig):
         return v
 
     def get_model_name(self) -> str:
-        """Generate a unique model name"""
+        """Generate a unique model name if not provided"""
+        if self.model_name:
+            return self.model_name
+            
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         return f"xgb-{self.pipeline_name}-model-{timestamp}"
 

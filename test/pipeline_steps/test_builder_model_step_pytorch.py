@@ -2,277 +2,198 @@ import unittest
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import datetime
 
-from sagemaker.pytorch import PyTorchModel
-from sagemaker.workflow.model_step import ModelStep
-from sagemaker.workflow.parameters import Parameter
+from sagemaker.workflow.steps import CreateModelStep
 
-# Add the project root to the Python path to allow for absolute imports
-import sys
-import os
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# Import the builder class
+from src.pipeline_steps.builder_model_step_pytorch import PyTorchModelStepBuilder
 
-# Import the builder class to be tested
-from src.pipeline_steps.builder_model_step_pytorch import PytorchModelStepBuilder
-from src.pipeline_steps.config_model_step_pytorch import PytorchModelCreationConfig
-
-class TestPytorchModelStepBuilder(unittest.TestCase):
+class TestPyTorchModelStepBuilder(unittest.TestCase):
     def setUp(self):
-        """Set up a minimal, mocked configuration and builder instance for each test."""
-        # Create a dummy config object with required attributes
+        # Build a minimal config namespace
         self.config = SimpleNamespace()
+        self.config.region = 'NA'
+        self.config.current_date = '20250610'
         
-        # Required attributes for validation
-        self.config.inference_entry_point = 'inference.py'
-        self.config.source_dir = '/path/to/inference_scripts'
-        self.config.inference_instance_type = 'ml.m5.large'
-        self.config.framework_version = '1.10.0'
+        # Required attributes
+        self.config.entry_point = 'inference.py'
+        self.config.source_dir = 'src'
+        self.config.instance_type = 'ml.m5.large'
+        self.config.framework_version = '1.12.0'
         self.config.py_version = 'py38'
-        self.config.container_startup_health_check_timeout = 300
-        self.config.container_memory_limit = 6144
-        self.config.data_download_timeout = 900
-        self.config.inference_memory_limit = 6144
-        self.config.max_concurrent_invocations = 10
-        self.config.max_payload_size = 6
-        self.config.current_date = '2025-06-20T12:00:00Z'
+        self.config.use_pytorch_framework = True
         
-        # Mock Path.exists to return True for script validation
-        self.path_exists_patch = patch('pathlib.Path.exists', return_value=True)
-        self.path_exists_patch.start()
+        # Add input_names and output_names
+        self.config.input_names = {"model_data": "ModelArtifacts"}
+        self.config.output_names = {
+            "model": "ModelName",
+            "model_artifacts_path": "ModelArtifactsPath"
+        }
         
-        # Instantiate builder without running __init__ (to bypass type checks)
-        self.builder = object.__new__(PytorchModelStepBuilder)
+        # Model name generation
+        self.config.get_model_name = lambda: 'test-model'
+
+        # Instantiate builder bypassing __init__
+        self.builder = object.__new__(PyTorchModelStepBuilder)
         self.builder.config = self.config
-        
-        # Create a properly configured session mock
-        session_mock = MagicMock()
-        session_mock.sagemaker_config = {}
-        self.builder.session = session_mock
-        
+        self.builder.session = MagicMock()
         self.builder.role = 'arn:aws:iam::000000000000:role/DummyRole'
         self.builder.notebook_root = Path('.')
-        self.builder.aws_region = 'us-west-2'
-        
-        # Mock methods from the base class
-        self.builder._get_step_name = MagicMock(return_value='PytorchModel')
+        self.builder.aws_region = PyTorchModelStepBuilder.REGION_MAPPING['NA']
+        self.builder.log_info = MagicMock()
 
-    def tearDown(self):
-        """Clean up after each test."""
-        self.path_exists_patch.stop()
-        
-    def test_validate_configuration_success(self):
-        """Test that configuration validation succeeds with valid config."""
-        # Should not raise any exceptions
-        self.builder.validate_configuration()
-
-    def test_validate_configuration_missing_required_attribute(self):
-        """Test that configuration validation fails with missing required attribute."""
-        # Save original value
-        original_value = self.config.inference_entry_point
-        # Set to None to trigger validation error
-        self.config.inference_entry_point = None
-        
+    def test_validate_configuration_missing_attr(self):
+        # Missing required attrs should raise
+        cfg2 = SimpleNamespace(region='NA')
+        builder2 = object.__new__(PyTorchModelStepBuilder)
+        builder2.config = cfg2
+        builder2.session = None
+        builder2.role = None
+        builder2.notebook_root = Path('.')
+        builder2.aws_region = builder2.REGION_MAPPING['NA']
         with self.assertRaises(ValueError):
-            self.builder.validate_configuration()
-            
-        # Restore original value
-        self.config.inference_entry_point = original_value
-
-    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
-    def test_get_image_uri(self, mock_image_uris):
-        """Test that the image URI is retrieved correctly."""
-        # Setup mock
-        expected_uri = 'amazonaws.com/pytorch-inference:1.10.0-cpu-py38'
-        mock_image_uris.retrieve.return_value = expected_uri
-        
-        # Get image URI
-        image_uri = self.builder._get_image_uri()
-        
-        # Verify image_uris.retrieve was called with correct parameters
-        mock_image_uris.retrieve.assert_called_once_with(
-            framework="pytorch",
-            region=self.builder.aws_region,
-            version=self.config.framework_version,
-            py_version=self.config.py_version,
-            instance_type=self.config.inference_instance_type,
-            image_scope="inference"
-        )
-        
-        # Verify the returned URI is our mock
-        self.assertEqual(image_uri, expected_uri)
-
-    def test_create_env_config(self):
-        """Test that environment configuration is created correctly."""
-        env_config = self.builder._create_env_config()
-        
-        # Verify all required environment variables are present
-        self.assertEqual(env_config['MMS_DEFAULT_RESPONSE_TIMEOUT'], '300')
-        self.assertEqual(env_config['SAGEMAKER_CONTAINER_LOG_LEVEL'], '20')
-        self.assertEqual(env_config['SAGEMAKER_PROGRAM'], 'inference.py')
-        self.assertEqual(env_config['SAGEMAKER_SUBMIT_DIRECTORY'], '/opt/ml/model/code')
-        self.assertEqual(env_config['SAGEMAKER_CONTAINER_MEMORY_LIMIT'], '6144')
-        self.assertEqual(env_config['SAGEMAKER_MODEL_DATA_DOWNLOAD_TIMEOUT'], '900')
-        self.assertEqual(env_config['SAGEMAKER_INFERENCE_MEMORY_LIMIT'], '6144')
-        self.assertEqual(env_config['SAGEMAKER_MAX_CONCURRENT_INVOCATIONS'], '10')
-        self.assertEqual(env_config['SAGEMAKER_MAX_PAYLOAD_IN_MB'], '6')
-        self.assertEqual(env_config['AWS_REGION'], 'us-west-2')
-
-    def test_create_env_config_missing_critical_value(self):
-        """Test that _create_env_config raises ValueError with missing critical value."""
-        # Save original value
-        original_value = self.config.inference_entry_point
-        # Set to empty string to trigger validation error
-        self.config.inference_entry_point = ''
-        
-        with self.assertRaises(ValueError):
-            self.builder._create_env_config()
-            
-        # Restore original value
-        self.config.inference_entry_point = original_value
+            builder2.validate_configuration()
 
     @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
-    def test_create_pytorch_model(self, mock_image_uris, mock_pytorch_model_cls):
-        """Test that the PyTorch model is created with the correct parameters."""
-        # Setup mocks
-        mock_image_uri = 'amazonaws.com/pytorch-inference:1.10.0-cpu-py38'
-        mock_image_uris.retrieve.return_value = mock_image_uri
-        
+    def test_create_pytorch_model(self, mock_pytorch_model_cls):
+        # Setup mock
         mock_model = MagicMock()
         mock_pytorch_model_cls.return_value = mock_model
         
-        # Create model
-        model_data = 's3://bucket/model.tar.gz'
-        model = self.builder._create_pytorch_model(model_data)
+        # Call _create_pytorch_model
+        model = self.builder._create_pytorch_model('s3://bucket/model.tar.gz')
         
-        # Verify PyTorchModel was created with correct parameters
+        # Verify PyTorchModel was called with correct args
         mock_pytorch_model_cls.assert_called_once()
-        call_args = mock_pytorch_model_cls.call_args[1]
+        args, kwargs = mock_pytorch_model_cls.call_args
+        self.assertEqual(kwargs['model_data'], 's3://bucket/model.tar.gz')
+        self.assertEqual(kwargs['role'], self.builder.role)
+        self.assertEqual(kwargs['entry_point'], self.config.entry_point)
+        self.assertEqual(kwargs['source_dir'], self.config.source_dir)
+        self.assertEqual(kwargs['framework_version'], self.config.framework_version)
+        self.assertEqual(kwargs['py_version'], self.config.py_version)
         
-        # Check model name format (should contain 'bsm-rnr-model-' and date)
-        self.assertTrue(call_args['name'].startswith('bsm-rnr-model-'))
-        self.assertTrue(len(call_args['name']) <= 63)  # SageMaker name length limit
-        
-        self.assertEqual(call_args['model_data'], model_data)
-        self.assertEqual(call_args['role'], self.builder.role)
-        self.assertEqual(call_args['entry_point'], 'inference.py')
-        self.assertEqual(call_args['source_dir'], '/path/to/inference_scripts')
-        self.assertEqual(call_args['framework_version'], '1.10.0')
-        self.assertEqual(call_args['py_version'], 'py38')
-        self.assertEqual(call_args['sagemaker_session'], self.builder.session)
-        self.assertEqual(call_args['image_uri'], mock_image_uri)
-        
-        # Verify environment variables
-        env_vars = call_args['env']
-        self.assertEqual(env_vars['SAGEMAKER_PROGRAM'], 'inference.py')
-        self.assertEqual(env_vars['SAGEMAKER_CONTAINER_MEMORY_LIMIT'], '6144')
-        
-        # Verify the returned model is our mock
+        # Verify the returned model
         self.assertEqual(model, mock_model)
 
-    @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.ModelStep')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.Parameter')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
-    def test_create_step(self, mock_image_uris, mock_parameter_cls, mock_model_step_cls, mock_pytorch_model_cls):
-        """Test that the model step is created with the correct parameters."""
-        # Setup mocks
-        mock_image_uri = 'amazonaws.com/pytorch-inference:1.10.0-cpu-py38'
-        mock_image_uris.retrieve.return_value = mock_image_uri
+    def test_match_custom_properties(self):
+        # Create a mock TrainingStep
+        step = MagicMock()
+        step.name = 'PyTorchTrainingStep'
         
+        # Setup properties for the step
+        step.properties = SimpleNamespace()
+        step.properties.ModelArtifacts = SimpleNamespace()
+        step.properties.ModelArtifacts.S3ModelArtifacts = 's3://bucket/model.tar.gz'
+        
+        # Call _match_custom_properties
+        inputs = {}
+        input_requirements = {'model_data': 'S3 URI of the model artifacts'}
+        matched = self.builder._match_custom_properties(inputs, input_requirements, step)
+        
+        # Check that inputs are correctly matched
+        self.assertIn('inputs', matched)
+        self.assertIn('model_data', inputs.get('inputs', {}))
+        self.assertEqual(inputs['inputs']['model_data'], 's3://bucket/model.tar.gz')
+
+    @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
+    def test_create_step(self, mock_pytorch_model_cls):
+        # Setup mocks
         mock_model = MagicMock()
         mock_pytorch_model_cls.return_value = mock_model
         
-        mock_parameter = MagicMock()
-        mock_parameter_cls.return_value = mock_parameter
+        # Setup model.create to return step_args
+        mock_model.create.return_value = {'ModelName': 'test-model'}
         
-        mock_step_args = MagicMock()
-        mock_model.create.return_value = mock_step_args
+        # Call create_step
+        step = self.builder.create_step(model_data='s3://bucket/model.tar.gz')
         
-        mock_step = MagicMock()
-        mock_model_step_cls.return_value = mock_step
+        # Verify the step is created correctly
+        self.assertIsInstance(step, CreateModelStep)
+        self.assertEqual(step.step_args, {'ModelName': 'test-model'})
         
-        # Create step
-        model_data = 's3://bucket/model.tar.gz'
-        step = self.builder.create_step(model_data)
-        
-        # Verify Parameter was created with correct parameters
-        mock_parameter_cls.assert_called_once_with(
-            name="InferenceInstanceType",
-            default_value='ml.m5.large'
-        )
-        
-        # Verify model.create was called with correct parameters
-        mock_model.create.assert_called_once_with(
-            instance_type=mock_parameter,
-            accelerator_type=None
-        )
-        
-        # Verify ModelStep was created with correct parameters
-        mock_model_step_cls.assert_called_once_with(
-            name='PytorchModel',
-            step_args=mock_step_args
-        )
-        
-        # Verify model_artifacts_path was set correctly
-        self.assertEqual(mock_step.model_artifacts_path, model_data)
-        
-        # Verify the returned step is our mock
-        self.assertEqual(step, mock_step)
+        # Verify PyTorchModel.create was called with correct args
+        mock_model.create.assert_called_once()
+        args, kwargs = mock_model.create.call_args
+        self.assertEqual(kwargs['instance_type'], self.config.instance_type)
+        self.assertEqual(kwargs['model_name'], 'test-model')
 
     @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.ModelStep')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.Parameter')
-    @patch('src.pipeline_steps.builder_model_step_pytorch.image_uris')
-    def test_create_step_with_dependencies(self, mock_image_uris, mock_parameter_cls, mock_model_step_cls, mock_pytorch_model_cls):
-        """Test that the model step is created with dependencies."""
+    def test_create_step_with_dependencies(self, mock_pytorch_model_cls):
         # Setup mocks
-        mock_image_uri = 'amazonaws.com/pytorch-inference:1.10.0-cpu-py38'
-        mock_image_uris.retrieve.return_value = mock_image_uri
-        
         mock_model = MagicMock()
         mock_pytorch_model_cls.return_value = mock_model
         
-        mock_parameter = MagicMock()
-        mock_parameter_cls.return_value = mock_parameter
+        # Setup model.create to return step_args
+        mock_model.create.return_value = {'ModelName': 'test-model'}
         
-        mock_step_args = MagicMock()
-        mock_model.create.return_value = mock_step_args
+        # Create a mock dependency step
+        dep_step = MagicMock()
+        dep_step.name = 'PyTorchTrainingStep'
         
-        mock_step = MagicMock()
-        mock_model_step_cls.return_value = mock_step
+        # Setup properties for the dependency step
+        dep_step.properties = SimpleNamespace()
+        dep_step.properties.ModelArtifacts = SimpleNamespace()
+        dep_step.properties.ModelArtifacts.S3ModelArtifacts = 's3://bucket/model.tar.gz'
         
-        # Setup mock dependencies
-        dependency1 = MagicMock()
-        dependency2 = MagicMock()
-        dependencies = [dependency1, dependency2]
+        # Call create_step with the dependency
+        step = self.builder.create_step(dependencies=[dep_step])
         
-        # Create step with dependencies
-        model_data = 's3://bucket/model.tar.gz'
-        step = self.builder.create_step(model_data, dependencies=dependencies)
+        # Verify the step is created correctly
+        self.assertIsInstance(step, CreateModelStep)
+        self.assertEqual(step.step_args, {'ModelName': 'test-model'})
+        self.assertEqual(step.depends_on, [dep_step])
         
-        # Verify the returned step is our mock
-        self.assertEqual(step, mock_step)
-        
-        # Note: Dependencies are not directly passed to ModelStep in the implementation,
-        # so we don't need to verify that here. This test is mainly to ensure the method
-        # accepts dependencies parameter without error.
+        # Verify PyTorchModel was called with correct model_data
+        args, kwargs = mock_pytorch_model_cls.call_args
+        self.assertEqual(kwargs['model_data'], 's3://bucket/model.tar.gz')
 
-    def test_create_model_step_backward_compatibility(self):
-        """Test that the old create_model_step method calls the new create_step method."""
-        with patch.object(self.builder, 'create_step', return_value="step_created") as mock_create_step:
-            # Call the old method
-            result = self.builder.create_model_step(
-                model_data='s3://bucket/model.tar.gz'
-            )
-            # Verify it called the new method
-            mock_create_step.assert_called_once_with(
-                's3://bucket/model.tar.gz'
-            )
-            self.assertEqual(result, "step_created")
+    @patch('src.pipeline_steps.builder_model_step_pytorch.PyTorchModel')
+    def test_create_step_with_custom_container(self, mock_pytorch_model_cls):
+        # Setup config for custom container
+        self.config.use_pytorch_framework = False
+        self.config.image_uri = 'custom-image-uri'
+        
+        # Setup mocks
+        mock_model = MagicMock()
+        
+        # Patch the _create_model method
+        with patch.object(self.builder, '_create_model', return_value=mock_model) as mock_create_model:
+            # Setup model.create to return step_args
+            mock_model.create.return_value = {'ModelName': 'test-model'}
+            
+            # Call create_step
+            step = self.builder.create_step(model_data='s3://bucket/model.tar.gz')
+            
+            # Verify _create_model was called instead of _create_pytorch_model
+            mock_create_model.assert_called_once_with('s3://bucket/model.tar.gz')
+            mock_pytorch_model_cls.assert_not_called()
+            
+            # Verify the step is created correctly
+            self.assertIsInstance(step, CreateModelStep)
+            self.assertEqual(step.step_args, {'ModelName': 'test-model'})
+
+    def test_get_input_requirements(self):
+        # Test that input requirements are correctly generated
+        input_reqs = self.builder.get_input_requirements()
+        
+        # Check that model_data is included
+        self.assertIn('model_data', input_reqs)
+        self.assertEqual(input_reqs['model_data'], 'S3 path for ModelArtifacts')
+        
+        # Check that common properties are included
+        self.assertIn('dependencies', input_reqs)
+        self.assertIn('enable_caching', input_reqs)
+
+    def test_get_output_properties(self):
+        # Test that output properties are correctly generated
+        output_props = self.builder.get_output_properties()
+        
+        # Check that output properties match config.output_names
+        self.assertIn('model', output_props)
+        self.assertEqual(output_props['model'], 'ModelName')
+        self.assertIn('model_artifacts_path', output_props)
+        self.assertEqual(output_props['model_artifacts_path'], 'ModelArtifactsPath')
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

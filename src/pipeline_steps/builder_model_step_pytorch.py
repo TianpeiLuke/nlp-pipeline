@@ -2,12 +2,33 @@ from typing import Dict, Optional, Any, List, Set
 from pathlib import Path
 import logging
 
-from sagemaker.workflow.steps import ModelStep, Step
+from sagemaker.workflow.steps import CreateModelStep, Step
 from sagemaker.pytorch import PyTorchModel
 from sagemaker.model import Model
 
-from .config_model_step_pytorch import ModelStepPyTorchConfig
+from .config_model_step_pytorch import PyTorchModelStepConfig
 from .builder_step_base import StepBuilderBase
+
+# Register property paths for PyTorch Model outputs
+StepBuilderBase.register_property_path(
+    "PyTorchModelStep",
+    "model",                                # Logical name in output_names
+    "properties.ModelName"                  # Runtime property path
+)
+
+# Register path to model artifacts path
+StepBuilderBase.register_property_path(
+    "PyTorchModelStep",
+    "model_artifacts_path",
+    "properties.ModelArtifactsPath"
+)
+
+# Register path to model name for compatibility with different naming patterns
+StepBuilderBase.register_property_path(
+    "PyTorchModelStep", 
+    "ModelName",
+    "properties.ModelName"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +42,7 @@ class PyTorchModelStepBuilder(StepBuilderBase):
 
     def __init__(
         self,
-        config: ModelStepPyTorchConfig,
+        config: PyTorchModelStepConfig,
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
@@ -30,15 +51,15 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         Initializes the builder with a specific configuration for the model step.
 
         Args:
-            config: A ModelStepPyTorchConfig instance containing all necessary settings.
+            config: A PyTorchModelStepConfig instance containing all necessary settings.
             sagemaker_session: The SageMaker session object to manage interactions with AWS.
             role: The IAM role ARN to be used by the SageMaker Model.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
         """
-        if not isinstance(config, ModelStepPyTorchConfig):
+        if not isinstance(config, PyTorchModelStepConfig):
             raise ValueError(
-                "PyTorchModelStepBuilder requires a ModelStepPyTorchConfig instance."
+                "PyTorchModelStepBuilder requires a PyTorchModelStepConfig instance."
             )
         super().__init__(
             config=config,
@@ -46,7 +67,7 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             role=role,
             notebook_root=notebook_root
         )
-        self.config: ModelStepPyTorchConfig = config
+        self.config: PyTorchModelStepConfig = config
 
     def validate_configuration(self) -> None:
         """
@@ -56,12 +77,10 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating ModelStepPyTorchConfig...")
+        logger.info("Validating PyTorchModelStepConfig...")
         
         # Validate required attributes
         required_attrs = [
-            'model_name',
-            'image_uri',
             'instance_type',
             'entry_point',
             'source_dir'
@@ -69,9 +88,14 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
-                raise ValueError(f"ModelStepPyTorchConfig missing required attribute: {attr}")
+                raise ValueError(f"PyTorchModelStepConfig missing required attribute: {attr}")
         
-        logger.info("ModelStepPyTorchConfig validation succeeded.")
+        # If not using PyTorch framework, image_uri is required
+        if hasattr(self.config, 'use_pytorch_framework') and not self.config.use_pytorch_framework:
+            if not hasattr(self.config, "image_uri") or not self.config.image_uri:
+                raise ValueError("image_uri must be provided when use_pytorch_framework is False")
+        
+        logger.info("PyTorchModelStepConfig validation succeeded.")
 
     def _create_pytorch_model(self, model_data: str) -> PyTorchModel:
         """
@@ -92,7 +116,7 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             source_dir=self.config.source_dir,
             framework_version=self.config.framework_version,
             py_version=self.config.py_version,
-            image_uri=self.config.image_uri,
+            image_uri=getattr(self.config, "image_uri", None),
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -140,12 +164,17 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping input parameter names to descriptions
         """
-        # Get input requirements
-        input_reqs = {
-            "model_data": "S3 URI of the model artifacts",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"],
-            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
-        }
+        # Get input requirements from config's input_names
+        input_reqs = {}
+        
+        # Add all input channel names from config
+        for k, v in (self.config.input_names or {}).items():
+            input_reqs[k] = f"S3 path for {v}"
+        
+        # Add other required parameters
+        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
+        input_reqs["enable_caching"] = self.COMMON_PROPERTIES["enable_caching"]
+        
         return input_reqs
     
     def get_output_properties(self) -> Dict[str, str]:
@@ -155,11 +184,8 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         Returns:
             Dictionary mapping output property names to descriptions
         """
-        # Define the output properties for the model step
-        output_props = {
-            "ModelName": "Name of the created SageMaker model"
-        }
-        return output_props
+        # Get output properties from config's output_names
+        return {k: v for k, v in (self.config.output_names or {}).items()}
         
     def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
                                 prev_step: Step) -> Set[str]:
@@ -180,16 +206,25 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
             try:
                 model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                if "model_data" in input_requirements:
-                    inputs["model_data"] = model_artifacts
-                    matched_inputs.add("model_data")
+                
+                # Get the input key from config
+                model_data_key = next(iter(self.config.input_names.keys()), "model_data")
+                
+                # Initialize inputs dict if needed
+                if "inputs" not in inputs:
+                    inputs["inputs"] = {}
+                    
+                # Add model artifacts to inputs
+                if model_data_key not in inputs.get("inputs", {}):
+                    inputs["inputs"][model_data_key] = model_artifacts
+                    matched_inputs.add("inputs")
                     logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
             except AttributeError as e:
                 logger.warning(f"Could not extract model artifacts from step: {e}")
                 
         return matched_inputs
     
-    def create_step(self, **kwargs) -> ModelStep:
+    def create_step(self, **kwargs) -> CreateModelStep:
         """
         Creates the final, fully configured SageMaker ModelStep for the pipeline.
         This method orchestrates the assembly of the model and its configuration
@@ -197,40 +232,71 @@ class PyTorchModelStepBuilder(StepBuilderBase):
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - model_data: The S3 URI of the model artifacts.
+                - inputs: Dictionary mapping input channel names to their S3 locations
+                - model_data: Direct parameter for model artifacts S3 URI (for backward compatibility)
                 - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache the results of this step
-                                to speed up subsequent pipeline runs with the same inputs.
-
+                - enable_caching: Whether to enable caching for this step.
+                
         Returns:
-            A configured sagemaker.workflow.steps.ModelStep instance.
+            A configured ModelStep instance.
         """
         logger.info("Creating PyTorch ModelStep...")
 
         # Extract parameters
+        inputs_raw = self._extract_param(kwargs, 'inputs', {})
         model_data = self._extract_param(kwargs, 'model_data')
-        dependencies = self._extract_param(kwargs, 'dependencies')
+        dependencies = self._extract_param(kwargs, 'dependencies', [])
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
+        # Normalize inputs
+        inputs = self._normalize_inputs(inputs_raw)
+        
+        # Add direct model_data parameter if provided
+        if model_data is not None:
+            inputs["model_data"] = model_data
+            self.log_info("Using directly provided model_data: %s", model_data)
+            
+        # Look for inputs from dependencies if we don't have what we need
+        if "model_data" not in inputs and dependencies:
+            input_requirements = self.get_input_requirements()
+            
+            # Extract inputs from dependencies
+            for dep_step in dependencies:
+                # Temporary dictionary to collect inputs from matching
+                temp_inputs = {}
+                matched = self._match_custom_properties(temp_inputs, input_requirements, dep_step)
+                
+                if matched:
+                    # Normalize any nested inputs from the matching
+                    normalized_deps = self._normalize_inputs(temp_inputs)
+                    
+                    # Add to our main inputs dictionary
+                    inputs.update(normalized_deps)
+                    logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', None)}")
+                    
+        # Get model_data from inputs
+        model_data_key = next(iter(self.config.input_names.keys()), "model_data")
+        model_data_value = inputs.get(model_data_key)
+        
         # Validate required parameters
-        if not model_data:
-            raise ValueError("model_data must be provided")
+        if not model_data_value:
+            raise ValueError(f"{model_data_key} must be provided")
 
         # Create the model
-        if self.config.use_pytorch_framework:
-            model = self._create_pytorch_model(model_data)
+        if hasattr(self.config, 'use_pytorch_framework') and self.config.use_pytorch_framework:
+            model = self._create_pytorch_model(model_data_value)
         else:
-            model = self._create_model(model_data)
+            model = self._create_model(model_data_value)
 
         step_name = self._get_step_name('PyTorchModel')
         
-        model_step = ModelStep(
+        model_step = CreateModelStep(
             name=step_name,
             step_args=model.create(
                 instance_type=self.config.instance_type,
-                accelerator_type=self.config.accelerator_type,
-                tags=self.config.tags,
-                model_name=self.config.model_name
+                accelerator_type=getattr(self.config, 'accelerator_type', None),
+                tags=getattr(self.config, 'tags', None),
+                model_name=self.config.get_model_name() if hasattr(self.config, 'get_model_name') else None
             ),
             depends_on=dependencies or []
         )
