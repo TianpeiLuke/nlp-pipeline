@@ -14,7 +14,7 @@ import os
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from pipeline_deps.base_specifications import (
+from src.pipeline_deps.base_specifications import (
     StepSpecification, DependencySpec, OutputSpec, 
     DependencyType, NodeType, SpecificationRegistry
 )
@@ -207,7 +207,7 @@ class TestNodeTypeSystem(unittest.TestCase):
                 outputs=[]
             )
         
-        self.assertIn("node_type must be a NodeType enum", str(context.exception))
+        self.assertIn("Input should be 'source', 'internal', 'sink' or 'singular'", str(context.exception))
 
 
 class TestSpecificationRegistry(unittest.TestCase):
@@ -287,6 +287,7 @@ class TestRealSpecifications(unittest.TestCase):
             from pipeline_step_specs.packaging_spec import PACKAGING_SPEC
             from pipeline_step_specs.payload_spec import PAYLOAD_SPEC
             from pipeline_step_specs.registration_spec import REGISTRATION_SPEC
+            from pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
             
             self.real_specs = {
                 "DATA_LOADING": (DATA_LOADING_SPEC, NodeType.SOURCE),
@@ -295,6 +296,7 @@ class TestRealSpecifications(unittest.TestCase):
                 "PACKAGING": (PACKAGING_SPEC, NodeType.INTERNAL),
                 "PAYLOAD": (PAYLOAD_SPEC, NodeType.INTERNAL),
                 "REGISTRATION": (REGISTRATION_SPEC, NodeType.SINK),
+                "MODEL_EVAL": (MODEL_EVAL_SPEC, NodeType.INTERNAL),
             }
             self.specs_available = True
         except ImportError:
