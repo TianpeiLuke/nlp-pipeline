@@ -8,23 +8,21 @@ from .hyperparameters_base import ModelHyperparameters
 from .config_base import BasePipelineConfig
 
 
-class PytorchTrainingConfig(BasePipelineConfig):
+class PyTorchTrainingConfig(BasePipelineConfig):
     """Configuration specific to the SageMaker Training Step."""
     # Input/output names for training with default values
     input_names: Dict[str, str] = Field(
         default_factory=lambda: {
-            "train": "Training data input",
-            "val": "Validation data input",
-            "test": "Test data input"
+            "input_path": "data"  # KEY: logical name, VALUE: script input name
         },
-        description="Mapping of input channel names to their descriptions."
+        description="Mapping of logical input channel names to their script input names."
     )
     
     output_names: Dict[str, str] = Field(
         default_factory=lambda: {
-            "training_job_name": "Name of the training job",
-            "model_data": "S3 path to the model artifacts",
-            "model_data_url": "S3 URL to the model artifacts"
+            "model_output": "ModelArtifacts",
+            "metrics_output": "TrainingMetrics",
+            "training_job_name": "TrainingJobName"
         },
         description="Mapping of output channel names to their descriptions."
     )
@@ -50,6 +48,10 @@ class PytorchTrainingConfig(BasePipelineConfig):
     training_entry_point: str = Field(default='train.py', description="Entry point script for training.")
     # source_dir is inherited from BasePipelineConfig, assumed to contain training_entry_point
 
+    # Framework versions for SageMaker PyTorch container
+    framework_version: str = Field(default="1.12.0", description="SageMaker PyTorch framework version.")
+    py_version: str = Field(default="py38", description="Python version for the SageMaker PyTorch container.")
+
     # Hyperparameters are now a separate object, linked at the MasterWorkflowConfig level
     # Add reference to hyperparameters
     hyperparameters: Optional[ModelHyperparameters] = Field(None, description="Model hyperparameters")
@@ -66,6 +68,7 @@ class PytorchTrainingConfig(BasePipelineConfig):
         # For standalone instantiation, ensure they are passed or defaulted.
         bucket = values.get('bucket')
         current_date = values.get('current_date')
+        pipeline_name = values.get('pipeline_name', 'DefaultPipeline')
 
         if not bucket or not current_date: # Should be set by BasePipelineConfig._construct_base_attributes
             # This might indicate an issue in how Pydantic calls validators in hierarchy
@@ -74,15 +77,21 @@ class PytorchTrainingConfig(BasePipelineConfig):
             pass # Assuming they are already populated by BasePipelineConfig validator
 
         if 'input_path' not in values or values['input_path'] is None:
-            values['input_path'] = f"s3://{bucket}/training_input/{current_date}"
+            values['input_path'] = f"s3://{bucket}/{pipeline_name}/training_input/{current_date}"
         if 'output_path' not in values or values['output_path'] is None:
-            values['output_path'] = f"s3://{bucket}/training_output/{current_date}/model"
+            values['output_path'] = f"s3://{bucket}/{pipeline_name}/training_output/{current_date}/model"
         if 'checkpoint_path' not in values: # Allow explicit None
-             values['checkpoint_path'] = f"s3://{bucket}/training_checkpoints/{current_date}"
+             values['checkpoint_path'] = f"s3://{bucket}/{pipeline_name}/training_checkpoints/{current_date}"
+             
+        # Normalize all paths to ensure no trailing slashes
+        for path_key in ['input_path', 'output_path', 'checkpoint_path']:
+            if path_key in values and values.get(path_key):
+                values[path_key] = values[path_key].rstrip('/')
+                
         return values
 
     @model_validator(mode='after')
-    def _validate_training_paths_logic(self) -> 'PytorchTrainingConfig':
+    def _validate_training_paths_logic(self) -> 'PyTorchTrainingConfig':
         """Validates S3 path requirements for training."""
         # Example: Ensure input_path and output_path are different
         paths = {
@@ -107,7 +116,7 @@ class PytorchTrainingConfig(BasePipelineConfig):
 
 
     @model_validator(mode='after')
-    def validate_field_lists(self) -> 'PytorchTrainingConfig':
+    def validate_field_lists(self) -> 'PyTorchTrainingConfig':
         """Validate field lists from hyperparameters"""
         if not self.hyperparameters:
             raise ValueError("hyperparameters must be provided")
@@ -136,31 +145,22 @@ class PytorchTrainingConfig(BasePipelineConfig):
 
 
     @model_validator(mode='after')
-    def set_default_names(self) -> 'PytorchTrainingConfig':
+    def set_default_names(self) -> 'PyTorchTrainingConfig':
         """Ensure default input and output names are set if not provided."""
         if not self.input_names:
             self.input_names = {
-                "train": "Training data input",
-                "val": "Validation data input",
-                "test": "Test data input"
+                "input_path": "data"
             }
         
         if not self.output_names:
             self.output_names = {
-                "training_job_name": "Name of the training job",
-                "model_data": "S3 path to the model artifacts",
-                "model_data_url": "S3 URL to the model artifacts"
+                "model_output": "ModelArtifacts",
+                "metrics_output": "TrainingMetrics",
+                "training_job_name": "TrainingJobName"
             }
         
         return self
     
-    # If validate_field_lists from original ModelConfig is specific to training data prep:
-    # def _validate_training_field_lists(self, hyperparameters: ModelHyperparameters):
-    #     # Perform checks using self attributes and hyperparameters
-    #     # This validator would be called manually by the TrainingStepBuilder or MasterConfig
-    #     pass
-
-
     @field_validator('training_instance_type')
     @classmethod
     def _validate_sagemaker_training_instance_type(cls, v: str) -> str:
