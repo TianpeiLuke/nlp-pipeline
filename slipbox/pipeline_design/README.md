@@ -61,19 +61,24 @@ The pipeline design represents a sophisticated, specification-driven architectur
     - **Key Features**: Cycle detection, execution optimization, dependency modeling
     - **Strategic Value**: Provides computational backbone for all higher-level abstractions
 
-10. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
+10. **[Pipeline Registry](pipeline_registry.md)** - Unified dependency management layer
+    - **Purpose**: Pipeline-scoped specification storage with embedded intelligent dependency resolution
+    - **Key Features**: Pipeline isolation, embedded dependency resolution, unified API, centralized management
+    - **Strategic Value**: Eliminates manual coordination between registry and resolver while maintaining pipeline boundaries
+
+11. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
     - **Purpose**: Automatically connect pipeline steps through semantic compatibility analysis
     - **Key Features**: Multi-criteria scoring, type safety validation, pipeline-scoped resolution, performance optimization
     - **Strategic Value**: Eliminates manual dependency wiring while ensuring type safety and semantic correctness
 
 ### Governance Components
 
-11. **[Design Principles](design_principles.md)** - Architectural philosophy layer
+12. **[Design Principles](design_principles.md)** - Architectural philosophy layer
     - **Purpose**: Guide system development and evolution decisions
     - **Key Features**: Declarative over imperative, composition over inheritance, fail fast
     - **Strategic Value**: Ensures architectural consistency and quality over time
 
-12. **[Standardization Rules](standardization_rules.md)** - Enhanced constraint enforcement layer
+13. **[Standardization Rules](standardization_rules.md)** - Enhanced constraint enforcement layer
     - **Purpose**: Enforce universal patterns and consistency across all components
     - **Key Features**: Automated validation, quality gates, evolution governance
     - **Strategic Value**: Maintains system-wide coherence while enabling controlled growth
@@ -133,7 +138,7 @@ Components are organized in clear layers with defined responsibilities:
 ├─────────────────────────────────────┤
 │       Step Specification Layer     │  # Comprehensive step definition
 ├─────────────────────────────────────┤
-│         Foundation Layer            │  # DAG, dependency resolver, registry
+│         Foundation Layer            │  # DAG, pipeline registry, dependency resolver
 └─────────────────────────────────────┘
 ```
 
