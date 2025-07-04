@@ -246,7 +246,8 @@ class TestOutputSpec(unittest.TestCase):
                 output_type=DependencyType.PROCESSING_OUTPUT,
                 property_path="properties.test"
             )
-        self.assertIn("logical_name cannot be empty", str(context.exception))
+        self.assertTrue("String should have at least 1 character" in str(context.exception) or 
+                       "logical_name cannot be empty" in str(context.exception))
         
         # Invalid characters should fail
         with self.assertRaises(ValueError) as context:
@@ -266,7 +267,9 @@ class TestOutputSpec(unittest.TestCase):
                 output_type="invalid_type",
                 property_path="properties.test"
             )
-        self.assertIn("output_type must be one of", str(context.exception))
+        error_msg = str(context.exception)
+        self.assertTrue("output_type must be one of" in error_msg or
+                       "Input should be" in error_msg)
     
     def test_property_path_validation(self):
         """Test property path validation."""
@@ -277,7 +280,8 @@ class TestOutputSpec(unittest.TestCase):
                 output_type=DependencyType.PROCESSING_OUTPUT,
                 property_path=""
             )
-        self.assertIn("property_path cannot be empty", str(context.exception))
+        self.assertTrue("String should have at least 1 character" in str(context.exception) or
+                       "property_path cannot be empty" in str(context.exception))
         
         # Property path not starting with 'properties.' should fail
         with self.assertRaises(ValueError) as context:
@@ -336,7 +340,8 @@ class TestPropertyReference(unittest.TestCase):
                 step_name="",
                 output_spec=self.output_spec
             )
-        self.assertIn("step_name cannot be empty", str(context.exception))
+        self.assertTrue("String should have at least 1 character" in str(context.exception) or
+                       "step_name cannot be empty" in str(context.exception))
         
         # Whitespace-only step name should fail
         with self.assertRaises(ValueError) as context:
@@ -536,7 +541,8 @@ class TestStepSpecification(unittest.TestCase):
                 dependencies=[],
                 outputs=[self.output_spec]
             )
-        self.assertIn("step_type cannot be empty", str(context.exception))
+        self.assertTrue("String should have at least 1 character" in str(context.exception) or
+                       "step_type cannot be empty" in str(context.exception))
     
     def test_node_type_string_validation(self):
         """Test node type validation with string values."""
