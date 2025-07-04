@@ -10,10 +10,10 @@ The pipeline design represents a sophisticated, specification-driven architectur
 
 ### Core Foundation Components
 
-1. **[Step Specification](step_specification.md)** - Declarative metadata layer
-   - **Purpose**: Define "what" a step is rather than "how" it works
-   - **Key Features**: Node type classification, semantic dependency matching, automatic validation
-   - **Strategic Value**: Enables intelligent automation and early error detection
+1. **[Step Specification](step_specification.md)** - Comprehensive step definition layer
+   - **Purpose**: Define complete step interface including structure, behavior, and quality requirements
+   - **Key Features**: Node type classification, semantic dependency matching, automatic validation, quality gates, runtime enforcement
+   - **Strategic Value**: Single source of truth for step definitions enabling intelligent automation and quality assurance
 
 2. **[Step Builder](step_builder.md)** - Implementation bridge layer
    - **Purpose**: Translate specifications into executable SageMaker steps
@@ -37,34 +37,34 @@ The pipeline design represents a sophisticated, specification-driven architectur
    - **Key Features**: Method chaining, context-aware configuration, progressive complexity disclosure
    - **Strategic Value**: Dramatically improves developer experience and reduces learning curve
 
-6. **[Step Contract](step_contract.md)** - Formal interface definition layer
-   - **Purpose**: Establish enforceable agreements between pipeline components
-   - **Key Features**: Design-time validation, runtime enforcement, automatic documentation
-   - **Strategic Value**: Enables enterprise-scale development with built-in quality assurance
-
 ### Orchestration Components
 
-7. **[Pipeline Specification](pipeline_specification.md)** - Declarative blueprint layer
+6. **[Pipeline Specification](pipeline_specification.md)** - Declarative blueprint layer
    - **Purpose**: Complete pipeline definition through declarative specifications
-   - **Key Features**: Configuration integration, type safety validation, quality contract embedding
+   - **Key Features**: Configuration integration, type safety validation, quality requirements embedding
    - **Strategic Value**: Enables template reusability and cross-component consistency checking
 
-8. **[Pipeline Template Builder V1](pipeline_template_builder_v1.md)** - Current monolithic orchestration layer
+7. **[Pipeline Template Builder V1](pipeline_template_builder_v1.md)** - Current monolithic orchestration layer
    - **Purpose**: Build SageMaker pipelines through imperative step instantiation and manual dependency resolution
    - **Key Features**: DAG-based ordering, manual property resolution, pattern matching, comprehensive error handling
    - **Strategic Value**: Production-ready but complex (600+ lines) with maintenance overhead
 
-9. **[Pipeline Template Builder V2](pipeline_template_builder_v2.md)** - Modern lightweight orchestration layer
+8. **[Pipeline Template Builder V2](pipeline_template_builder_v2.md)** - Modern lightweight orchestration layer
    - **Purpose**: Transform declarative specifications into executable SageMaker pipelines
-   - **Key Features**: Component coordination, dependency resolution, contract validation
+   - **Key Features**: Component coordination, dependency resolution, specification validation
    - **Strategic Value**: 90% code reduction while maintaining quality assurance and extensibility
 
 ### Infrastructure Components
 
-10. **[Pipeline DAG](pipeline_dag.md)** - Structural foundation layer
+9. **[Pipeline DAG](pipeline_dag.md)** - Structural foundation layer
     - **Purpose**: Mathematical framework for pipeline topology and execution
     - **Key Features**: Cycle detection, execution optimization, dependency modeling
     - **Strategic Value**: Provides computational backbone for all higher-level abstractions
+
+10. **[Dependency Resolver](dependency_resolver.md)** - Intelligent matching engine layer
+    - **Purpose**: Automatically connect pipeline steps through semantic compatibility analysis
+    - **Key Features**: Multi-criteria scoring, type safety validation, pipeline-scoped resolution, performance optimization
+    - **Strategic Value**: Eliminates manual dependency wiring while ensuring type safety and semantic correctness
 
 ### Governance Components
 
@@ -131,9 +131,9 @@ Components are organized in clear layers with defined responsibilities:
 ├─────────────────────────────────────┤
 │     Pipeline Specification Layer   │  # Declarative blueprint
 ├─────────────────────────────────────┤
-│       Step Specification Layer     │  # Declarative metadata
+│       Step Specification Layer     │  # Comprehensive step definition
 ├─────────────────────────────────────┤
-│         Foundation Layer            │  # DAG, registry, utilities
+│         Foundation Layer            │  # DAG, dependency resolver, registry
 └─────────────────────────────────────┘
 ```
 
@@ -251,17 +251,17 @@ fraud_pipeline_spec = PipelineSpec(
         "model_training": XGBOOST_TRAINING_SPEC
     },
     
-    # Quality contracts for production readiness
-    step_contracts={
-        "data_loading": DataQualityContract(
-            min_data_quality_score=0.95,
-            required_columns=["transaction_id", "amount", "merchant_id"]
-        ),
-        "model_training": FraudModelContract(
-            min_auc=0.88,
-            max_false_positive_rate=0.05,
-            max_training_time="4 hours"
-        )
+    # Quality requirements embedded in specifications
+    quality_requirements={
+        "data_loading": {
+            "min_data_quality_score": 0.95,
+            "required_columns": ["transaction_id", "amount", "merchant_id"]
+        },
+        "model_training": {
+            "min_auc": 0.88,
+            "max_false_positive_rate": 0.05,
+            "max_training_time": "4 hours"
+        }
     }
 )
 
