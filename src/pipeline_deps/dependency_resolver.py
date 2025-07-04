@@ -9,8 +9,9 @@ from typing import Dict, List, Set, Optional, Tuple
 import logging
 from .base_specifications import (
     StepSpecification, DependencySpec, OutputSpec, PropertyReference, 
-    DependencyType, SpecificationRegistry
+    DependencyType
 )
+from .specification_registry import SpecificationRegistry
 from .semantic_matcher import SemanticMatcher
 
 logger = logging.getLogger(__name__)

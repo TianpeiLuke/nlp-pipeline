@@ -7,14 +7,16 @@ for pipeline step dependencies.
 
 from .base_specifications import (
     DependencyType, DependencySpec, OutputSpec, PropertyReference, 
-    StepSpecification, SpecificationRegistry
+    StepSpecification
+)
+from .specification_registry import SpecificationRegistry
+from .registry_manager import (
+    RegistryManager, registry_manager,
+    get_registry, get_pipeline_registry, get_default_registry, 
+    integrate_with_pipeline_builder, list_contexts, clear_context, get_context_stats
 )
 from .dependency_resolver import UnifiedDependencyResolver, DependencyResolutionError, global_resolver
 from .semantic_matcher import SemanticMatcher, semantic_matcher
-from .pipeline_registry import (
-    PipelineRegistry, RegistryManager, registry_manager,
-    get_pipeline_registry, get_default_registry, integrate_with_pipeline_builder
-)
 
 __all__ = [
     # Core specification classes
@@ -23,7 +25,17 @@ __all__ = [
     'OutputSpec',
     'PropertyReference',
     'StepSpecification',
+    
+    # Registry management
     'SpecificationRegistry',
+    'RegistryManager',
+    'get_registry',
+    'get_pipeline_registry',
+    'get_default_registry',
+    'integrate_with_pipeline_builder',
+    'list_contexts',
+    'clear_context',
+    'get_context_stats',
     
     # Dependency resolution
     'UnifiedDependencyResolver',
@@ -31,13 +43,6 @@ __all__ = [
     
     # Semantic matching
     'SemanticMatcher',
-    
-    # Pipeline registry
-    'PipelineRegistry',
-    'RegistryManager',
-    'get_pipeline_registry',
-    'get_default_registry',
-    'integrate_with_pipeline_builder',
     
     # Global instances
     'global_resolver',
