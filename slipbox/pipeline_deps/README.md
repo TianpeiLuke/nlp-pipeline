@@ -42,6 +42,29 @@ This module integrates with:
 - **Pipeline Builder** - Uses resolved dependencies for pipeline construction
 - **Step Builders** - Validates step compatibility during configuration
 
+## File Structure
+
+```
+slipbox/pipeline_deps/
+├── README.md                    # This overview document
+├── base_specifications.md       # Core specification data structures (Pydantic V2)
+├── dependency_resolver.md       # Dependency resolution algorithms and patterns
+├── registry_manager.md          # Multi-context registry management
+├── semantic_matcher.md          # Intelligent semantic similarity matching
+└── specification_registry.md    # Context-aware specification storage
+```
+
+## Documentation Coverage
+
+### Core Data Structures
+- **[Base Specifications](base_specifications.md)** - Pydantic V2 models for step specifications, dependencies, and outputs
+- **[Specification Registry](specification_registry.md)** - Context-aware storage and retrieval with compatibility checking
+- **[Registry Manager](registry_manager.md)** - Multi-context registry management with complete isolation
+
+### Advanced Features
+- **[Dependency Resolver](dependency_resolver.md)** - Intelligent dependency resolution algorithms and patterns
+- **[Semantic Matcher](semantic_matcher.md)** - Multi-metric similarity scoring for automatic component matching
+
 ## Related Design Documentation
 
 For architectural context and design decisions, see:

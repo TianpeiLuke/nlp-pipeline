@@ -160,6 +160,15 @@ src/pipeline_script_contracts/
 
 This module successfully bridges the gap between architectural intent (Step Specifications) and implementation reality (actual scripts), ensuring they remain aligned throughout the development lifecycle with automated validation and explicit documentation.
 
+## Documentation Coverage
+
+### Core Framework Documentation
+- **[Base Script Contract](base_script_contract.md)** - Foundation data structures and validation framework
+- **[Contract Validator](contract_validator.md)** - Validation engine and compliance reporting
+
+### Implementation Examples
+- **[PyTorch Train Contract](pytorch_train_contract.md)** - Example PyTorch training contract implementation
+
 ## Related Design Documentation
 
 For architectural context and design decisions, see:
