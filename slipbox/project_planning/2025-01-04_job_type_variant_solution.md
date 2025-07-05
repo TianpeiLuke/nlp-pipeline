@@ -4,6 +4,11 @@
 **Status**: Ready for Implementation  
 **Priority**: High - Completes Phase 1 (89% → 100%)  
 **Timeline**: 4-7 days  
+**Related**: [Specification-Driven XGBoost Pipeline Plan](./specification_driven_xgboost_pipeline_plan.md)
+
+## Context
+
+This document addresses the specific gap identified in the [main specification-driven pipeline plan](./specification_driven_xgboost_pipeline_plan.md) - completing Phase 1 from 89% to 100% by implementing job type variant handling.
 
 ## Problem
 

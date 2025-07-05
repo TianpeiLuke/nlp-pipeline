@@ -442,6 +442,8 @@ The only remaining gap is **job type variant handling** for:
 1. **CradleDataLoading_Training** vs **CradleDataLoading_Calibration**
 2. **TabularPreprocessing_Training** vs **TabularPreprocessing_Calibration**
 
+**📋 Detailed Solution**: See [Job Type Variant Solution (Jan 4, 2025)](./2025-01-04_job_type_variant_solution.md) for the complete implementation plan to address this gap.
+
 ### Gap Analysis vs Updated Manual Pipeline
 
 #### Updated Manual Pipeline Steps (9 total):
