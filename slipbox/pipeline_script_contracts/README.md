@@ -159,3 +159,13 @@ src/pipeline_script_contracts/
 ```
 
 This module successfully bridges the gap between architectural intent (Step Specifications) and implementation reality (actual scripts), ensuring they remain aligned throughout the development lifecycle with automated validation and explicit documentation.
+
+## Related Design Documentation
+
+For architectural context and design decisions, see:
+- **[Script Contract Design](../pipeline_design/script_contract.md)** - Script contract architecture and patterns
+- **[Step Contract Design](../pipeline_design/step_contract.md)** - Step-level contract definitions
+- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy
+- **[Step Builder Design](../pipeline_design/step_builder.md)** - Step builder integration with contracts
+- **[Standardization Rules](../pipeline_design/standardization_rules.md)** - Naming and structure conventions
+- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles and guidelines

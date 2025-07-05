@@ -41,3 +41,12 @@ This module integrates with:
 - **Pipeline Step Specs** - Provides specifications for dependency resolution
 - **Pipeline Builder** - Uses resolved dependencies for pipeline construction
 - **Step Builders** - Validates step compatibility during configuration
+
+## Related Design Documentation
+
+For architectural context and design decisions, see:
+- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy
+- **[Dependency Resolver Design](../pipeline_design/dependency_resolver.md)** - Dependency resolution architecture
+- **[Step Specification Design](../pipeline_design/step_specification.md)** - Step specification patterns
+- **[Registry Manager Design](../pipeline_design/registry_manager.md)** - Registry management approach
+- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles

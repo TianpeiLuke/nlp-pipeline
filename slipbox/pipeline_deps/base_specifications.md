@@ -1,201 +1,348 @@
 # Base Specifications
 
 ## Overview
-The Base Specifications module provides foundation classes for defining pipeline step specifications that enable automatic dependency resolution and semantic matching between pipeline components.
+The Base Specifications module provides foundation classes for defining pipeline step specifications using Pydantic V2 BaseModel for declarative dependency management. It enables type-safe specification of step dependencies and outputs with automatic validation.
 
 ## Core Classes
 
-### BaseSpecification
-Foundation class for all pipeline step specifications.
+### DependencySpec
+Declarative specification for a step's dependency requirement.
 
 ```python
-@dataclass
-class BaseSpecification:
-    step_name: str
-    step_type: str
-    inputs: Dict[str, DataSpecification]
-    outputs: Dict[str, DataSpecification]
-    parameters: Dict[str, Any]
-    metadata: Dict[str, Any]
+class DependencySpec(BaseModel):
+    logical_name: str = Field(..., description="How this dependency is referenced")
+    dependency_type: DependencyType = Field(..., description="Type of dependency")
+    required: bool = Field(default=True, description="Whether this dependency is required")
+    compatible_sources: List[str] = Field(default_factory=list, description="Compatible step types")
+    semantic_keywords: List[str] = Field(default_factory=list, description="Keywords for semantic matching")
+    data_type: str = Field(default="S3Uri", description="Expected data type")
+    description: str = Field(default="", description="Human-readable description")
 ```
 
-### DataSpecification
-Defines the structure and requirements for data inputs/outputs.
+### OutputSpec
+Declarative specification for a step's output.
 
 ```python
-@dataclass
-class DataSpecification:
-    data_type: str
-    format: str
-    schema: Optional[Dict[str, Any]]
-    constraints: List[str]
-    semantic_tags: List[str]
+class OutputSpec(BaseModel):
+    logical_name: str = Field(..., description="How this output is referenced")
+    output_type: DependencyType = Field(..., description="Type of output")
+    property_path: str = Field(..., description="Runtime SageMaker property path")
+    data_type: str = Field(default="S3Uri", description="Output data type")
+    description: str = Field(default="", description="Human-readable description")
+```
+
+### StepSpecification
+Complete specification for a step's dependencies and outputs.
+
+```python
+class StepSpecification(BaseModel):
+    step_type: str = Field(..., description="Type identifier for this step")
+    node_type: NodeType = Field(..., description="Node type classification")
+    dependencies: Dict[str, DependencySpec] = Field(default_factory=dict)
+    outputs: Dict[str, OutputSpec] = Field(default_factory=dict)
+```
+
+### PropertyReference
+Lazy evaluation reference bridging definition-time and runtime.
+
+```python
+class PropertyReference(BaseModel):
+    step_name: str = Field(..., description="Name of the step that produces this output")
+    output_spec: OutputSpec = Field(..., description="Output specification")
+    
+    def to_sagemaker_property(self) -> Dict[str, str]:
+        """Convert to SageMaker Properties object at runtime."""
+        return {"Get": f"Steps.{self.step_name}.{self.output_spec.property_path}"}
+```
+
+## Enumerations
+
+### DependencyType
+Types of dependencies in the pipeline.
+
+```python
+class DependencyType(Enum):
+    MODEL_ARTIFACTS = "model_artifacts"
+    PROCESSING_OUTPUT = "processing_output"
+    TRAINING_DATA = "training_data"
+    HYPERPARAMETERS = "hyperparameters"
+    PAYLOAD_SAMPLES = "payload_samples"
+    CUSTOM_PROPERTY = "custom_property"
+```
+
+### NodeType
+Types of nodes based on their dependency/output characteristics.
+
+```python
+class NodeType(Enum):
+    SOURCE = "source"      # No dependencies, has outputs (e.g., data loading)
+    INTERNAL = "internal"  # Has both dependencies and outputs (e.g., processing, training)
+    SINK = "sink"         # Has dependencies, no outputs (e.g., model registration)
+    SINGULAR = "singular" # No dependencies, no outputs (e.g., standalone operations)
 ```
 
 ## Key Features
 
-### 1. Type Safety
-- Strong typing for all specification components
-- Validation of specification structure
-- Runtime type checking
+### 1. Pydantic V2 Integration
+- **Type Safety** - Strong typing with automatic validation
+- **Field Validation** - Custom validators for each field
+- **Model Validation** - Cross-field validation rules
+- **JSON Schema** - Automatic schema generation
 
-### 2. Semantic Tagging
-- Semantic tags for intelligent matching
-- Domain-specific vocabularies
-- Extensible tagging system
+### 2. Declarative Dependencies
+- **Logical Names** - Human-readable dependency references
+- **Semantic Keywords** - Keywords for intelligent matching
+- **Compatible Sources** - Explicit compatibility declarations
+- **Required/Optional** - Flexible dependency requirements
 
-### 3. Schema Validation
-- Optional schema definitions for structured data
-- JSON Schema support
-- Custom validation rules
+### 3. Runtime Property Resolution
+- **Property Paths** - SageMaker property path specifications
+- **Lazy Evaluation** - PropertyReference for runtime resolution
+- **Type Conversion** - Automatic SageMaker Properties generation
 
-## Usage Example
+## Usage Examples
 
+### Creating Dependency Specifications
 ```python
-from src.pipeline_deps.base_specifications import BaseSpecification, DataSpecification
+from src.pipeline_deps.base_specifications import DependencySpec, DependencyType
 
-# Define input specification
-input_spec = DataSpecification(
-    data_type="tabular",
-    format="parquet",
-    schema={
-        "type": "object",
-        "properties": {
-            "features": {"type": "array"},
-            "labels": {"type": "array"}
-        }
-    },
-    constraints=["non_empty", "valid_schema"],
-    semantic_tags=["training_data", "supervised_learning"]
-)
-
-# Define output specification
-output_spec = DataSpecification(
-    data_type="model",
-    format="pickle",
-    schema=None,
-    constraints=["serializable"],
-    semantic_tags=["trained_model", "xgboost"]
-)
-
-# Create step specification
-step_spec = BaseSpecification(
-    step_name="xgboost_training",
-    step_type="training",
-    inputs={"training_data": input_spec},
-    outputs={"trained_model": output_spec},
-    parameters={"max_depth": 6, "learning_rate": 0.1},
-    metadata={"framework": "xgboost", "version": "1.7.6"}
+# Define a training data dependency
+training_data_dep = DependencySpec(
+    logical_name="training_data",
+    dependency_type=DependencyType.PROCESSING_OUTPUT,
+    required=True,
+    compatible_sources=["DataLoadingStep", "PreprocessingStep"],
+    semantic_keywords=["data", "dataset", "training"],
+    data_type="S3Uri",
+    description="Training dataset for model training"
 )
 ```
 
-## Specification Types
+### Creating Output Specifications
+```python
+from src.pipeline_deps.base_specifications import OutputSpec, DependencyType
 
-### Data Types
-- **tabular** - Structured tabular data (CSV, Parquet, etc.)
-- **text** - Unstructured text data
-- **model** - Trained machine learning models
-- **metrics** - Performance metrics and evaluation results
-- **artifacts** - General pipeline artifacts
+# Define a model artifacts output
+model_output = OutputSpec(
+    logical_name="model_artifacts",
+    output_type=DependencyType.MODEL_ARTIFACTS,
+    property_path="properties.ModelArtifacts.S3ModelArtifacts",
+    data_type="S3Uri",
+    description="Trained model artifacts"
+)
+```
 
-### Formats
-- **parquet** - Apache Parquet format
-- **csv** - Comma-separated values
-- **json** - JSON format
-- **pickle** - Python pickle format
-- **joblib** - Joblib serialization
+### Creating Step Specifications
+```python
+from src.pipeline_deps.base_specifications import StepSpecification, NodeType
 
-### Semantic Tags
-- **training_data** - Data used for model training
-- **validation_data** - Data used for model validation
-- **test_data** - Data used for model testing
-- **preprocessed** - Data that has been preprocessed
-- **raw** - Raw, unprocessed data
+# Create a complete step specification
+step_spec = StepSpecification(
+    step_type="XGBoostTrainingStep",
+    node_type=NodeType.INTERNAL,
+    dependencies=[training_data_dep],
+    outputs=[model_output]
+)
 
-## Validation Rules
+# Access dependencies and outputs
+print(f"Dependencies: {list(step_spec.dependencies.keys())}")
+print(f"Outputs: {list(step_spec.outputs.keys())}")
+```
 
-### Required Fields
-- step_name must be non-empty string
-- step_type must be valid type
-- inputs and outputs must be dictionaries
-- DataSpecification must have valid data_type and format
+### Using Property References
+```python
+from src.pipeline_deps.base_specifications import PropertyReference
 
-### Constraints
-- Constraint validation based on data type
-- Custom constraint functions
-- Schema validation for structured data
+# Create property reference for runtime resolution
+prop_ref = PropertyReference(
+    step_name="training_step",
+    output_spec=model_output
+)
+
+# Convert to SageMaker property
+sagemaker_prop = prop_ref.to_sagemaker_property()
+print(sagemaker_prop)
+# Output: {"Get": "Steps.training_step.properties.ModelArtifacts.S3ModelArtifacts"}
+```
+
+## Validation Features
+
+### Field Validation
+```python
+# Automatic validation on creation
+try:
+    invalid_dep = DependencySpec(
+        logical_name="",  # Invalid: empty name
+        dependency_type="invalid_type"  # Invalid: not a valid enum
+    )
+except ValidationError as e:
+    print(f"Validation errors: {e}")
+```
+
+### Node Type Validation
+```python
+# Node type constraints are automatically validated
+try:
+    invalid_spec = StepSpecification(
+        step_type="SourceStep",
+        node_type=NodeType.SOURCE,
+        dependencies=[training_data_dep],  # Invalid: SOURCE nodes cannot have dependencies
+        outputs=[]
+    )
+except ValidationError as e:
+    print(f"Node type validation failed: {e}")
+```
+
+### Custom Validation Methods
+```python
+# Get required vs optional dependencies
+required_deps = step_spec.list_required_dependencies()
+optional_deps = step_spec.list_optional_dependencies()
+
+# Get dependencies by type
+training_deps = step_spec.list_dependencies_by_type(DependencyType.TRAINING_DATA)
+model_deps = step_spec.list_outputs_by_type(DependencyType.MODEL_ARTIFACTS)
+```
+
+## Node Type Constraints
+
+### SOURCE Nodes
+- **No Dependencies** - Cannot have any dependencies
+- **Must Have Outputs** - Must produce at least one output
+- **Examples**: Data loading steps, configuration generators
+
+### INTERNAL Nodes
+- **Must Have Dependencies** - Requires at least one dependency
+- **Must Have Outputs** - Must produce at least one output
+- **Examples**: Processing steps, training steps, transformation steps
+
+### SINK Nodes
+- **Must Have Dependencies** - Requires at least one dependency
+- **No Outputs** - Cannot produce any outputs
+- **Examples**: Model registration, deployment steps, notification steps
+
+### SINGULAR Nodes
+- **No Dependencies** - Cannot have any dependencies
+- **No Outputs** - Cannot produce any outputs
+- **Examples**: Standalone operations, cleanup tasks
 
 ## Integration Points
 
 ### With Dependency Resolver
-Base specifications provide the foundation for dependency resolution:
-
 ```python
 from src.pipeline_deps import DependencyResolver
 
+# Specifications provide input for dependency resolution
 resolver = DependencyResolver()
-dependencies = resolver.resolve(step_spec)
+dependencies = resolver.resolve_dependencies([step_spec])
 ```
 
-### With Semantic Matcher
-Semantic tags enable intelligent matching:
-
-```python
-from src.pipeline_deps import SemanticMatcher
-
-matcher = SemanticMatcher()
-compatibility = matcher.check_compatibility(output_spec, input_spec)
-```
-
-### With Registry
-Specifications are registered for reuse:
-
+### With Specification Registry
 ```python
 from src.pipeline_deps import SpecificationRegistry
 
+# Register specifications for reuse
 registry = SpecificationRegistry()
 registry.register_specification("xgboost_training", step_spec)
 ```
 
-## Extension Points
-
-### Custom Data Types
+### With Pipeline Builder
 ```python
-# Register custom data type
-registry.register_data_type("custom_format", CustomDataTypeHandler())
+# Specifications drive automatic pipeline construction
+pipeline_builder.add_step_specification(step_spec)
 ```
 
-### Custom Constraints
-```python
-# Define custom constraint
-def custom_constraint(data_spec: DataSpecification) -> bool:
-    return validate_custom_logic(data_spec)
+## Related Design Documentation
 
-# Register constraint
-registry.register_constraint("custom_constraint", custom_constraint)
-```
-
-### Custom Semantic Tags
-```python
-# Define domain-specific tags
-DOMAIN_TAGS = [
-    "financial_data",
-    "time_series",
-    "risk_model"
-]
-
-# Use in specifications
-spec = DataSpecification(
-    data_type="tabular",
-    format="parquet",
-    semantic_tags=["financial_data", "time_series"]
-)
-```
+For architectural context and design decisions, see:
+- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy and motivation
+- **[Step Specification Design](../pipeline_design/step_specification.md)** - Detailed step specification patterns
+- **[Step Contract Design](../pipeline_design/step_contract.md)** - Contract-based step definitions
+- **[Registry Manager Design](../pipeline_design/registry_manager.md)** - Registry management architecture
+- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles and guidelines
+- **[Standardization Rules](../pipeline_design/standardization_rules.md)** - Naming and structure conventions
 
 ## Best Practices
 
-1. **Use Semantic Tags** - Always include relevant semantic tags for better matching
-2. **Define Schemas** - Provide schemas for structured data when possible
-3. **Specify Constraints** - Include validation constraints to ensure data quality
-4. **Consistent Naming** - Use consistent naming conventions for step and data names
-5. **Version Metadata** - Include version information in metadata for reproducibility
+### 1. Naming Conventions
+- Use descriptive logical names: `training_data`, `model_artifacts`
+- Follow snake_case convention for consistency
+- Avoid abbreviations unless widely understood
+
+### 2. Semantic Keywords
+- Include relevant domain keywords for matching
+- Use lowercase for consistency
+- Include both specific and general terms
+
+### 3. Property Paths
+- Use exact SageMaker property paths
+- Test property paths with actual SageMaker steps
+- Document property path structure for complex outputs
+
+### 4. Dependency Types
+- Choose appropriate dependency types for semantic matching
+- Use CUSTOM_PROPERTY for domain-specific dependencies
+- Be consistent across related steps
+
+### 5. Validation
+- Always validate specifications after creation
+- Handle ValidationError exceptions appropriately
+- Use model validation for complex business rules
+
+## Error Handling
+
+### Common Validation Errors
+```python
+from pydantic import ValidationError
+
+try:
+    spec = StepSpecification(
+        step_type="",  # Empty step type
+        node_type="invalid",  # Invalid node type
+        dependencies={"dep1": "not_a_spec"}  # Invalid dependency spec
+    )
+except ValidationError as e:
+    for error in e.errors():
+        print(f"Field: {error['loc']}, Error: {error['msg']}")
+```
+
+### Custom Error Handling
+```python
+def create_safe_specification(step_type: str, **kwargs) -> Optional[StepSpecification]:
+    """Safely create specification with error handling."""
+    try:
+        return StepSpecification(step_type=step_type, **kwargs)
+    except ValidationError as e:
+        logger.error(f"Failed to create specification for {step_type}: {e}")
+        return None
+```
+
+## Migration from Legacy Systems
+
+### Backward Compatibility
+The StepSpecification constructor supports both list and dict formats:
+
+```python
+# List format (legacy)
+spec = StepSpecification(
+    step_type="ProcessingStep",
+    node_type=NodeType.INTERNAL,
+    dependencies=[dep1, dep2],
+    outputs=[out1, out2]
+)
+
+# Dict format (internal)
+spec = StepSpecification(
+    step_type="ProcessingStep", 
+    node_type=NodeType.INTERNAL,
+    dependencies={"dep1": dep1, "dep2": dep2},
+    outputs={"out1": out1, "out2": out2}
+)
+```
+
+### Legacy Validation Method
+```python
+# Legacy validate() method is maintained for compatibility
+errors = step_spec.validate()
+if errors:
+    print(f"Validation errors: {errors}")

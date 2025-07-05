@@ -81,3 +81,13 @@ This module integrates with:
 - **Pipeline Builder** - Uses specifications for automatic pipeline construction
 - **Step Builders** - Validates step configurations against specifications
 - **Script Contracts** - Aligns with script execution requirements
+
+## Related Design Documentation
+
+For architectural context and design decisions, see:
+- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy
+- **[Step Specification Design](../pipeline_design/step_specification.md)** - Step specification patterns and conventions
+- **[Step Builder Design](../pipeline_design/step_builder.md)** - Step builder architecture
+- **[Pipeline Template Builder](../pipeline_design/pipeline_template_builder_v2.md)** - Template-based pipeline construction
+- **[Standardization Rules](../pipeline_design/standardization_rules.md)** - Naming and structure conventions
+- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles
