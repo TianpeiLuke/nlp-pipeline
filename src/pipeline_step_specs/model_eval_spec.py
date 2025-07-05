@@ -55,20 +55,6 @@ MODEL_EVAL_SPEC = StepSpecification(
             property_path="properties.ProcessingOutputConfig.Outputs['metrics_output'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Model evaluation metrics (AUC, precision, recall, etc.)"
-        ),
-        OutputSpec(
-            logical_name="EvaluationResults",
-            output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['EvaluationResults'].S3Output.S3Uri",
-            data_type="S3Uri",
-            description="Evaluation results (alias for eval_output)"
-        ),
-        OutputSpec(
-            logical_name="EvaluationMetrics",
-            output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['EvaluationMetrics'].S3Output.S3Uri",
-            data_type="S3Uri",
-            description="Evaluation metrics (alias for metrics_output)"
         )
     ]
 )
