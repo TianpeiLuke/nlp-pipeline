@@ -17,6 +17,8 @@ from .mims_payload_contract import MIMS_PAYLOAD_CONTRACT
 from .model_evaluation_contract import MODEL_EVALUATION_CONTRACT
 from .currency_conversion_contract import CURRENCY_CONVERSION_CONTRACT
 from .risk_table_mapping_contract import RISK_TABLE_MAPPING_CONTRACT
+from .pytorch_train_contract import PYTORCH_TRAIN_CONTRACT
+from .xgboost_train_contract import XGBOOST_TRAIN_CONTRACT
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,8 @@ class ScriptContractValidator:
         "model_evaluation_xgb.py": MODEL_EVALUATION_CONTRACT,
         "currency_conversion.py": CURRENCY_CONVERSION_CONTRACT,
         "risk_table_mapping.py": RISK_TABLE_MAPPING_CONTRACT,
+        "train.py": PYTORCH_TRAIN_CONTRACT,
+        "train_xgb.py": XGBOOST_TRAIN_CONTRACT,
     }
     
     def __init__(self, scripts_directory: str = "src/pipeline_scripts"):
