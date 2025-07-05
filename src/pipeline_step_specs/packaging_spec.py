@@ -7,10 +7,16 @@ including their dependencies and outputs based on the actual implementation.
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 
+# Import the contract at runtime to avoid circular imports
+def _get_mims_package_contract():
+    from ..pipeline_script_contracts.mims_package_contract import MIMS_PACKAGE_CONTRACT
+    return MIMS_PACKAGE_CONTRACT
+
 # MIMS Packaging Step Specification
 PACKAGING_SPEC = StepSpecification(
     step_type="Package",
     node_type=NodeType.INTERNAL,
+    script_contract=_get_mims_package_contract(),
     dependencies=[
         DependencySpec(
             logical_name="model_input",
@@ -33,18 +39,11 @@ PACKAGING_SPEC = StepSpecification(
     ],
     outputs=[
         OutputSpec(
-            logical_name="packaged_model_output",
+            logical_name="packaged_model",
             output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['packaged_model'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Packaged model ready for deployment"
-        ),
-        OutputSpec(
-            logical_name="PackagedModel",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri",
-            data_type="S3Uri",
-            description="Packaged model (alias for packaged_model_output)"
         )
     ]
 )
