@@ -1,109 +1,83 @@
 # Pipeline Step Specifications
 
-This directory contains declarative specifications for all pipeline step types, defining their input dependencies and output properties for automatic dependency resolution.
+This module contains concrete step specifications for all pipeline components. These specifications define the input/output requirements, parameters, and metadata for each step type, enabling automatic dependency resolution and pipeline construction.
 
-## Overview
+## Step Categories
 
-Each step specification defines:
-- **Step Type**: The type identifier for the step
-- **Dependencies**: Required and optional inputs with semantic matching criteria
-- **Outputs**: Available outputs with property paths for runtime access
+### Data Loading Specifications
+- **data_loading_spec.py** - Base data loading specification
+- **data_loading_training_spec.py** - Training data loading
+- **data_loading_validation_spec.py** - Validation data loading  
+- **data_loading_testing_spec.py** - Testing data loading
+- **data_loading_calibration_spec.py** - Calibration data loading
 
-## Available Specifications
+### Preprocessing Specifications
+- **preprocessing_spec.py** - Base preprocessing specification
+- **preprocessing_training_spec.py** - Training data preprocessing
+- **preprocessing_validation_spec.py** - Validation data preprocessing
+- **preprocessing_testing_spec.py** - Testing data preprocessing
+- **preprocessing_calibration_spec.py** - Calibration data preprocessing
 
-### 1. Data Loading Specification (`data_loading_spec.py`)
-- **Step Type**: `CradleDataLoading`
-- **Dependencies**: None (source step)
-- **Outputs**:
-  - `DATA`: Main data output from Cradle data loading
-  - `METADATA`: Metadata output from Cradle data loading  
-  - `SIGNATURE`: Signature output from Cradle data loading
+### Model Specifications
+- **pytorch_model_spec.py** - PyTorch model specification
+- **xgboost_model_spec.py** - XGBoost model specification
+- **pytorch_training_spec.py** - PyTorch training specification
+- **xgboost_training_spec.py** - XGBoost training specification
 
-### 2. Preprocessing Specification (`preprocessing_spec.py`)
-- **Step Type**: `TabularPreprocessing`
-- **Dependencies**:
-  - `input_data` (required): Training data from data loading or other processing steps
-- **Outputs**:
-  - `processed_data`: Preprocessed tabular data ready for training
-  - `ProcessedTabularData`: Alias for processed_data
+### Pipeline Operations
+- **model_eval_spec.py** - Model evaluation specification
+- **packaging_spec.py** - Model packaging specification
+- **payload_spec.py** - Payload generation specification
+- **registration_spec.py** - Model registration specification
 
-### 3. XGBoost Training Specification (`xgboost_training_spec.py`)
-- **Step Type**: `XGBoostTraining`
-- **Dependencies**:
-  - `training_data` (required): Preprocessed training data
-  - `hyperparameters` (optional): Hyperparameter configuration
-- **Outputs**:
-  - `model_artifacts`: Trained XGBoost model artifacts
-  - `ModelArtifacts`: Alias for model_artifacts
+## Key Features
 
-### 4. Packaging Specification (`packaging_spec.py`)
-- **Step Type**: `Package`
-- **Dependencies**:
-  - `model_input` (required): Trained model artifacts to be packaged
-  - `inference_scripts_input` (required): Inference scripts and code for deployment
-- **Outputs**:
-  - `packaged_model_output`: Packaged model ready for deployment
-  - `PackagedModel`: Alias for packaged_model_output
+1. **Comprehensive Coverage** - Specifications for all pipeline step types
+2. **Job Type Variants** - Separate specs for training/validation/testing/calibration
+3. **Framework Support** - PyTorch and XGBoost model specifications
+4. **Dependency Resolution** - Compatible input/output specifications
+5. **Semantic Matching** - Rich semantic tags for intelligent matching
 
-### 5. Payload Specification (`payload_spec.py`)
-- **Step Type**: `Payload`
-- **Dependencies**:
-  - `model_input` (required): Trained model artifacts for payload generation
-- **Outputs**:
-  - `payload_sample`: Generated payload samples for model testing
-  - `GeneratedPayloadSamples`: Alias for payload_sample
-  - `payload_metadata`: Metadata about the generated payload samples
-  - `PayloadMetadata`: Alias for payload_metadata
+## Usage Pattern
 
-### 6. Registration Specification (`registration_spec.py`)
-- **Step Type**: `Registration`
-- **Dependencies**:
-  - `model_input` (required): Packaged model artifacts for registration
-  - `payload_input` (optional): Payload samples for model testing
-- **Outputs**:
-  - `registered_model`: Information about the registered model
-  - `RegisteredModel`: Alias for registered_model
+```python
+from src.pipeline_step_specs import (
+    DATA_LOADING_TRAINING_SPEC,
+    PREPROCESSING_TRAINING_SPEC,
+    XGBOOST_TRAINING_SPEC
+)
 
-## Dependency Types
-
-The specifications use the following dependency types:
-
-- `MODEL_ARTIFACTS`: Trained model files and artifacts
-- `TRAINING_DATA`: Data used for model training
-- `PROCESSING_OUTPUT`: General processing step outputs
-- `HYPERPARAMETERS`: Model hyperparameter configurations
-- `PAYLOAD_SAMPLES`: Sample payloads for model testing
-- `CUSTOM_PROPERTY`: Custom or specialized properties
-
-## Property Paths
-
-Each output specification includes property paths that define how to access the output at runtime:
-- **Name-based access**: `properties.ProcessingOutputConfig.Outputs['OutputName'].S3Output.S3Uri`
-- **Index-based access**: `properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri`
-- **Direct attribute access**: For special cases like `step.ModelArtifacts.S3ModelArtifacts`
-
-## Semantic Matching
-
-Dependencies include semantic keywords for intelligent matching:
-- **Model-related**: `["model", "artifacts", "trained", "output"]`
-- **Data-related**: `["data", "processed", "training", "input"]`
-- **Processing-related**: `["processed", "tabular", "preprocessed"]`
-- **Deployment-related**: `["packaged", "inference", "scripts", "payload"]`
-
-## Usage
-
-These specifications are used by the `UnifiedDependencyResolver` to automatically:
-1. Match step dependencies with compatible outputs from other steps
-2. Calculate compatibility scores based on type, semantics, and keywords
-3. Resolve property paths for runtime access
-4. Generate dependency resolution reports
-
-## Example Pipeline Flow
-
-```
-CradleDataLoading → TabularPreprocessing → XGBoostTraining → Package → Payload → Registration
-     ↓                      ↓                    ↓             ↓         ↓          ↓
-   DATA              processed_data      model_artifacts  PackagedModel  payload_sample  registered_model
+# Access step specifications
+print(DATA_LOADING_TRAINING_SPEC.inputs)
+print(PREPROCESSING_TRAINING_SPEC.outputs)
+print(XGBOOST_TRAINING_SPEC.parameters)
 ```
 
-Each arrow represents an automatically resolved dependency based on these specifications.
+## Job Type Variants
+
+Many specifications have variants for different job types:
+
+### Training Pipeline
+- `DATA_LOADING_TRAINING_SPEC`
+- `PREPROCESSING_TRAINING_SPEC`
+- `XGBOOST_TRAINING_SPEC`
+
+### Validation Pipeline
+- `DATA_LOADING_VALIDATION_SPEC`
+- `PREPROCESSING_VALIDATION_SPEC`
+
+### Testing Pipeline
+- `DATA_LOADING_TESTING_SPEC`
+- `PREPROCESSING_TESTING_SPEC`
+
+### Calibration Pipeline
+- `DATA_LOADING_CALIBRATION_SPEC`
+- `PREPROCESSING_CALIBRATION_SPEC`
+
+## Integration
+
+This module integrates with:
+- **Pipeline Dependencies** - Provides specifications for dependency resolution
+- **Pipeline Builder** - Uses specifications for automatic pipeline construction
+- **Step Builders** - Validates step configurations against specifications
+- **Script Contracts** - Aligns with script execution requirements
