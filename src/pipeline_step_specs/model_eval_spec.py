@@ -45,14 +45,14 @@ MODEL_EVAL_SPEC = StepSpecification(
         OutputSpec(
             logical_name="eval_output",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['EvaluationResults'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['eval_output'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Model evaluation results including predictions"
         ),
         OutputSpec(
             logical_name="metrics_output",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['EvaluationMetrics'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['metrics_output'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Model evaluation metrics (AUC, precision, recall, etc.)"
         ),

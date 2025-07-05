@@ -44,7 +44,7 @@ PREPROCESSING_CALIBRATION_SPEC = StepSpecification(
         OutputSpec(
             logical_name="processed_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Processed calibration data for model evaluation",
             semantic_keywords=["calibration", "calib", "eval", "processed", "data", "tabular", "evaluation", "model_eval", "preprocessed"]
@@ -60,7 +60,7 @@ PREPROCESSING_CALIBRATION_SPEC = StepSpecification(
         OutputSpec(
             logical_name="full_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['full_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Full processed calibration dataset (optional)",
             semantic_keywords=["calibration", "calib", "eval", "full", "data", "complete", "dataset", "evaluation", "model_eval"]
@@ -68,7 +68,7 @@ PREPROCESSING_CALIBRATION_SPEC = StepSpecification(
         OutputSpec(
             logical_name="calibration_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['CalibrationData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['calibration_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Calibration data for model calibration (optional)",
             semantic_keywords=["calibration", "calib", "eval", "data", "model_calibration", "evaluation", "model_eval"]

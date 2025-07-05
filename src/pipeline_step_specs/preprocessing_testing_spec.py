@@ -44,7 +44,7 @@ PREPROCESSING_TESTING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="processed_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Processed testing data",
             semantic_keywords=["testing", "test", "processed", "data", "tabular", "model_testing", "holdout", "preprocessed"]
@@ -60,7 +60,7 @@ PREPROCESSING_TESTING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="full_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['full_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Full processed testing dataset (optional)",
             semantic_keywords=["testing", "test", "full", "data", "complete", "dataset", "model_testing", "holdout"]

@@ -44,7 +44,7 @@ PREPROCESSING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="processed_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Processed tabular data with train/val/test splits"
         ),
@@ -58,14 +58,14 @@ PREPROCESSING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="full_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['full_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Full processed dataset without splits (optional)"
         ),
         OutputSpec(
             logical_name="calibration_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['CalibrationData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['calibration_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Calibration data for model calibration (optional)"
         ),

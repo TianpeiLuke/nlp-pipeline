@@ -44,7 +44,7 @@ PREPROCESSING_VALIDATION_SPEC = StepSpecification(
         OutputSpec(
             logical_name="processed_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Processed validation data",
             semantic_keywords=["validation", "val", "processed", "data", "tabular", "model_validation", "holdout", "preprocessed"]
@@ -60,7 +60,7 @@ PREPROCESSING_VALIDATION_SPEC = StepSpecification(
         OutputSpec(
             logical_name="full_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['full_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Full processed validation dataset (optional)",
             semantic_keywords=["validation", "val", "full", "data", "complete", "dataset", "model_validation", "holdout"]

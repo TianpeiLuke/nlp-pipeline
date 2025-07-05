@@ -50,7 +50,7 @@ PREPROCESSING_TRAINING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="processed_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Processed training data with train/val/test splits",
             semantic_keywords=["training", "train", "processed", "data", "tabular", "splits", "model_training", "preprocessed"]
@@ -66,7 +66,7 @@ PREPROCESSING_TRAINING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="full_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['full_data'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Full processed training dataset without splits (optional)",
             semantic_keywords=["training", "train", "full", "data", "complete", "dataset", "model_training"]
