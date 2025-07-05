@@ -1,0 +1,41 @@
+"""
+MIMS Package Script Contract
+
+Defines the contract for the MIMS packaging script that packages model artifacts
+and inference scripts into a deployable tar.gz file.
+"""
+
+from .base_script_contract import ScriptContract
+
+MIMS_PACKAGE_CONTRACT = ScriptContract(
+    entry_point="mims_package.py",
+    expected_input_paths={
+        "model_input": "/opt/ml/processing/input/model",
+        "inference_scripts_input": "/opt/ml/processing/input/script"
+    },
+    expected_output_paths={
+        "packaged_model": "/opt/ml/processing/output"
+    },
+    required_env_vars=[
+        # No required environment variables for this script
+    ],
+    optional_env_vars={},
+    framework_requirements={
+        "python": ">=3.7"
+        # Uses only standard library modules: shutil, tarfile, pathlib, logging, os
+    },
+    description="""
+    MIMS packaging script that:
+    1. Extracts model artifacts from input model directory or model.tar.gz
+    2. Copies inference scripts to code directory
+    3. Creates a packaged model.tar.gz file for deployment
+    4. Provides detailed logging of the packaging process
+    
+    Input Structure:
+    - /opt/ml/processing/input/model: Model artifacts (files or model.tar.gz)
+    - /opt/ml/processing/input/script: Inference scripts to include
+    
+    Output Structure:
+    - /opt/ml/processing/output/model.tar.gz: Packaged model ready for deployment
+    """
+)
