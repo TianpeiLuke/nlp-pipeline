@@ -2,60 +2,99 @@
 
 ## Problem Statement
 
-With the implementation of script contracts integrated into step specifications, there's a critical need to prevent misalignment between:
+The pipeline system has a **four-layer architecture** that requires precise alignment to prevent runtime failures:
 
-1. **Step Specifications** - Declarative metadata defining step dependencies and outputs
-2. **Script Contracts** - Execution requirements for SageMaker container scripts
-3. **Actual Script Implementation** - The runtime behavior of pipeline scripts
+1. **Producer Step Specifications** - Define outputs with logical names and property paths
+2. **Consumer Step Specifications** - Define dependencies with logical names and semantic matching
+3. **Script Contracts** - Define container paths where scripts expect inputs/outputs
+4. **Step Builders** - Bridge specifications and contracts via SageMaker ProcessingInput/Output
+5. **Actual Script Implementation** - The runtime behavior that uses the container paths
+
+**Critical Insight**: The alignment is NOT between step specifications and script contracts directly, but rather:
+- **Specifications** define the **channel names** (`input_name`) and **data flow** (`source` S3 URIs)
+- **Contracts** define the **container paths** (`destination` for inputs, `source` for outputs)
+- **Step Builders** create the **SageMaker ProcessingInput/Output** that maps `source` → `destination`
 
 Misalignments can cause runtime failures, incorrect dependency resolution, and maintenance issues.
 
 ## Current Misalignment Issues Identified
 
-### 1. **Input Path Mismatch**
-- **Script Contract** expects: `"eval_data_input": "/opt/ml/processing/input/eval_data"`
-- **Step Specification** defines: `logical_name="eval_data_input"` but doesn't enforce exact path
-- **Actual Script** uses: `eval_data_dir = "/opt/ml/processing/input/eval_data"` (hardcoded)
+### 1. **Logical Name Inconsistency**
+- **Problem**: Step specifications and script contracts use different keys for the same logical concept
+- **Example**: Spec uses `logical_name="processed_data"` but contract uses `expected_output_paths["ProcessedTabularData"]`
+- **Impact**: Step builders cannot automatically map between spec and contract
 
-### 2. **Missing Input in Contract**
-- **Script Contract** only defines 2 inputs: `model_input` and `eval_data_input`
-- **Step Specification** defines 3 dependencies: `model_input`, `eval_data_input`, and `hyperparameters_input`
-- **Actual Script** loads hyperparameters from model artifacts, not as separate input
+### 2. **Property Path Inconsistency**
+- **Problem**: OutputSpec property_path doesn't match the logical_name
+- **Example**: `logical_name="processed_data"` but `property_path="...Outputs['ProcessedTabularData']..."`
+- **Impact**: Runtime property access fails because the path doesn't match the logical name
 
-### 3. **Output Path Inconsistency**
-- **Script Contract** expects: `"eval_output": "/opt/ml/processing/output/eval"`, `"metrics_output": "/opt/ml/processing/output/metrics"`
-- **Step Specification** defines: `"EvaluationResults"` and `"EvaluationMetrics"` with specific S3Output paths
-- **Actual Script** creates subdirectories and files within these paths
+### 3. **Missing Contract Coverage**
+- **Problem**: Step specifications define dependencies/outputs that don't exist in script contracts
+- **Example**: Spec defines `METADATA` and `SIGNATURE` dependencies but contract only has `DATA`
+- **Impact**: Step builder cannot create ProcessingInput for missing contract paths
+
+### 4. **Hardcoded Step Builder Paths**
+- **Problem**: Step builders use hardcoded container paths instead of deriving from contracts
+- **Example**: `"/opt/ml/processing/input/data"` hardcoded instead of using `contract.expected_input_paths['DATA']`
+- **Impact**: Changes to contracts don't automatically propagate to step builders
+
+### 5. **Cross-Step Semantic Mismatch**
+- **Problem**: Producer step outputs don't match consumer step dependency logical names
+- **Example**: Producer outputs `logical_name="training_data"` but consumer expects `logical_name="DATA"`
+- **Impact**: Automatic dependency resolution fails
 
 ## Solution Architecture
 
-### Phase 1: Contract-Specification Alignment Framework
+### Phase 1: Logical Name Consistency Framework
 
-#### 1.1 Enhanced Contract Validation
+#### 1.1 Enhanced Contract Alignment Validation
 ```python
-# Add to StepSpecification class in src/pipeline_deps/base_specifications.py
+# Updated StepSpecification.validate_contract_alignment() in src/pipeline_deps/base_specifications.py
 def validate_contract_alignment(self) -> ValidationResult:
-    """Validate that script contract aligns with step specification"""
+    """Validate that script contract aligns with step specification using logical names as keys"""
     if not self.script_contract:
         return ValidationResult.success("No contract to validate")
     
     errors = []
+    warnings = []
     
-    # Validate input alignment
-    contract_inputs = set(self.script_contract.expected_input_paths.keys())
-    spec_inputs = set(dep.logical_name for dep in self.dependencies if dep.required)
+    # Input alignment: DependencySpec.logical_name must be key in contract.expected_input_paths
+    for dep in self.dependencies.values():
+        if dep.required and dep.logical_name not in self.script_contract.expected_input_paths:
+            errors.append(f"Required dependency '{dep.logical_name}' missing in contract expected_input_paths")
     
-    missing_in_contract = spec_inputs - contract_inputs
-    if missing_in_contract:
-        errors.append(f"Contract missing required inputs: {missing_in_contract}")
+    # Output alignment: OutputSpec.logical_name must be key in contract.expected_output_paths  
+    for output in self.outputs.values():
+        if output.logical_name not in self.script_contract.expected_output_paths:
+            errors.append(f"Output '{output.logical_name}' missing in contract expected_output_paths")
     
-    # Validate output alignment
-    contract_outputs = set(self.script_contract.expected_output_paths.keys())
-    spec_outputs = set(output.logical_name for output in self.outputs)
+    # Property path consistency: OutputSpec.property_path must reference OutputSpec.logical_name
+    for output in self.outputs.values():
+        expected_property_path = f"properties.ProcessingOutputConfig.Outputs['{output.logical_name}'].S3Output.S3Uri"
+        if output.property_path != expected_property_path:
+            errors.append(f"OutputSpec '{output.logical_name}' property_path inconsistent. Expected: {expected_property_path}, Got: {output.property_path}")
     
-    missing_in_contract = spec_outputs - contract_outputs
-    if missing_in_contract:
-        errors.append(f"Contract missing required outputs: {missing_in_contract}")
+    return ValidationResult(is_valid=len(errors) == 0, errors=errors, warnings=warnings)
+```
+
+#### 1.2 Cross-Step Semantic Validation
+```python
+# Add to src/pipeline_deps/specification_registry.py
+def validate_cross_step_compatibility(producer_spec: StepSpecification, consumer_spec: StepSpecification):
+    """Validate that producer outputs can satisfy consumer dependencies"""
+    errors = []
+    
+    for dep in consumer_spec.dependencies.values():
+        if dep.required:
+            # Find matching output in producer by logical name
+            matching_output = producer_spec.get_output(dep.logical_name)
+            if not matching_output:
+                errors.append(f"Producer missing output '{dep.logical_name}' required by consumer")
+            
+            # Validate semantic compatibility
+            if not dep.is_compatible_with_source(producer_spec.step_type):
+                errors.append(f"Producer '{producer_spec.step_type}' not in compatible sources for '{dep.logical_name}'")
     
     return ValidationResult(is_valid=len(errors) == 0, errors=errors)
 ```
@@ -89,11 +128,72 @@ def validate_spec_against_contract(spec: StepSpecification) -> ValidationResult:
     return ValidationResult(is_valid=len(errors) == 0, errors=errors)
 ```
 
-### Phase 2: SageMaker-Compatible Script Standardization
+### Phase 2: Spec-Contract Driven Step Builders
 
-#### 2.1 Contract-Aware Utility Functions
+#### 2.1 Enhanced Step Builder Base Class
 ```python
-# Create src/pipeline_scripts/contract_utils.py
+# Update src/pipeline_steps/builder_step_base.py
+class StepBuilderBase:
+    def __init__(self, config, spec: StepSpecification, contract: ScriptContract, ...):
+        self.spec = spec
+        self.contract = contract
+        # Validate alignment during initialization
+        self._validate_spec_contract_alignment()
+    
+    def _validate_spec_contract_alignment(self):
+        """Validate that spec and contract are properly aligned"""
+        errors = []
+        
+        # Check inputs: all required dependencies must have contract paths
+        for dep in self.spec.dependencies.values():
+            if dep.required and dep.logical_name not in self.contract.expected_input_paths:
+                errors.append(f"Spec dependency '{dep.logical_name}' missing in contract inputs")
+        
+        # Check outputs: all outputs must have contract paths
+        for output in self.spec.outputs.values():
+            if output.logical_name not in self.contract.expected_output_paths:
+                errors.append(f"Spec output '{output.logical_name}' missing in contract outputs")
+        
+        if errors:
+            raise ValueError(f"Spec-Contract alignment errors: {errors}")
+    
+    def _get_spec_driven_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """Generate processor inputs using both spec and contract"""
+        processing_inputs = []
+        
+        for dep in self.spec.dependencies.values():
+            if dep.required or dep.logical_name in inputs:
+                container_path = self.contract.expected_input_paths[dep.logical_name]
+                processing_inputs.append(
+                    ProcessingInput(
+                        input_name=dep.logical_name,  # From spec
+                        source=inputs[dep.logical_name],  # S3 URI from pipeline flow
+                        destination=container_path     # From contract
+                    )
+                )
+        
+        return processing_inputs
+    
+    def _get_spec_driven_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+        """Generate processor outputs using both spec and contract"""
+        processing_outputs = []
+        
+        for output_spec in self.spec.outputs.values():
+            container_path = self.contract.expected_output_paths[output_spec.logical_name]
+            processing_outputs.append(
+                ProcessingOutput(
+                    output_name=output_spec.logical_name,  # From spec (matches property path)
+                    source=container_path,                 # From contract
+                    destination=None  # SageMaker generates this
+                )
+            )
+        
+        return processing_outputs
+```
+
+#### 2.2 Contract-Aware Utility Functions
+```python
+# Enhanced src/pipeline_scripts/contract_utils.py
 import os
 import logging
 from typing import Dict, List
@@ -132,14 +232,41 @@ def get_contract_paths(contract):
     }
 ```
 
-#### 2.2 Refactored Script Pattern
+#### 2.3 Updated Step Builder Pattern
+```python
+# Example: Updated TabularPreprocessingStepBuilder
+class TabularPreprocessingStepBuilder(StepBuilderBase):
+    def __init__(self, config, sagemaker_session=None, role=None, notebook_root=None):
+        # Get spec and contract
+        spec = PREPROCESSING_TRAINING_SPEC
+        contract = _get_tabular_preprocess_contract()
+        
+        super().__init__(
+            config=config,
+            spec=spec,
+            contract=contract,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
+        )
+    
+    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """Use spec-driven approach instead of hardcoded paths"""
+        return self._get_spec_driven_processor_inputs(inputs)
+    
+    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+        """Use spec-driven approach instead of hardcoded paths"""
+        return self._get_spec_driven_processor_outputs(outputs)
+```
+
+#### 2.4 Refactored Script Pattern
 ```python
 # Standard pattern for all SageMaker scripts
 def get_script_contract():
     """Get the contract for this script"""
     # Import at runtime to avoid circular imports
-    from ..pipeline_script_contracts.model_evaluation_contract import MODEL_EVALUATION_CONTRACT
-    return MODEL_EVALUATION_CONTRACT
+    from ..pipeline_script_contracts.tabular_preprocess_contract import TABULAR_PREPROCESS_CONTRACT
+    return TABULAR_PREPROCESS_CONTRACT
 
 def main():
     """Main entry point with contract validation"""
@@ -148,15 +275,13 @@ def main():
     validate_contract_environment(contract)
     paths = get_contract_paths(contract)
     
-    # 2. Use contract paths instead of hardcoded paths
-    model_dir = paths['inputs']['model_input']
-    eval_data_dir = paths['inputs']['eval_data_input']
-    output_eval_dir = paths['outputs']['eval_output']
-    output_metrics_dir = paths['outputs']['metrics_output']
+    # 2. Use contract paths instead of hardcoded paths (using logical names)
+    data_dir = paths['inputs']['DATA']  # From contract.expected_input_paths['DATA']
+    output_dir = paths['outputs']['processed_data']  # From contract.expected_output_paths['processed_data']
     
     # 3. Access validated environment variables
-    ID_FIELD = os.environ["ID_FIELD"]  # Contract ensures this exists
-    LABEL_FIELD = os.environ["LABEL_FIELD"]
+    LABEL_FIELD = os.environ["LABEL_FIELD"]  # Contract ensures this exists
+    TRAIN_RATIO = os.environ["TRAIN_RATIO"]
     
     # 4. Business logic remains unchanged
     # ... existing script logic
@@ -164,37 +289,65 @@ def main():
 
 ### Phase 3: Automated Alignment Enforcement
 
-#### 3.1 Pre-commit Validation Hook
+#### 3.1 Enhanced Pre-commit Validation Hook
 ```python
-# Create tools/validate_contracts.py
+# Enhanced tools/validate_contracts.py
 def validate_all_contracts():
     """Validate all script contracts against their specifications"""
     from src.pipeline_step_specs import (
-        MODEL_EVAL_SPEC,
+        DATA_LOADING_TRAINING_SPEC,
         PREPROCESSING_TRAINING_SPEC,
-        XGBOOST_TRAINING_SPEC
+        XGBOOST_TRAINING_SPEC,
+        MODEL_EVAL_SPEC
     )
     
     specs_with_contracts = [
-        MODEL_EVAL_SPEC,
+        DATA_LOADING_TRAINING_SPEC,
         PREPROCESSING_TRAINING_SPEC,
-        XGBOOST_TRAINING_SPEC
+        XGBOOST_TRAINING_SPEC,
+        MODEL_EVAL_SPEC
     ]
     
     all_valid = True
     for spec in specs_with_contracts:
+        # Validate contract alignment
         result = spec.validate_contract_alignment()
         if not result.is_valid:
             print(f"❌ {spec.step_type}: {result.errors}")
             all_valid = False
         else:
             print(f"✅ {spec.step_type}: Contract aligned")
+        
+        # Validate property path consistency
+        for output in spec.outputs.values():
+            expected_path = f"properties.ProcessingOutputConfig.Outputs['{output.logical_name}'].S3Output.S3Uri"
+            if output.property_path != expected_path:
+                print(f"⚠️  {spec.step_type}: Property path inconsistency for '{output.logical_name}'")
+                print(f"   Expected: {expected_path}")
+                print(f"   Got: {output.property_path}")
+                all_valid = False
     
     return all_valid
 
+def validate_cross_step_compatibility():
+    """Validate compatibility between connected steps"""
+    # Example: Data Loading → Preprocessing
+    from src.pipeline_step_specs import DATA_LOADING_TRAINING_SPEC, PREPROCESSING_TRAINING_SPEC
+    
+    result = validate_cross_step_compatibility(DATA_LOADING_TRAINING_SPEC, PREPROCESSING_TRAINING_SPEC)
+    if not result.is_valid:
+        print(f"❌ Cross-step compatibility: {result.errors}")
+        return False
+    else:
+        print("✅ Cross-step compatibility validated")
+        return True
+
 if __name__ == "__main__":
     import sys
-    if not validate_all_contracts():
+    contract_valid = validate_all_contracts()
+    cross_step_valid = validate_cross_step_compatibility()
+    
+    if not (contract_valid and cross_step_valid):
         sys.exit(1)
 ```
 
@@ -227,27 +380,44 @@ class ScriptContract(BaseModel):
 ```python
 # Create src/pipeline_deps/contract_generator.py
 def generate_contract_from_spec(spec: StepSpecification) -> ScriptContract:
-    """Generate a script contract template from step specification"""
+    """Generate a script contract template from step specification using logical names"""
     
-    # Map dependencies to input paths
+    # Map dependencies to input paths using logical names as keys
     input_paths = {}
-    for dep in spec.dependencies:
+    for dep in spec.dependencies.values():
         if dep.required:
-            # Generate standard SageMaker path
-            input_paths[dep.logical_name] = f"/opt/ml/processing/input/{dep.logical_name}"
+            # Use logical name as key, generate standard SageMaker path
+            input_paths[dep.logical_name] = f"/opt/ml/processing/input/{dep.logical_name.lower()}"
     
-    # Map outputs to output paths
+    # Map outputs to output paths using logical names as keys
     output_paths = {}
-    for output in spec.outputs:
-        output_paths[output.logical_name] = f"/opt/ml/processing/output/{output.logical_name}"
+    for output in spec.outputs.values():
+        # Use logical name as key, generate standard SageMaker path
+        output_paths[output.logical_name] = f"/opt/ml/processing/output/{output.logical_name.lower()}"
     
     return ScriptContract(
-        entry_point=f"{spec.step_type.lower()}.py",
+        entry_point=f"{spec.step_type.lower().replace('_', '')}.py",
         expected_input_paths=input_paths,
         expected_output_paths=output_paths,
-        required_env_vars=[],  # To be filled manually
-        framework_requirements={}  # To be filled manually
+        required_env_vars=[],  # To be filled manually based on script requirements
+        framework_requirements={}  # To be filled manually based on script dependencies
     )
+
+def validate_generated_contract_alignment(spec: StepSpecification, generated_contract: ScriptContract) -> ValidationResult:
+    """Validate that generated contract aligns with specification"""
+    errors = []
+    
+    # All required dependencies should have input paths
+    for dep in spec.dependencies.values():
+        if dep.required and dep.logical_name not in generated_contract.expected_input_paths:
+            errors.append(f"Generated contract missing input for required dependency: {dep.logical_name}")
+    
+    # All outputs should have output paths
+    for output in spec.outputs.values():
+        if output.logical_name not in generated_contract.expected_output_paths:
+            errors.append(f"Generated contract missing output for: {output.logical_name}")
+    
+    return ValidationResult(is_valid=len(errors) == 0, errors=errors)
 ```
 
 #### 4.2 Bidirectional Validation
@@ -283,58 +453,81 @@ class AlignmentValidator:
 
 ## Implementation Strategy
 
-### ✅ Immediate Actions (Week 1) - COMPLETED
-1. **✅ Fix Current Misalignments**
-   - ✅ Updated model evaluation specification to remove unnecessary hyperparameters dependency
-   - ✅ Added alias outputs to contract for proper alignment
-   - ✅ Implemented contract-specification validation methods
+### ✅ Phase 1: Logical Name Consistency (Week 1-2) - PRIORITY
+1. **🔄 Fix Property Path Inconsistencies**
+   - Update all OutputSpec instances to have property_path match logical_name
+   - Example: `logical_name="processed_data"` → `property_path="...Outputs['processed_data']..."`
+   - Validate all existing specifications for consistency
 
-2. **✅ Create Contract Utils**
-   - ✅ Implemented `src/pipeline_scripts/contract_utils.py` with comprehensive validation
-   - ✅ Created `dockers/xgboost_atoz/pipeline_scripts/contract_utils.py` for XGBoost containers
-   - ✅ Added validation and path helper functions with context managers
+2. **🔄 Align Contract Keys with Spec Logical Names**
+   - Update script contracts to use same keys as specification logical names
+   - Example: TABULAR_PREPROCESS_CONTRACT uses `"DATA"` to match DependencySpec logical_name
+   - Ensure complete coverage of all spec dependencies/outputs in contracts
 
-### ✅ Short-term (Week 2-3) - PARTIALLY COMPLETED
-3. **✅ Refactor Existing Scripts**
-   - ✅ Updated `model_evaluation_xgb.py` to use contract-aware pattern
-   - ✅ Implemented ContractEnforcer context manager usage
-   - ✅ Added runtime contract enforcement with comprehensive validation
+3. **🔄 Enhanced Contract Alignment Validation**
+   - Implement updated `validate_contract_alignment()` with logical name key matching
+   - Add property path consistency validation
+   - Create cross-step compatibility validation
 
-4. **✅ Add Validation Framework**
-   - ✅ Implemented `validate_contract_alignment()` method in StepSpecification
-   - ✅ Created `tools/validate_contracts.py` pre-commit validation tool
-   - 🔄 CI/CD integration (pending)
+### ✅ Phase 2: Spec-Driven Step Builders (Week 3-4)
+4. **🔄 Refactor Step Builder Base Class**
+   - Add spec and contract parameters to constructor
+   - Implement `_get_spec_driven_processor_inputs()` and `_get_spec_driven_processor_outputs()`
+   - Add build-time spec-contract alignment validation
 
-### Medium-term (Week 4-6)
-5. **Automated Validation**
+5. **🔄 Update All Step Builders**
+   - Refactor TabularPreprocessingStepBuilder to use spec-driven approach
+   - Remove hardcoded container paths
+   - Use logical names from spec and container paths from contract
+
+6. **🔄 Comprehensive Validation Framework**
+   - Enhanced `tools/validate_contracts.py` with cross-step validation
+   - Property path consistency checking
+   - Step builder alignment validation
+
+### Phase 3: Automated Enforcement (Week 5-6)
+7. **Automated Validation**
    - Integrate validation into development workflow
-   - Add specification-contract alignment checks
-   - Create contract generation utilities
+   - Add pre-commit hooks for alignment checking
+   - CI/CD integration for continuous validation
 
-6. **Documentation and Training**
-   - Update development guidelines
-   - Create alignment best practices
-   - Train team on new patterns
+8. **Contract Generation Utilities**
+   - Implement contract generation from specifications
+   - Validation of generated contracts
+   - Template-based contract creation
 
-### Long-term (Month 2+)
-7. **Advanced Features**
-   - Semantic alignment validation
-   - Automated contract generation
-   - Integration with pipeline builder
+### Phase 4: Documentation and Training (Week 7-8)
+9. **Documentation Updates**
+   - Update development guidelines with new alignment patterns
+   - Create alignment best practices guide
+   - Document the four-layer architecture
+
+10. **Developer Training**
+    - Train team on logical name consistency requirements
+    - Spec-driven step builder patterns
+    - Alignment validation workflows
 
 ## Success Metrics
 
 ### Technical Metrics
 - **Zero Runtime Failures** due to contract misalignment
-- **100% Contract Coverage** for all pipeline scripts
+- **100% Logical Name Consistency** across specs and contracts
+- **100% Property Path Consistency** in all OutputSpec instances
 - **Automated Validation** in CI/CD pipeline
-- **Sub-second Validation** time for all contracts
+- **Sub-second Validation** time for all alignment checks
 
 ### Process Metrics
 - **Pre-commit Hook Adoption** by all developers
-- **Contract-First Development** for new scripts
-- **Reduced Debug Time** for pipeline issues
-- **Improved Developer Confidence** in deployments
+- **Spec-Driven Development** for new step builders
+- **Reduced Debug Time** for pipeline connection issues
+- **Improved Developer Confidence** in cross-step dependencies
+- **Zero Manual Path Configuration** in step builders
+
+### Architecture Metrics
+- **Complete Traceability** from S3 URIs through logical names to container paths
+- **Automatic Propagation** of contract changes to step builders
+- **Semantic Consistency** across producer-consumer step pairs
+- **Build-time Validation** preventing runtime alignment failures
 
 ## Risk Mitigation
 
@@ -350,21 +543,18 @@ class AlignmentValidator:
 
 ## Files to Create/Modify
 
+### High Priority - Logical Name Consistency
+- `src/pipeline_step_specs/*.py` - Fix property_path inconsistencies in all OutputSpec instances
+- `src/pipeline_script_contracts/*.py` - Align contract keys with specification logical names
+- `src/pipeline_deps/base_specifications.py` - Enhanced `validate_contract_alignment()` method
+
+### Medium Priority - Spec-Driven Step Builders
+- `src/pipeline_steps/builder_step_base.py` - Add spec-driven input/output generation
+- `src/pipeline_steps/builder_tabular_preprocessing_step.py` - Remove hardcoded paths
+- `src/pipeline_steps/builder_*.py` - Update all step builders to use spec-driven approach
+
 ### New Files
-- `src/pipeline_scripts/contract_utils.py` - Contract validation utilities
-- `src/pipeline_deps/contract_generator.py` - Contract generation from specs
-- `src/pipeline_deps/alignment_validator.py` - Comprehensive alignment validation
-- `tools/validate_contracts.py` - Pre-commit validation hook
-
-### Modified Files
-- `src/pipeline_deps/base_specifications.py` - Add alignment validation methods
-- `src/pipeline_script_contracts/base_script_contract.py` - Add runtime enforcement
-- `src/pipeline_scripts/model_evaluation_xgb.py` - Refactor to use contract pattern
-- All other pipeline scripts - Apply contract-aware pattern
-
-### Configuration Files
-- `.pre-commit-config.yaml` - Add contract validation hook
-- CI/CD pipeline configuration - Add validation steps
+- `src/pipeline_deps/contract_generator.py` - Contract generation from specs with logical name consistency
 
 ## Conclusion
 
