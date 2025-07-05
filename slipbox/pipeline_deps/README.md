@@ -19,6 +19,8 @@ This module provides dependency resolution and specification management for pipe
 2. **Semantic Matching** - Intelligent matching of compatible data types and formats
 3. **Specification Registry** - Centralized management of step specifications
 4. **Validation Framework** - Ensures dependency consistency and completeness
+5. **Script Contract Integration** - Automated script validation against step specifications
+6. **Job Type Variant Handling** - Support for training vs calibration workflow differentiation
 
 ## Usage Pattern
 

@@ -81,7 +81,63 @@ outputs=[
 ]
 ```
 
-### 4. Automatic Constraint Validation
+### 4. Script Contract Integration
+
+Step Specifications can include script contracts for automated validation:
+
+```python
+# Import the contract at runtime to avoid circular imports
+def _get_model_evaluation_contract():
+    from ..pipeline_script_contracts.model_evaluation_contract import MODEL_EVALUATION_CONTRACT
+    return MODEL_EVALUATION_CONTRACT
+
+MODEL_EVAL_SPEC = StepSpecification(
+    step_type="XGBoostModelEvaluation",
+    node_type=NodeType.INTERNAL,
+    script_contract=_get_model_evaluation_contract(),  # Automated script validation
+    dependencies=[...],
+    outputs=[...]
+)
+
+# Validate script implementation against contract
+result = MODEL_EVAL_SPEC.validate_script_compliance("src/pipeline_scripts/model_evaluation_xgb.py")
+if not result.is_valid:
+    print(f"Script validation errors: {result.errors}")
+```
+
+**See Also**: [Script Contracts](script_contract.md) for detailed contract definitions and validation rules.
+
+### 5. Job Type Variant Handling
+
+Specifications support job type variants through semantic keywords:
+
+```python
+# Training variant
+PREPROCESSING_TRAINING_SPEC = StepSpecification(
+    step_type="TabularPreprocessing_Training",
+    dependencies=[
+        DependencySpec(
+            logical_name="DATA",
+            semantic_keywords=["training", "train", "model_training"],
+            compatible_sources=["CradleDataLoading_Training"]
+        )
+    ]
+)
+
+# Calibration variant  
+PREPROCESSING_CALIBRATION_SPEC = StepSpecification(
+    step_type="TabularPreprocessing_Calibration",
+    dependencies=[
+        DependencySpec(
+            logical_name="DATA",
+            semantic_keywords=["calibration", "eval", "model_evaluation"],
+            compatible_sources=["CradleDataLoading_Calibration"]
+        )
+    ]
+)
+```
+
+### 6. Automatic Constraint Validation
 
 Validation happens at specification creation time:
 

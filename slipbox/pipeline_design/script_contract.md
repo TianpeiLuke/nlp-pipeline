@@ -257,19 +257,26 @@ xgboost_report = xgboost_validator.validate_script('train_xgb.py')
 ## Integration Points
 
 ### With Step Specifications
-Script Contracts can be integrated with existing Step Specifications:
+
+**✅ IMPLEMENTED** - Script Contracts are now fully integrated with Step Specifications:
 
 ```python
-@dataclass
-class StepSpecification:
-    # ... existing fields ...
-    script_contract: Optional[ScriptContract] = None
-    
-    def validate_script_compliance(self, script_path: str) -> ValidationResult:
-        if not self.script_contract:
-            return ValidationResult.success("No script contract defined")
-        return self.script_contract.validate_implementation(script_path)
+# Step specifications now include script contracts
+MODEL_EVAL_SPEC = StepSpecification(
+    step_type="XGBoostModelEvaluation",
+    node_type=NodeType.INTERNAL,
+    script_contract=_get_model_evaluation_contract(),  # Integrated contract
+    dependencies=[...],
+    outputs=[...]
+)
+
+# Automatic script validation
+result = MODEL_EVAL_SPEC.validate_script_compliance("src/pipeline_scripts/model_evaluation_xgb.py")
+if not result.is_valid:
+    print(f"Script validation errors: {result.errors}")
 ```
+
+**See Also**: [Step Specifications](step_specification.md) for complete integration details and job type variant handling.
 
 ### With Step Builders
 Step builders can validate script compliance during configuration:

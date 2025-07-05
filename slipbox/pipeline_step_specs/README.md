@@ -37,6 +37,8 @@ This module contains concrete step specifications for all pipeline components. T
 3. **Framework Support** - PyTorch and XGBoost model specifications
 4. **Dependency Resolution** - Compatible input/output specifications
 5. **Semantic Matching** - Rich semantic tags for intelligent matching
+6. **Script Contract Integration** - Automated script validation against specifications
+7. **Registry Integration** - Centralized specification management and discovery
 
 ## Usage Pattern
 
