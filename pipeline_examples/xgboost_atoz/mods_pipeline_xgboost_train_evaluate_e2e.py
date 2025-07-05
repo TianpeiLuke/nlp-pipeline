@@ -10,7 +10,6 @@ from sagemaker.workflow.model_step import ModelStep
 from sagemaker.workflow.steps import (
     ProcessingStep,
     TrainingStep,
-    LambdaStep,
     Step
 )
 from sagemaker.image_uris import retrieve
@@ -22,7 +21,6 @@ from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
 from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
 from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
-from src.pipeline_steps.config_hyperparameter_prep_step import HyperparameterPrepConfig
 from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig 
 from src.pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
 from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
@@ -32,7 +30,7 @@ from src.pipeline_steps.config_mims_payload_step import PayloadConfig
 # Step builders
 from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
-from src.pipeline_steps.builder_hyperparameter_prep_step import HyperparameterPrepStepBuilder
+# Removed HyperparameterPrepStepBuilder import - no longer needed
 from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from src.pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
 from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
@@ -64,7 +62,6 @@ CONFIG_CLASSES = {
     'CradleDataLoadConfig':       CradleDataLoadConfig,
     'ProcessingStepConfigBase':   ProcessingStepConfigBase,
     'TabularPreprocessingConfig': TabularPreprocessingConfig,
-    'HyperparameterPrepConfig':    HyperparameterPrepConfig,
     'XGBoostTrainingConfig':      XGBoostTrainingConfig,
     'XGBoostModelEvalConfig':     XGBoostModelEvalConfig,
     'PackageStepConfig':          PackageStepConfig,
@@ -116,8 +113,7 @@ class XGBoostTrainEvaluatePipelineBuilder:
     9) Tabular Preprocessing (for calibration set)
     10) Model Evaluation (on calibration set)
     """
-    REQUIRED_INPUTS = {"data_input"}
-    OPTIONAL_INPUTS = {"metadata_input", "signature_input"}
+    # Constants removed - validation now handled by TabularPreprocessingConfig class
 
     def __init__(
         self,
@@ -135,22 +131,8 @@ class XGBoostTrainEvaluatePipelineBuilder:
         
         self.cradle_loading_requests: Dict[str, Dict[str, Any]] = {}
         self.registration_configs: Dict[str, Dict[str, Any]] = {}
-        self._validate_preprocessing_inputs()
         
         logger.info(f"Initialized builder for: {self.base_config.pipeline_name}")
-        
-    def _validate_preprocessing_inputs(self):
-        """Validate input channels in preprocessing configs."""
-        allowed_inputs = self.REQUIRED_INPUTS | self.OPTIONAL_INPUTS
-        
-        for cfg in [self.tp_train_cfg, self.tp_calib_cfg]:
-            missing = self.REQUIRED_INPUTS - set(cfg.input_names.keys())
-            if missing:
-                raise ValueError(f"TabularPreprocessing config missing required input channels: {missing}")
-            
-            unknown = set(cfg.input_names.keys()) - allowed_inputs
-            if unknown:
-                raise ValueError(f"TabularPreprocessing config contains unknown input channels: {unknown}")
 
     def _find_config_key(self, class_name: str, **attrs: Any) -> str:
         base = BasePipelineConfig.get_step_name(class_name)
@@ -186,15 +168,7 @@ class XGBoostTrainEvaluatePipelineBuilder:
             raise ValueError("Could not find a configuration of type XGBoostTrainingConfig in the config file.")
         self.xgb_train_cfg = xgb_train_config_instance
         
-        # Hyperparameter Prep config
-        hyperparameter_prep_config_instance = None
-        for key, cfg in self.configs.items():
-            if isinstance(cfg, HyperparameterPrepConfig):
-                hyperparameter_prep_config_instance = cfg
-                break
-        if not hyperparameter_prep_config_instance:
-            raise ValueError("Could not find a configuration of type HyperparameterPrepConfig in the config file.")
-        self.hyperparameter_prep_cfg = hyperparameter_prep_config_instance
+        # Hyperparameter prep config no longer needed - XGBoostTrainingStepBuilder handles this internally
         
         # XGBoost Model Evaluation config
         xgb_eval_config_instance = None
@@ -209,27 +183,27 @@ class XGBoostTrainEvaluatePipelineBuilder:
         # Package config
         package_config_instance = None
         for key, cfg in self.configs.items():
-            if isinstance(cfg, PackageStepConfig):
+            if type(cfg).__name__ == 'PackageStepConfig':
                 package_config_instance = cfg
                 break
         if not package_config_instance:
             raise ValueError("Could not find a configuration of type PackageStepConfig")
         self.package_cfg = package_config_instance
         
-        # Registration config
+        # Registration config - use exact class check, not isinstance()
         registration_config_instance = None
         for key, cfg in self.configs.items():
-            if isinstance(cfg, ModelRegistrationConfig):
+            if type(cfg).__name__ == 'ModelRegistrationConfig':
                 registration_config_instance = cfg
                 break
         if not registration_config_instance:
             raise ValueError("Could not find a configuration of type ModelRegistrationConfig")
         self.registration_cfg = registration_config_instance
         
-        # Payload config
+        # Payload config - use exact class check, not isinstance()
         payload_config_instance = None
         for key, cfg in self.configs.items():
-            if isinstance(cfg, PayloadConfig):
+            if type(cfg).__name__ == 'PayloadConfig':
                 payload_config_instance = cfg
                 break
         if not payload_config_instance:
@@ -279,58 +253,57 @@ class XGBoostTrainEvaluatePipelineBuilder:
     def _create_tabular_preprocess_step(self, tp_config: TabularPreprocessingConfig, dependency_step: Step) -> ProcessingStep:
         prep_builder = TabularPreprocessingStepBuilder(config=tp_config, sagemaker_session=self.session, role=self.role)
         cradle_outputs = dependency_step.properties.ProcessingOutputConfig.Outputs
-        inputs = {tp_config.input_names["data_input"]: cradle_outputs[OUTPUT_TYPE_DATA].S3Output.S3Uri}
-        outputs = {tp_config.output_names["processed_data"]: f"{self.base_config.pipeline_s3_loc}/tabular_preprocessing/{tp_config.job_type}"}
+        
+        # Pass all three inputs from CradleDataLoadingStep to satisfy validation requirements
+        # TabularPreprocessingConfig defines DATA as required, METADATA and SIGNATURE as optional
+        # But StepBuilderBase._validate_inputs treats all input_names keys as required
+        inputs = {
+            "DATA": cradle_outputs[OUTPUT_TYPE_DATA].S3Output.S3Uri,
+            "METADATA": cradle_outputs[OUTPUT_TYPE_METADATA].S3Output.S3Uri,
+            "SIGNATURE": cradle_outputs[OUTPUT_TYPE_SIGNATURE].S3Output.S3Uri
+        }
+        
+        # Get output descriptor from the standardized output_names
+        processed_data_key = tp_config.output_names["processed_data"]
+        outputs = {
+            processed_data_key: f"{self.base_config.pipeline_s3_loc}/tabular_preprocessing/{tp_config.job_type}"
+        }
+        
         prep_step = prep_builder.create_step(inputs=inputs, outputs=outputs)
         prep_step.add_depends_on([dependency_step])
         return prep_step
 
-    def _create_hyperparameter_prep_step(self) -> ProcessingStep:
-        """
-        Create a hyperparameter preparation step to generate and upload hyperparameters.
-        
-        Returns:
-            ProcessingStep: The hyperparameter preparation step
-        """
-        # Create the builder using the extracted config
-        hyp_prep_builder = HyperparameterPrepStepBuilder(
-            config=self.hyperparameter_prep_cfg, 
-            sagemaker_session=self.session, 
-            role=self.role
-        )
-        
-        # Define outputs
-        outputs = {
-            "hyperparameters_output": f"{self.base_config.pipeline_s3_loc}/hyperparameters"
-        }
-        
-        return hyp_prep_builder.create_step(outputs=outputs)
+    # _create_hyperparameter_prep_step method removed - XGBoostTrainingStepBuilder now handles hyperparameters internally
 
-    def _create_xgboost_train_step(self, preprocess_step: Step, hyperparameter_step: Step) -> TrainingStep:
+    def _create_xgboost_train_step(self, preprocess_step: Step) -> TrainingStep:
+        # Create a copy of the training config to modify it
         temp_train_cfg = self.xgb_train_cfg.model_copy()
+        
+        # Force NA region (us-east-1) for model training
         temp_train_cfg.region = 'NA'
         temp_train_cfg.aws_region = 'us-east-1'
         logger.info(f"Force Model Training in aws region: {temp_train_cfg.aws_region}")
+        
+        # Create the XGBoost training step builder with the modified config
         xgb_builder = XGBoostTrainingStepBuilder(config=temp_train_cfg, sagemaker_session=self.session, role=self.role)
         
-        # Use the output name from the tabular preprocessing config
+        # Get the preprocessing output path - this is a Pipeline variable that contains train/val/test subdirs
         output_name = self.tp_train_cfg.output_names["processed_data"]
-        object.__setattr__(
-            xgb_builder.config,
-            'input_path',
-            preprocess_step.properties.ProcessingOutputConfig.Outputs[output_name].S3Output.S3Uri
-        )
+        preproc_output_path = preprocess_step.properties.ProcessingOutputConfig.Outputs[output_name].S3Output.S3Uri
+        
+        # Set the output path for model artifacts
         output_path = f"{self.base_config.pipeline_s3_loc}/xgboost_model_artifacts"
-        object.__setattr__(xgb_builder.config, 'output_path', output_path)
         
-        # Get the hyperparameters S3 URI from hyperparameter prep step
-        # LambdaStep outputs are accessed through the properties.Outputs dictionary
-        # The builder adds hyperparameters_s3_uri as a direct property for convenience
-        hyperparameters_s3_uri = hyperparameter_step.properties.Outputs["hyperparameters_s3_uri"]
+        # Instead of setting on the config (which causes logging issues with Pipeline variables),
+        # pass the paths as parameters to create_step
+        logger.info("Creating XGBoost training step with preprocessing output as input")
         
+        # Create and return the step with input/output paths as parameters
+        # This avoids the problematic logging code path in the builder
         return xgb_builder.create_step(
-            hyperparameters_s3_uri=hyperparameters_s3_uri,
-            dependencies=[preprocess_step, hyperparameter_step]
+            input_path=preproc_output_path,  # Pass as parameter instead of config attribute
+            output_path=output_path,         # Pass as parameter instead of config attribute
+            dependencies=[preprocess_step]
         )
 
     def _create_packaging_step(self, dependency_step: Step) -> ProcessingStep:
@@ -355,33 +328,33 @@ class XGBoostTrainEvaluatePipelineBuilder:
             inference_scripts_path = str(self.notebook_root / "inference") if self.notebook_root else "inference"
             logger.info(f"Using default inference scripts path: {inference_scripts_path}")
         
-        # Create inputs dictionary with model data and scripts path
-        model_key = package_cfg.input_names["model_input"]
-        scripts_key = package_cfg.input_names["inference_scripts_input"]
-        inputs = {
-            model_key: model_data,
-            scripts_key: inference_scripts_path
-        }
+        # Get the output key from output_names VALUES - standard pattern for outputs
+        output_key = package_cfg.output_names["packaged_model_output"]  # e.g. "PackagedModel"
         
-        # Create outputs dictionary with a standard path
-        output_key = package_cfg.output_names["packaged_model_output"]
+        # Standard pattern - use VALUE from output_names as key in outputs dict
         outputs = {
             output_key: f"{self.base_config.pipeline_s3_loc}/packaged_model"
         }
         
-        # Create and return the step
+        logger.info(f"Creating packaging step with direct parameter passing")
+        
+        # Create and return the step - Using direct parameter passing instead of nested inputs
         return packaging_builder.create_step(
-            inputs=inputs,
+            model_input=model_data,              # Pass parameter directly
+            inference_scripts_input=inference_scripts_path,  # Pass parameter directly
             outputs=outputs,
             dependencies=[dependency_step]
         )
 
-    def _create_payload_testing_step(self) -> LambdaStep:
+    def _create_payload_testing_step(self, train_step) -> ProcessingStep:
         """
         Create a payload testing step to generate and upload inference payloads.
         
+        Args:
+            train_step: The training step that produced the model and hyperparameters
+            
         Returns:
-            LambdaStep: The payload testing step
+            ProcessingStep: The payload testing step
         """
         # Create the builder
         payload_builder = MIMSPayloadStepBuilder(
@@ -390,11 +363,36 @@ class XGBoostTrainEvaluatePipelineBuilder:
             role=self.role
         )
         
-        # Create and return the step (no outputs needed as they're generated in the Lambda)
-        return payload_builder.create_step()
+        # Get the model artifacts from training step
+        model_uri = train_step.properties.ModelArtifacts.S3ModelArtifacts
+        # Use .expr for logging Pipeline variables to avoid TypeError
+        logger.info("Extracted model URI for payload step (expression reference)")
+        
+        # Always use the consistent logical name "model_input"
+        model_key = "model_input"
+        
+        # Log what we're using (PayloadConfig should enforce correct script param name)
+        logger.info(f"Using logical name '{model_key}' for model input")
+        logger.info(f"Script parameter name from config: {self.payload_cfg.input_names.get(model_key, 'ModelArtifacts')}")
+        
+        # Create and return the step with the model input
+        # Using the logical name "model_input" - this will be mapped to the script input name by the builder
+        return payload_builder.create_step(
+            model_input=model_uri,
+            dependencies=[train_step]
+        )
 
     def _create_registration_steps(self, packaging_step: ProcessingStep, payload_step: ProcessingStep) -> List[ProcessingStep]:
         """Creates the Model Registration steps."""
+        # Ensure registration config has standardized input_names, following the pattern:
+        # key = logical name, value = script input name
+        if self.registration_cfg.input_names is None or len(self.registration_cfg.input_names) == 0:
+            object.__setattr__(self.registration_cfg, 'input_names', {
+                "packaged_model_output": "ModelPackage",  # Script input name
+                "payload_sample": "PayloadData"           # Script input name
+            })
+            logger.info("Added standardized input_names to registration config")
+        
         registration_builder = ModelRegistrationStepBuilder(config=self.registration_cfg, sagemaker_session=self.session, role=self.role)
         
         image_uri = retrieve(
@@ -409,14 +407,18 @@ class XGBoostTrainEvaluatePipelineBuilder:
         # Get the model package output from the packaging step
         s3_uri = packaging_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
         
-        # Get the payload S3 key from the payload testing lambda step
-        payload_s3_key = payload_step.properties.Outputs["payload_s3_key"]
+        # Get the payload sample from the payload testing step
+        # ProcessingStep outputs must be accessed through ProcessingOutputConfig.Outputs
+        payload_sample = payload_step.properties.ProcessingOutputConfig.Outputs["payload_sample"].S3Output.S3Uri
+        
+        # Avoid directly logging Pipeline variables
+        logger.info("Retrieved model package output and payload sample references")
         
         # Use both packaging and payload steps as dependencies
         # Connect the packaged model and payload to the registration step
         result = registration_builder.create_step(
-            packaged_model_output=s3_uri,  # Updated field name to match config
-            payload_s3_key=payload_s3_key,
+            packaged_model_output=s3_uri,
+            payload_sample=payload_sample,
             dependencies=[packaging_step, payload_step],
             regions=[self.base_config.region]
         )
@@ -464,24 +466,31 @@ class XGBoostTrainEvaluatePipelineBuilder:
         # Get input and output channel names directly from config properties 
         # We need to use the original keys, not the description values
         
-        # Create inputs dictionary with the keys from input_names
+        # Create inputs dictionary using logical names from standardized input_names
         inputs = {
+            # Use the logical names from the config's input_names
             "model_input": train_step.properties.ModelArtifacts.S3ModelArtifacts,
             "eval_data_input": calib_preprocess_step.properties.ProcessingOutputConfig.Outputs[self.tp_calib_cfg.output_names["processed_data"]].S3Output.S3Uri,
         }
-        
-        # No need to validate input channels since we're using hardcoded keys that match the builder's expectations
 
-        # Create outputs dictionary with the keys from output_names
+        # Get the output descriptor VALUES from the config's output_names
+        eval_output_key = self.xgb_eval_cfg.output_names["eval_output"]       # Should be "EvaluationResults"
+        metrics_output_key = self.xgb_eval_cfg.output_names["metrics_output"] # Should be "EvaluationMetrics"
+        
+        # Create outputs dictionary using VALUES from output_names as keys
+        # Following the standard pattern: VALUES used as keys in outputs dict
         outputs = {
-            "eval_output": f"{self.base_config.pipeline_s3_loc}/model_eval/eval_predictions",
-            "metrics_output": f"{self.base_config.pipeline_s3_loc}/model_eval/eval_metrics"
+            # Use the VALUES from output_names as keys
+            eval_output_key: f"{self.base_config.pipeline_s3_loc}/model_eval/eval_predictions",
+            metrics_output_key: f"{self.base_config.pipeline_s3_loc}/model_eval/eval_metrics"
         }
         
         # No need to validate output channels since we're using hardcoded keys
 
-        logger.info(f"Creating model evaluation step with inputs: {inputs}")
-        logger.info(f"Creating model evaluation step with outputs: {outputs}")
+        # Log that we're creating the evaluation step (avoid logging Pipeline variables directly)
+        logger.info("Creating model evaluation step with inputs and outputs")
+        logger.info(f"Input keys: {list(inputs.keys())}")
+        logger.info(f"Output keys: {list(outputs.keys())}")
 
         # Create the step with all inputs and outputs
         eval_step = eval_builder.create_step(
@@ -561,17 +570,16 @@ class XGBoostTrainEvaluatePipelineBuilder:
         train_load_step = self._create_data_load_step(self.cradle_train_cfg)
         train_preprocess_step = self._create_tabular_preprocess_step(self.tp_train_cfg, train_load_step)
         
-        # Create hyperparameter preparation step (new)
-        hyperparameter_prep_step = self._create_hyperparameter_prep_step()
+        # No hyperparameter preparation step - functionality integrated into XGBoostTrainingStep
         
-        # Connect training step with both preprocessing and hyperparameter prep steps
-        train_step = self._create_xgboost_train_step(train_preprocess_step, hyperparameter_prep_step)
+        # Connect training step with preprocessing step only
+        train_step = self._create_xgboost_train_step(train_preprocess_step)
         
         # Create packaging step using training step output
         packaging_step = self._create_packaging_step(train_step)
         
-        # Create payload testing step (new)
-        payload_testing_step = self._create_payload_testing_step()
+        # Create payload testing step
+        payload_testing_step = self._create_payload_testing_step(train_step)
         
         # Connect registration to both packaging and payload testing steps
         registration_steps = self._create_registration_steps(packaging_step, payload_testing_step)
@@ -583,14 +591,13 @@ class XGBoostTrainEvaluatePipelineBuilder:
         # --- Model Evaluation step (connects training and calibration flows) ---
         model_eval_step = self._create_model_eval_step(train_step, calib_preprocess_step)
 
-        # Include all steps in the pipeline
+        # Include all steps in the pipeline (no hyperparameter_prep_step)
         all_steps = [
             train_load_step,
             train_preprocess_step,
-            hyperparameter_prep_step,  # Add the new hyperparameter prep step
             train_step,
             packaging_step,
-            payload_testing_step,      # Add the new payload testing step
+            payload_testing_step,
             *registration_steps,
             calib_load_step,
             calib_preprocess_step,
