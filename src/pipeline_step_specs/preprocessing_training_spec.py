@@ -7,10 +7,16 @@ specifically for training data, including their dependencies and outputs.
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 
+# Import the contract at runtime to avoid circular imports
+def _get_tabular_preprocess_contract():
+    from ..pipeline_script_contracts.tabular_preprocess_contract import TABULAR_PREPROCESS_CONTRACT
+    return TABULAR_PREPROCESS_CONTRACT
+
 # Tabular Preprocessing Training Step Specification
 PREPROCESSING_TRAINING_SPEC = StepSpecification(
     step_type="TabularPreprocessing_Training",
     node_type=NodeType.INTERNAL,
+    script_contract=_get_tabular_preprocess_contract(),
     dependencies=[
         DependencySpec(
             logical_name="DATA",

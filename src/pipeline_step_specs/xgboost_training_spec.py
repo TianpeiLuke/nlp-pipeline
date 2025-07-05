@@ -7,10 +7,16 @@ including their dependencies and outputs based on the actual implementation.
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 
+# Import the contract at runtime to avoid circular imports
+def _get_xgboost_train_contract():
+    from ..pipeline_script_contracts.xgboost_train_contract import XGBOOST_TRAIN_CONTRACT
+    return XGBOOST_TRAIN_CONTRACT
+
 # XGBoost Training Step Specification
 XGBOOST_TRAINING_SPEC = StepSpecification(
     step_type="XGBoostTraining",
     node_type=NodeType.INTERNAL,
+    script_contract=_get_xgboost_train_contract(),
     dependencies=[
         DependencySpec(
             logical_name="input_path",

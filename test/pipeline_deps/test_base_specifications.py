@@ -974,5 +974,223 @@ class TestPydanticFeatures(unittest.TestCase):
             dep_spec.logical_name = ""  # Should fail validation
 
 
+class TestScriptContractIntegration(unittest.TestCase):
+    """Test cases for script contract integration with StepSpecification."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.dep_spec = DependencySpec(
+            logical_name="input_data",
+            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            required=True,
+            compatible_sources=["DataLoadingStep"]
+        )
+        
+        self.output_spec = OutputSpec(
+            logical_name="processed_data",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri"
+        )
+    
+    def test_step_specification_without_script_contract(self):
+        """Test StepSpecification without script contract (default behavior)."""
+        step_spec = StepSpecification(
+            step_type="TestStep",
+            node_type=NodeType.INTERNAL,
+            dependencies=[self.dep_spec],
+            outputs=[self.output_spec]
+        )
+        
+        # script_contract should be None by default
+        self.assertIsNone(step_spec.script_contract)
+        
+        # validate_script_compliance should return success when no contract is defined
+        result = step_spec.validate_script_compliance("dummy_path.py")
+        self.assertTrue(result.is_valid)
+        self.assertEqual(len(result.errors), 0)
+    
+    def test_step_specification_with_mock_script_contract(self):
+        """Test StepSpecification with a mock script contract."""
+        # Create a mock script contract
+        from unittest.mock import Mock
+        mock_contract = Mock()
+        mock_validation_result = Mock()
+        mock_validation_result.is_valid = True
+        mock_validation_result.errors = []
+        mock_validation_result.warnings = []
+        mock_contract.validate_implementation.return_value = mock_validation_result
+        
+        step_spec = StepSpecification(
+            step_type="TestStep",
+            node_type=NodeType.INTERNAL,
+            dependencies=[self.dep_spec],
+            outputs=[self.output_spec],
+            script_contract=mock_contract
+        )
+        
+        # script_contract should be set
+        self.assertIsNotNone(step_spec.script_contract)
+        self.assertEqual(step_spec.script_contract, mock_contract)
+        
+        # validate_script_compliance should call the contract's validate_implementation
+        result = step_spec.validate_script_compliance("test_script.py")
+        self.assertTrue(result.is_valid)
+        mock_contract.validate_implementation.assert_called_once_with("test_script.py")
+    
+    def test_step_specification_with_failing_script_contract(self):
+        """Test StepSpecification with a script contract that fails validation."""
+        # Create a mock script contract that fails validation
+        from unittest.mock import Mock
+        mock_contract = Mock()
+        mock_validation_result = Mock()
+        mock_validation_result.is_valid = False
+        mock_validation_result.errors = ["Script validation failed", "Missing required path"]
+        mock_validation_result.warnings = ["Warning message"]
+        mock_contract.validate_implementation.return_value = mock_validation_result
+        
+        step_spec = StepSpecification(
+            step_type="TestStep",
+            node_type=NodeType.INTERNAL,
+            dependencies=[self.dep_spec],
+            outputs=[self.output_spec],
+            script_contract=mock_contract
+        )
+        
+        # validate_script_compliance should return the failing result
+        result = step_spec.validate_script_compliance("failing_script.py")
+        self.assertFalse(result.is_valid)
+        self.assertEqual(len(result.errors), 2)
+        self.assertIn("Script validation failed", result.errors)
+        self.assertIn("Missing required path", result.errors)
+        self.assertEqual(len(result.warnings), 1)
+        self.assertIn("Warning message", result.warnings)
+    
+    def test_step_specification_serialization_with_script_contract(self):
+        """Test that StepSpecification serialization works with script_contract field."""
+        # Create a step spec without script contract
+        step_spec = StepSpecification(
+            step_type="TestStep",
+            node_type=NodeType.INTERNAL,
+            dependencies=[self.dep_spec],
+            outputs=[self.output_spec]
+        )
+        
+        # Test serialization
+        dict_data = step_spec.model_dump()
+        self.assertIn("script_contract", dict_data)
+        self.assertIsNone(dict_data["script_contract"])
+        
+        # Test deserialization
+        new_step_spec = StepSpecification.model_validate(dict_data)
+        self.assertIsNone(new_step_spec.script_contract)
+        self.assertEqual(new_step_spec.step_type, step_spec.step_type)
+    
+    def test_backward_compatibility(self):
+        """Test that existing code without script_contract still works."""
+        # This tests that the new field doesn't break existing specifications
+        step_spec = StepSpecification(
+            step_type="LegacyStep",
+            node_type=NodeType.SOURCE,
+            dependencies=[],
+            outputs=[self.output_spec]
+        )
+        
+        # All existing functionality should work
+        self.assertEqual(step_spec.step_type, "LegacyStep")
+        self.assertEqual(step_spec.node_type, NodeType.SOURCE)
+        self.assertEqual(len(step_spec.dependencies), 0)
+        self.assertEqual(len(step_spec.outputs), 1)
+        
+        # Legacy validate method should still work
+        errors = step_spec.validate()
+        self.assertEqual(len(errors), 0)
+        
+        # New script validation should work with no contract
+        result = step_spec.validate_script_compliance("any_script.py")
+        self.assertTrue(result.is_valid)
+
+
+class TestStepSpecificationIntegration(unittest.TestCase):
+    """Integration tests for updated step specifications with script contracts."""
+    
+    def test_model_eval_spec_integration(self):
+        """Test that MODEL_EVAL_SPEC can be imported and has script contract."""
+        try:
+            from src.pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
+            
+            # Should be able to import without errors
+            self.assertIsNotNone(MODEL_EVAL_SPEC)
+            self.assertEqual(MODEL_EVAL_SPEC.step_type, "XGBoostModelEvaluation")
+            self.assertEqual(MODEL_EVAL_SPEC.node_type, NodeType.INTERNAL)
+            
+            # Should have script contract
+            self.assertIsNotNone(MODEL_EVAL_SPEC.script_contract)
+            
+            # Should be able to call validate_script_compliance
+            result = MODEL_EVAL_SPEC.validate_script_compliance("dummy_script.py")
+            # Result should be valid or invalid, but not error out
+            self.assertIsInstance(result.is_valid, bool)
+            
+        except ImportError as e:
+            self.fail(f"Failed to import MODEL_EVAL_SPEC: {e}")
+    
+    def test_preprocessing_training_spec_integration(self):
+        """Test that PREPROCESSING_TRAINING_SPEC can be imported and has script contract."""
+        try:
+            from src.pipeline_step_specs.preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
+            
+            # Should be able to import without errors
+            self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC)
+            self.assertEqual(PREPROCESSING_TRAINING_SPEC.step_type, "TabularPreprocessing_Training")
+            self.assertEqual(PREPROCESSING_TRAINING_SPEC.node_type, NodeType.INTERNAL)
+            
+            # Should have script contract
+            self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC.script_contract)
+            
+            # Should be able to call validate_script_compliance
+            result = PREPROCESSING_TRAINING_SPEC.validate_script_compliance("dummy_script.py")
+            self.assertIsInstance(result.is_valid, bool)
+            
+        except ImportError as e:
+            self.fail(f"Failed to import PREPROCESSING_TRAINING_SPEC: {e}")
+    
+    def test_xgboost_training_spec_integration(self):
+        """Test that XGBOOST_TRAINING_SPEC can be imported and has script contract."""
+        try:
+            from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+            
+            # Should be able to import without errors
+            self.assertIsNotNone(XGBOOST_TRAINING_SPEC)
+            self.assertEqual(XGBOOST_TRAINING_SPEC.step_type, "XGBoostTraining")
+            self.assertEqual(XGBOOST_TRAINING_SPEC.node_type, NodeType.INTERNAL)
+            
+            # Should have script contract
+            self.assertIsNotNone(XGBOOST_TRAINING_SPEC.script_contract)
+            
+            # Should be able to call validate_script_compliance
+            result = XGBOOST_TRAINING_SPEC.validate_script_compliance("dummy_script.py")
+            self.assertIsInstance(result.is_valid, bool)
+            
+        except ImportError as e:
+            self.fail(f"Failed to import XGBOOST_TRAINING_SPEC: {e}")
+    
+    def test_no_circular_imports(self):
+        """Test that there are no circular import issues."""
+        try:
+            # Import all the updated specifications
+            from src.pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
+            from src.pipeline_step_specs.preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
+            from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+            
+            # All should import successfully
+            specs = [MODEL_EVAL_SPEC, PREPROCESSING_TRAINING_SPEC, XGBOOST_TRAINING_SPEC]
+            for spec in specs:
+                self.assertIsNotNone(spec)
+                self.assertIsNotNone(spec.script_contract)
+                
+        except ImportError as e:
+            self.fail(f"Circular import detected: {e}")
+
+
 if __name__ == "__main__":
     unittest.main()

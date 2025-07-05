@@ -5,12 +5,19 @@ This module provides the core classes for defining step dependencies and outputs
 in a declarative, type-safe manner using Pydantic V2 BaseModel.
 """
 
-from typing import Dict, List, Optional, Any, Set, Union
+from typing import Dict, List, Optional, Any, Set, Union, TYPE_CHECKING
 from enum import Enum
 from abc import ABC, abstractmethod
 import logging
 
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract, ValidationResult
+else:
+    # For runtime, we'll use Any to avoid circular imports
+    ScriptContract = Any
+    ValidationResult = Any
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +321,10 @@ class StepSpecification(BaseModel):
         default_factory=dict,
         description="Dictionary of output specifications keyed by logical name"
     )
+    script_contract: Optional['ScriptContract'] = Field(
+        default=None,
+        description="Optional script contract for validation"
+    )
     
     def __init__(self, step_type: str = None, dependencies: List[DependencySpec] = None, 
                  outputs: List[OutputSpec] = None, node_type: NodeType = None, **data):
@@ -464,6 +475,22 @@ class StepSpecification(BaseModel):
             errors.append(f"Step '{self.step_type}' has no dependencies or outputs")
         
         return errors
+    
+    def validate_script_compliance(self, script_path: str) -> 'ValidationResult':
+        """
+        Validate script implementation against contract.
+        
+        Args:
+            script_path: Path to the script file to validate
+            
+        Returns:
+            ValidationResult indicating whether the script complies with the contract
+        """
+        if not self.script_contract:
+            # Import here to avoid circular imports
+            from ..pipeline_script_contracts.base_script_contract import ValidationResult
+            return ValidationResult.success("No script contract defined")
+        return self.script_contract.validate_implementation(script_path)
     
     def __repr__(self):
         return (f"StepSpecification(type='{self.step_type}', "
