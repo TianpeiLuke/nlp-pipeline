@@ -10,14 +10,11 @@ from .training_script_contract import TrainingScriptContract
 XGBOOST_TRAIN_CONTRACT = TrainingScriptContract(
     entry_point="train_xgb.py",
     expected_input_paths={
-        "train_data": "/opt/ml/input/data/train",
-        "val_data": "/opt/ml/input/data/val",
-        "test_data": "/opt/ml/input/data/test",
-        "config": "/opt/ml/input/data/config/hyperparameters.json"
+        "input_path": "/opt/ml/input/data",
+        "hyperparameters_s3_uri": "/opt/ml/input/data/config/hyperparameters.json"
     },
     expected_output_paths={
-        "model_output": "/opt/ml/model",
-        "data_output": "/opt/ml/output/data"
+        "model_output": "/opt/ml/model"
     },
     required_env_vars=[
         # No strictly required environment variables - script uses hyperparameters.json
@@ -50,22 +47,24 @@ XGBOOST_TRAIN_CONTRACT = TrainingScriptContract(
     10. Generates prediction files and performance visualizations
     
     Input Structure:
-    - /opt/ml/input/data/train: Training data files (.csv, .parquet, .json)
-    - /opt/ml/input/data/val: Validation data files
-    - /opt/ml/input/data/test: Test data files
-    - /opt/ml/input/data/config/hyperparameters.json: Model configuration
+    - /opt/ml/input/data: Root directory containing train/val/test subdirectories
+      - /opt/ml/input/data/train: Training data files (.csv, .parquet, .json)
+      - /opt/ml/input/data/val: Validation data files
+      - /opt/ml/input/data/test: Test data files
+    - /opt/ml/input/data/config/hyperparameters.json: Model configuration (optional)
     
     Output Structure:
-    - /opt/ml/model/xgboost_model.bst: Trained XGBoost model
-    - /opt/ml/model/risk_table_map.pkl: Risk table mappings for categorical features
-    - /opt/ml/model/impute_dict.pkl: Imputation values for numerical features
-    - /opt/ml/model/feature_importance.json: Feature importance scores
-    - /opt/ml/model/feature_columns.txt: Ordered feature column names
-    - /opt/ml/model/hyperparameters.json: Model hyperparameters
-    - /opt/ml/output/data/val.tar.gz: Validation predictions and metrics
-    - /opt/ml/output/data/test.tar.gz: Test predictions and metrics
-    - /opt/ml/output/data/val_metrics/: Validation performance plots
-    - /opt/ml/output/data/test_metrics/: Test performance plots
+    - /opt/ml/model: Model artifacts directory
+      - /opt/ml/model/xgboost_model.bst: Trained XGBoost model
+      - /opt/ml/model/risk_table_map.pkl: Risk table mappings for categorical features
+      - /opt/ml/model/impute_dict.pkl: Imputation values for numerical features
+      - /opt/ml/model/feature_importance.json: Feature importance scores
+      - /opt/ml/model/feature_columns.txt: Ordered feature column names
+      - /opt/ml/model/hyperparameters.json: Model hyperparameters
+    
+    Contract aligned with step specification:
+    - Inputs: input_path (required), hyperparameters_s3_uri (optional)
+    - Outputs: model_output (primary)
     
     Hyperparameters (via JSON config):
     - Data fields: tab_field_list, cat_field_list, label_name, id_name

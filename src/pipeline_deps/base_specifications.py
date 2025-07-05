@@ -480,6 +480,12 @@ class StepSpecification(BaseModel):
         """
         Validate that script contract aligns with step specification.
         
+        This validation logic:
+        - Specs can provide more inputs than contracts require (extra dependencies allowed)
+        - Contracts can have fewer outputs than specs provide (aliases allowed)
+        - For every contract input, there must be a matching spec dependency
+        - For every contract output, there must be a matching spec output
+        
         Returns:
             ValidationResult indicating whether the contract aligns with the specification
         """
@@ -491,25 +497,21 @@ class StepSpecification(BaseModel):
         
         errors = []
         
-        # Validate input alignment
+        # Validate input alignment: every contract input must have a matching spec dependency
         contract_inputs = set(self.script_contract.expected_input_paths.keys())
-        spec_inputs = set(dep.logical_name for dep in self.dependencies.values() if dep.required)
+        spec_dependency_names = set(dep.logical_name for dep in self.dependencies.values())
         
-        missing_in_contract = spec_inputs - contract_inputs
-        if missing_in_contract:
-            errors.append(f"Contract missing required inputs: {missing_in_contract}")
+        missing_spec_dependencies = contract_inputs - spec_dependency_names
+        if missing_spec_dependencies:
+            errors.append(f"Contract inputs missing from specification dependencies: {missing_spec_dependencies}")
         
-        extra_in_contract = contract_inputs - set(dep.logical_name for dep in self.dependencies.values())
-        if extra_in_contract:
-            errors.append(f"Contract has extra inputs not in specification: {extra_in_contract}")
-        
-        # Validate output alignment
+        # Validate output alignment: every contract output must have a matching spec output
         contract_outputs = set(self.script_contract.expected_output_paths.keys())
-        spec_outputs = set(output.logical_name for output in self.outputs.values())
+        spec_output_names = set(output.logical_name for output in self.outputs.values())
         
-        missing_in_contract = spec_outputs - contract_outputs
-        if missing_in_contract:
-            errors.append(f"Contract missing required outputs: {missing_in_contract}")
+        missing_spec_outputs = contract_outputs - spec_output_names
+        if missing_spec_outputs:
+            errors.append(f"Contract outputs missing from specification outputs: {missing_spec_outputs}")
         
         return ValidationResult(is_valid=len(errors) == 0, errors=errors)
     

@@ -15,9 +15,7 @@ MODEL_EVALUATION_CONTRACT = ScriptContract(
     },
     expected_output_paths={
         "eval_output": "/opt/ml/processing/output/eval",
-        "metrics_output": "/opt/ml/processing/output/metrics",
-        "EvaluationResults": "/opt/ml/processing/output/eval",
-        "EvaluationMetrics": "/opt/ml/processing/output/metrics"
+        "metrics_output": "/opt/ml/processing/output/metrics"
     },
     required_env_vars=[
         "ID_FIELD",

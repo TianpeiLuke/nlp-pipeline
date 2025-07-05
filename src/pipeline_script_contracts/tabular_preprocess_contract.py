@@ -11,11 +11,12 @@ TABULAR_PREPROCESS_CONTRACT = ScriptContract(
     entry_point="tabular_preprocess.py",
     expected_input_paths={
         "DATA": "/opt/ml/processing/input/data",
-        # Note: Current script only uses data input, but specification expects metadata/signature
-        # This represents the gap identified in the analysis
+        "METADATA": "/opt/ml/processing/input/metadata",
+        "SIGNATURE": "/opt/ml/processing/input/signature"
     },
     expected_output_paths={
-        "processed_data": "/opt/ml/processing/output"
+        "processed_data": "/opt/ml/processing/output",
+        "full_data": "/opt/ml/processing/output/full"
     },
     required_env_vars=[
         "LABEL_FIELD",
@@ -36,12 +37,14 @@ TABULAR_PREPROCESS_CONTRACT = ScriptContract(
     description="""
     Tabular preprocessing script that:
     1. Combines data shards from input directory
-    2. Cleans and processes label field
-    3. Splits data into train/test/val for training jobs
-    4. Outputs processed CSV files by split
+    2. Optionally uses metadata and signature for validation
+    3. Cleans and processes label field
+    4. Splits data into train/test/val for training jobs
+    5. Outputs processed CSV files by split
+    6. Optionally outputs full dataset without splits
     
-    Current Gap: Script only uses /opt/ml/processing/input/data but step specification
-    expects DATA, METADATA, and SIGNATURE inputs. This represents a misalignment
-    that should be addressed.
+    Contract aligned with step specification:
+    - Inputs: DATA (required), METADATA (optional), SIGNATURE (optional)
+    - Outputs: processed_data (primary), full_data (optional)
     """
 )
