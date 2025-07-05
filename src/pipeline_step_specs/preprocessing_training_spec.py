@@ -26,24 +26,6 @@ PREPROCESSING_TRAINING_SPEC = StepSpecification(
             semantic_keywords=["training", "train", "data", "input", "raw", "dataset", "source", "tabular", "model_training"],
             data_type="S3Uri",
             description="Raw training data for preprocessing"
-        ),
-        DependencySpec(
-            logical_name="METADATA",
-            dependency_type=DependencyType.PROCESSING_OUTPUT,
-            required=False,
-            compatible_sources=["CradleDataLoading_Training"],
-            semantic_keywords=["training", "train", "metadata", "schema", "info", "description", "model_training"],
-            data_type="S3Uri",
-            description="Optional training metadata about the dataset"
-        ),
-        DependencySpec(
-            logical_name="SIGNATURE",
-            dependency_type=DependencyType.PROCESSING_OUTPUT,
-            required=False,
-            compatible_sources=["CradleDataLoading_Training"],
-            semantic_keywords=["training", "train", "signature", "validation", "checksum", "model_training"],
-            data_type="S3Uri",
-            description="Optional training data signature for validation"
         )
     ],
     outputs=[
@@ -54,30 +36,6 @@ PREPROCESSING_TRAINING_SPEC = StepSpecification(
             data_type="S3Uri",
             description="Processed training data with train/val/test splits",
             semantic_keywords=["training", "train", "processed", "data", "tabular", "splits", "model_training", "preprocessed"]
-        ),
-        OutputSpec(
-            logical_name="ProcessedTabularData",
-            output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri",
-            data_type="S3Uri",
-            description="Processed training data (alias for processed_data)",
-            semantic_keywords=["training", "train", "processed", "data", "tabular", "splits", "model_training", "preprocessed"]
-        ),
-        OutputSpec(
-            logical_name="full_data",
-            output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['full_data'].S3Output.S3Uri",
-            data_type="S3Uri",
-            description="Full processed training dataset without splits (optional)",
-            semantic_keywords=["training", "train", "full", "data", "complete", "dataset", "model_training"]
-        ),
-        OutputSpec(
-            logical_name="FullData",
-            output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.ProcessingOutputConfig.Outputs['FullData'].S3Output.S3Uri",
-            data_type="S3Uri",
-            description="Full processed training dataset (alias for full_data)",
-            semantic_keywords=["training", "train", "full", "data", "complete", "dataset", "model_training"]
         )
     ]
 )
