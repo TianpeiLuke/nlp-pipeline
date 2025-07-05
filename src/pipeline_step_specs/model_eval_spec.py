@@ -29,7 +29,7 @@ MODEL_EVAL_SPEC = StepSpecification(
             compatible_sources=["XGBoostTraining", "TrainingStep", "ModelStep"],
             semantic_keywords=["model", "artifacts", "trained", "output", "ModelArtifacts"],
             data_type="S3Uri",
-            description="Trained model artifacts to be evaluated"
+            description="Trained model artifacts to be evaluated (includes hyperparameters.json)"
         ),
         DependencySpec(
             logical_name="eval_data_input",
@@ -39,15 +39,6 @@ MODEL_EVAL_SPEC = StepSpecification(
             semantic_keywords=["data", "evaluation", "calibration", "validation", "test", "processed"],
             data_type="S3Uri",
             description="Evaluation dataset for model assessment"
-        ),
-        DependencySpec(
-            logical_name="hyperparameters_input",
-            dependency_type=DependencyType.HYPERPARAMETERS,
-            required=False,
-            compatible_sources=["HyperparameterPrep", "ProcessingStep"],
-            semantic_keywords=["config", "params", "hyperparameters", "settings", "hyperparams"],
-            data_type="S3Uri",
-            description="Hyperparameters configuration file (optional)"
         )
     ],
     outputs=[

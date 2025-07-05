@@ -476,6 +476,43 @@ class StepSpecification(BaseModel):
         
         return errors
     
+    def validate_contract_alignment(self) -> 'ValidationResult':
+        """
+        Validate that script contract aligns with step specification.
+        
+        Returns:
+            ValidationResult indicating whether the contract aligns with the specification
+        """
+        # Import here to avoid circular imports
+        from ..pipeline_script_contracts.base_script_contract import ValidationResult
+        
+        if not self.script_contract:
+            return ValidationResult.success("No contract to validate")
+        
+        errors = []
+        
+        # Validate input alignment
+        contract_inputs = set(self.script_contract.expected_input_paths.keys())
+        spec_inputs = set(dep.logical_name for dep in self.dependencies.values() if dep.required)
+        
+        missing_in_contract = spec_inputs - contract_inputs
+        if missing_in_contract:
+            errors.append(f"Contract missing required inputs: {missing_in_contract}")
+        
+        extra_in_contract = contract_inputs - set(dep.logical_name for dep in self.dependencies.values())
+        if extra_in_contract:
+            errors.append(f"Contract has extra inputs not in specification: {extra_in_contract}")
+        
+        # Validate output alignment
+        contract_outputs = set(self.script_contract.expected_output_paths.keys())
+        spec_outputs = set(output.logical_name for output in self.outputs.values())
+        
+        missing_in_contract = spec_outputs - contract_outputs
+        if missing_in_contract:
+            errors.append(f"Contract missing required outputs: {missing_in_contract}")
+        
+        return ValidationResult(is_valid=len(errors) == 0, errors=errors)
+    
     def validate_script_compliance(self, script_path: str) -> 'ValidationResult':
         """
         Validate script implementation against contract.
