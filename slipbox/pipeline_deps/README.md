@@ -20,7 +20,9 @@ This module provides dependency resolution and specification management for pipe
 3. **Specification Registry** - Centralized management of step specifications
 4. **Validation Framework** - Ensures dependency consistency and completeness
 5. **Script Contract Integration** - Automated script validation against step specifications
-6. **Job Type Variant Handling** - Support for training vs calibration workflow differentiation
+6. **Output Aliases System** - Multiple names for outputs with backward compatibility
+7. **Contract Alignment Validation** - Built-in verification of specification-contract alignment
+8. **Job Type Variant Handling** - Support for training vs calibration workflow differentiation
 
 ## Usage Pattern
 
@@ -35,6 +37,59 @@ registry.register_specification("preprocessing", preprocessing_spec)
 # Resolve dependencies
 resolver = DependencyResolver(registry)
 dependencies = resolver.resolve_dependencies(["data_loading", "preprocessing"])
+```
+
+## New Features Examples
+
+### Output Aliases System
+```python
+from src.pipeline_deps.base_specifications import OutputSpec, DependencyType
+
+# Create output with aliases for backward compatibility
+model_output = OutputSpec(
+    logical_name="model_output",
+    output_type=DependencyType.MODEL_ARTIFACTS,
+    property_path="properties.ModelArtifacts.S3ModelArtifacts",
+    aliases=["ModelArtifacts", "model_data", "output_path"]
+)
+
+# Access by primary name or any alias
+primary = step_spec.get_output("model_output")
+legacy = step_spec.get_output_by_name_or_alias("ModelArtifacts")
+assert primary == legacy  # Same output object
+```
+
+### Script Contract Validation
+```python
+from src.pipeline_script_contracts.base_script_contract import ScriptContract
+
+# Define contract matching actual script behavior
+contract = ScriptContract(
+    script_name="train.py",
+    expected_input_paths={
+        "input_path": "/opt/ml/input/data",
+        "config": "/opt/ml/input/config/hyperparameters.json"
+    },
+    expected_output_paths={
+        "model_output": "/opt/ml/model",
+        "data_output": "/opt/ml/output/data"
+    }
+)
+
+# Create specification with contract reference
+step_spec = StepSpecification(
+    step_type="TrainingStep",
+    script_contract=contract,
+    dependencies=[...],
+    outputs=[...]
+)
+
+# Validate alignment
+result = step_spec.validate_contract_alignment()
+if result.is_valid:
+    print("✅ Perfect alignment!")
+else:
+    print("❌ Alignment issues:", result.errors)
 ```
 
 ## Integration
@@ -75,3 +130,11 @@ For architectural context and design decisions, see:
 - **[Step Specification Design](../pipeline_design/step_specification.md)** - Step specification patterns
 - **[Registry Manager Design](../pipeline_design/registry_manager.md)** - Registry management approach
 - **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles
+
+## Related Script Contract Documentation
+
+For script contract implementation and validation details, see:
+- **[Base Script Contract](../pipeline_script_contracts/base_script_contract.md)** - Foundation classes for script contracts
+- **[Contract Validator](../pipeline_script_contracts/contract_validator.md)** - Contract validation mechanisms
+- **[PyTorch Train Contract](../pipeline_script_contracts/pytorch_train_contract.md)** - PyTorch training contract example
+- **[Script Contracts Overview](../pipeline_script_contracts/README.md)** - Complete script contracts documentation

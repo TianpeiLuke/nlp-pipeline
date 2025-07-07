@@ -29,6 +29,7 @@ class OutputSpec(BaseModel):
     property_path: str = Field(..., description="Runtime SageMaker property path")
     data_type: str = Field(default="S3Uri", description="Output data type")
     description: str = Field(default="", description="Human-readable description")
+    aliases: List[str] = Field(default_factory=list, description="Alternative names for this output")
 ```
 
 ### StepSpecification
@@ -40,6 +41,7 @@ class StepSpecification(BaseModel):
     node_type: NodeType = Field(..., description="Node type classification")
     dependencies: Dict[str, DependencySpec] = Field(default_factory=dict)
     outputs: Dict[str, OutputSpec] = Field(default_factory=dict)
+    script_contract: Optional[ScriptContract] = Field(default=None, description="Associated script contract for validation")
 ```
 
 ### PropertyReference
@@ -100,6 +102,18 @@ class NodeType(Enum):
 - **Lazy Evaluation** - PropertyReference for runtime resolution
 - **Type Conversion** - Automatic SageMaker Properties generation
 
+### 4. Output Aliases System
+- **Backward Compatibility** - Multiple names for the same output
+- **Alias Resolution** - Automatic lookup by name or alias
+- **Clean Architecture** - Consolidate duplicate outputs using aliases
+- **Migration Support** - Gradual transition from legacy naming
+
+### 5. Script Contract Validation
+- **Contract Alignment** - Validate specification matches script contract
+- **Input/Output Verification** - Ensure all contract paths are covered
+- **Automatic Validation** - Built-in validation methods
+- **Error Reporting** - Detailed alignment error messages
+
 ## Usage Examples
 
 ### Creating Dependency Specifications
@@ -122,14 +136,69 @@ training_data_dep = DependencySpec(
 ```python
 from src.pipeline_deps.base_specifications import OutputSpec, DependencyType
 
-# Define a model artifacts output
+# Define a model artifacts output with aliases
 model_output = OutputSpec(
-    logical_name="model_artifacts",
+    logical_name="model_output",
     output_type=DependencyType.MODEL_ARTIFACTS,
     property_path="properties.ModelArtifacts.S3ModelArtifacts",
     data_type="S3Uri",
-    description="Trained model artifacts"
+    description="Trained model artifacts",
+    aliases=["ModelArtifacts", "model_data", "output_path", "model_input"]
 )
+```
+
+### Using Output Aliases
+```python
+# Access output by primary name
+primary_output = step_spec.get_output("model_output")
+
+# Access output by alias
+alias_output = step_spec.get_output_by_name_or_alias("ModelArtifacts")
+legacy_output = step_spec.get_output_by_name_or_alias("model_data")
+
+# All references point to the same output
+assert primary_output == alias_output == legacy_output
+
+# List all available names for an output
+all_names = [model_output.logical_name] + model_output.aliases
+print(f"Available names: {all_names}")
+# Output: ['model_output', 'ModelArtifacts', 'model_data', 'output_path', 'model_input']
+```
+
+### Script Contract Integration
+```python
+from src.pipeline_script_contracts.base_script_contract import ScriptContract
+
+# Define script contract
+contract = ScriptContract(
+    script_name="train.py",
+    expected_input_paths={
+        "input_path": "/opt/ml/input/data",
+        "config": "/opt/ml/input/config/hyperparameters.json"
+    },
+    expected_output_paths={
+        "model_output": "/opt/ml/model",
+        "data_output": "/opt/ml/output/data"
+    }
+)
+
+# Create specification with contract reference
+step_spec = StepSpecification(
+    step_type="TrainingStep",
+    node_type=NodeType.INTERNAL,
+    script_contract=contract,
+    dependencies=[input_dep, config_dep],
+    outputs=[model_output, data_output]
+)
+
+# Validate contract alignment
+result = step_spec.validate_contract_alignment()
+if result.is_valid:
+    print("✅ Contract and specification are aligned!")
+else:
+    print("❌ Alignment errors:")
+    for error in result.errors:
+        print(f"  - {error}")
 ```
 
 ### Creating Step Specifications
@@ -261,6 +330,14 @@ For architectural context and design decisions, see:
 - **[Registry Manager Design](../pipeline_design/registry_manager.md)** - Registry management architecture
 - **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles and guidelines
 - **[Standardization Rules](../pipeline_design/standardization_rules.md)** - Naming and structure conventions
+
+## Related Script Contract Documentation
+
+For script contract implementation and validation details, see:
+- **[Base Script Contract](../pipeline_script_contracts/base_script_contract.md)** - Foundation classes for script contracts
+- **[Contract Validator](../pipeline_script_contracts/contract_validator.md)** - Contract validation mechanisms
+- **[PyTorch Train Contract](../pipeline_script_contracts/pytorch_train_contract.md)** - PyTorch training contract example
+- **[Script Contracts Overview](../pipeline_script_contracts/README.md)** - Complete script contracts documentation
 
 ## Best Practices
 
