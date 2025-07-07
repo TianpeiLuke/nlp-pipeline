@@ -10,9 +10,7 @@ from .training_script_contract import TrainingScriptContract
 PYTORCH_TRAIN_CONTRACT = TrainingScriptContract(
     entry_point="train.py",
     expected_input_paths={
-        "train_data": "/opt/ml/input/data/train",
-        "val_data": "/opt/ml/input/data/val", 
-        "test_data": "/opt/ml/input/data/test",
+        "input_path": "/opt/ml/input/data",
         "config": "/opt/ml/input/config/hyperparameters.json"
     },
     expected_output_paths={
@@ -58,9 +56,10 @@ PYTORCH_TRAIN_CONTRACT = TrainingScriptContract(
     8. Exports trained model in multiple formats (PyTorch, ONNX)
     
     Input Structure:
-    - /opt/ml/input/data/train: Training data files (.csv, .tsv, .parquet)
-    - /opt/ml/input/data/val: Validation data files
-    - /opt/ml/input/data/test: Test data files
+    - /opt/ml/input/data: Root directory containing train/val/test subdirectories
+      - /opt/ml/input/data/train: Training data files (.csv, .tsv, .parquet)
+      - /opt/ml/input/data/val: Validation data files
+      - /opt/ml/input/data/test: Test data files
     - /opt/ml/input/config/hyperparameters.json: Model configuration and hyperparameters
     
     Output Structure:

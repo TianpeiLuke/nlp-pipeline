@@ -7,10 +7,16 @@ including their dependencies and outputs based on the actual implementation.
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 
+# Import the contract at runtime to avoid circular imports
+def _get_pytorch_train_contract():
+    from ..pipeline_script_contracts.pytorch_train_contract import PYTORCH_TRAIN_CONTRACT
+    return PYTORCH_TRAIN_CONTRACT
+
 # PyTorch Training Step Specification
 PYTORCH_TRAINING_SPEC = StepSpecification(
     step_type="PyTorchTraining",
     node_type=NodeType.INTERNAL,
+    script_contract=_get_pytorch_train_contract(),
     dependencies=[
         DependencySpec(
             logical_name="input_path",
@@ -19,16 +25,16 @@ PYTORCH_TRAINING_SPEC = StepSpecification(
             compatible_sources=["TabularPreprocessing", "ProcessingStep", "DataLoad"],
             semantic_keywords=["data", "input", "training", "dataset", "processed", "train", "pytorch"],
             data_type="S3Uri",
-            description="Training dataset S3 location"
+            description="Training dataset S3 location with train/val/test subdirectories"
         ),
         DependencySpec(
-            logical_name="checkpoint_path",
-            dependency_type=DependencyType.MODEL_ARTIFACTS,
-            required=False,
-            compatible_sources=["PyTorchTraining", "ProcessingStep"],
-            semantic_keywords=["checkpoint", "model", "weights", "pretrained", "resume"],
+            logical_name="config",
+            dependency_type=DependencyType.HYPERPARAMETERS,
+            required=True,
+            compatible_sources=["HyperparameterPrep", "ProcessingStep"],
+            semantic_keywords=["config", "params", "hyperparameters", "settings"],
             data_type="S3Uri",
-            description="Optional checkpoint to resume training from"
+            description="Hyperparameters configuration file"
         )
     ],
     outputs=[
@@ -37,63 +43,38 @@ PYTORCH_TRAINING_SPEC = StepSpecification(
             output_type=DependencyType.MODEL_ARTIFACTS,
             property_path="properties.ModelArtifacts.S3ModelArtifacts",
             data_type="S3Uri",
-            description="Trained PyTorch model artifacts"
+            description="Trained PyTorch model artifacts",
+            aliases=["ModelArtifacts", "model_data", "output_path", "model_input"]
         ),
         OutputSpec(
-            logical_name="metrics_output",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingMetrics",
-            data_type="String",
-            description="Training metrics from the job"
+            logical_name="data_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
+            data_type="S3Uri",
+            description="Training evaluation results and predictions"
+        ),
+        OutputSpec(
+            logical_name="checkpoints",
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.CheckpointConfig.S3Uri",
+            data_type="S3Uri",
+            description="Training checkpoints for resuming"
         ),
         OutputSpec(
             logical_name="training_job_name",
             output_type=DependencyType.CUSTOM_PROPERTY,
             property_path="properties.TrainingJobName",
             data_type="String",
-            description="SageMaker training job name"
+            description="SageMaker training job name",
+            aliases=["TrainingJobName"]
         ),
         OutputSpec(
-            logical_name="ModelArtifacts",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model artifacts (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="TrainingJobName",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingJobName",
-            data_type="String",
-            description="Training job name (alias for training_job_name)"
-        ),
-        OutputSpec(
-            logical_name="TrainingMetrics",
+            logical_name="metrics_output",
             output_type=DependencyType.CUSTOM_PROPERTY,
             property_path="properties.TrainingMetrics",
             data_type="String",
-            description="Training metrics (alias for metrics_output)"
-        ),
-        OutputSpec(
-            logical_name="model_data",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model data (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="output_path",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Output path (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="model_input",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model input reference (alias for model_output)"
+            description="Training metrics from the job",
+            aliases=["TrainingMetrics"]
         )
     ]
 )
