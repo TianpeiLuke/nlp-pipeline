@@ -26,6 +26,8 @@ class TestDependencySpec(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
+        # Create a fresh instance of the enum for each test to ensure isolation
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
         self.valid_dependency_data = {
             "logical_name": "training_data",
             "dependency_type": DependencyType.PROCESSING_OUTPUT,
@@ -205,6 +207,8 @@ class TestOutputSpec(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
+        # Create a fresh instance of the enum for each test to ensure isolation
+        self.output_type = DependencyType.PROCESSING_OUTPUT
         self.valid_output_data = {
             "logical_name": "processed_data",
             "output_type": DependencyType.PROCESSING_OUTPUT,
@@ -391,16 +395,22 @@ class TestStepSpecification(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_source = NodeType.SOURCE
+        self.node_type_internal = NodeType.INTERNAL
+        self.node_type_sink = NodeType.SINK
+        self.node_type_singular = NodeType.SINGULAR
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
         self.dep_spec = DependencySpec(
             logical_name="input_data",
-            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            dependency_type=self.dependency_type,
             required=True,
             compatible_sources=["DataLoadingStep"]
         )
         
         self.output_spec = OutputSpec(
             logical_name="processed_data",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri"
         )
     
@@ -408,7 +418,7 @@ class TestStepSpecification(unittest.TestCase):
         """Test creating an INTERNAL node (has both dependencies and outputs)."""
         step_spec = StepSpecification(
             step_type="DataProcessingStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec]
         )
@@ -426,12 +436,12 @@ class TestStepSpecification(unittest.TestCase):
         """Test creating a SOURCE node (no dependencies, has outputs)."""
         step_spec = StepSpecification(
             step_type="DataLoadingStep",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             dependencies=[],
             outputs=[self.output_spec]
         )
         
-        self.assertEqual(step_spec.node_type, NodeType.SOURCE)
+        self.assertEqual(step_spec.node_type, self.node_type_source)
         self.assertEqual(len(step_spec.dependencies), 0)
         self.assertEqual(len(step_spec.outputs), 1)
     
@@ -439,12 +449,12 @@ class TestStepSpecification(unittest.TestCase):
         """Test creating a SINK node (has dependencies, no outputs)."""
         step_spec = StepSpecification(
             step_type="ModelRegistrationStep",
-            node_type=NodeType.SINK,
+            node_type=self.node_type_sink,
             dependencies=[self.dep_spec],
             outputs=[]
         )
         
-        self.assertEqual(step_spec.node_type, NodeType.SINK)
+        self.assertEqual(step_spec.node_type, self.node_type_sink)
         self.assertEqual(len(step_spec.dependencies), 1)
         self.assertEqual(len(step_spec.outputs), 0)
     
@@ -452,12 +462,12 @@ class TestStepSpecification(unittest.TestCase):
         """Test creating a SINGULAR node (no dependencies, no outputs)."""
         step_spec = StepSpecification(
             step_type="StandaloneStep",
-            node_type=NodeType.SINGULAR,
+            node_type=self.node_type_singular,
             dependencies=[],
             outputs=[]
         )
         
-        self.assertEqual(step_spec.node_type, NodeType.SINGULAR)
+        self.assertEqual(step_spec.node_type, self.node_type_singular)
         self.assertEqual(len(step_spec.dependencies), 0)
         self.assertEqual(len(step_spec.outputs), 0)
     
@@ -467,7 +477,7 @@ class TestStepSpecification(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             StepSpecification(
                 step_type="InvalidSource",
-                node_type=NodeType.SOURCE,
+                node_type=self.node_type_source,
                 dependencies=[self.dep_spec],
                 outputs=[self.output_spec]
             )
@@ -478,7 +488,7 @@ class TestStepSpecification(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             StepSpecification(
                 step_type="InvalidSource",
-                node_type=NodeType.SOURCE,
+                node_type=self.node_type_source,
                 dependencies=[],
                 outputs=[]
             )
@@ -489,7 +499,7 @@ class TestStepSpecification(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             StepSpecification(
                 step_type="InvalidInternal",
-                node_type=NodeType.INTERNAL,
+                node_type=self.node_type_internal,
                 dependencies=[],
                 outputs=[self.output_spec]
             )
@@ -500,7 +510,7 @@ class TestStepSpecification(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             StepSpecification(
                 step_type="InvalidSink",
-                node_type=NodeType.SINK,
+                node_type=self.node_type_sink,
                 dependencies=[self.dep_spec],
                 outputs=[self.output_spec]
             )
@@ -569,7 +579,7 @@ class TestStepSpecification(unittest.TestCase):
         """Test dependency and output access methods."""
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec]
         )
@@ -598,7 +608,7 @@ class TestStepSpecification(unittest.TestCase):
         
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec, optional_dep],
             outputs=[self.output_spec]
         )
@@ -632,7 +642,7 @@ class TestStepSpecification(unittest.TestCase):
         
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec, model_output]
         )
@@ -650,7 +660,7 @@ class TestStepSpecification(unittest.TestCase):
         """Test legacy validate method for backward compatibility."""
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec]
         )
@@ -662,7 +672,7 @@ class TestStepSpecification(unittest.TestCase):
         """Test __repr__ method."""
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec]
         )
@@ -680,15 +690,19 @@ class TestSpecificationRegistry(unittest.TestCase):
         """Set up test fixtures."""
         self.registry = SpecificationRegistry()
         
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_source = NodeType.SOURCE
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
+        
         self.output_spec = OutputSpec(
             logical_name="test_output",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri"
         )
         
         self.step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             dependencies=[],
             outputs=[self.output_spec]
         )
@@ -788,6 +802,14 @@ class TestSpecificationRegistry(unittest.TestCase):
 class TestEnumValidation(unittest.TestCase):
     """Test cases for enum validation across all classes."""
     
+    def setUp(self):
+        """Set up test fixtures."""
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_source = NodeType.SOURCE
+        self.node_type_internal = NodeType.INTERNAL
+        self.node_type_sink = NodeType.SINK
+        self.node_type_singular = NodeType.SINGULAR
+    
     def test_dependency_type_enum_values(self):
         """Test all DependencyType enum values."""
         valid_values = [
@@ -818,10 +840,10 @@ class TestEnumValidation(unittest.TestCase):
     def test_node_type_enum_values(self):
         """Test all NodeType enum values."""
         valid_values = [
-            NodeType.SOURCE,
-            NodeType.INTERNAL,
-            NodeType.SINK,
-            NodeType.SINGULAR
+            self.node_type_source,
+            self.node_type_internal,
+            self.node_type_sink,
+            self.node_type_singular
         ]
         
         for value in valid_values:
@@ -878,6 +900,11 @@ class TestEnumValidation(unittest.TestCase):
 class TestPydanticFeatures(unittest.TestCase):
     """Test cases for Pydantic V2 specific features."""
     
+    def setUp(self):
+        """Set up test fixtures."""
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_internal = NodeType.INTERNAL
+    
     def test_model_dump_and_validate(self):
         """Test model_dump and model_validate functionality."""
         # Create a complex specification
@@ -899,7 +926,7 @@ class TestPydanticFeatures(unittest.TestCase):
         
         step_spec = StepSpecification(
             step_type="TrainingStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[dep_spec],
             outputs=[output_spec]
         )
@@ -989,16 +1016,20 @@ class TestScriptContractIntegration(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_internal = NodeType.INTERNAL
+        self.node_type_source = NodeType.SOURCE
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
         self.dep_spec = DependencySpec(
             logical_name="input_data",
-            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            dependency_type=self.dependency_type,
             required=True,
             compatible_sources=["DataLoadingStep"]
         )
         
         self.output_spec = OutputSpec(
             logical_name="processed_data",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri"
         )
     
@@ -1006,7 +1037,7 @@ class TestScriptContractIntegration(unittest.TestCase):
         """Test StepSpecification without script contract (default behavior)."""
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec]
         )
@@ -1032,7 +1063,7 @@ class TestScriptContractIntegration(unittest.TestCase):
         
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec],
             script_contract=mock_contract
@@ -1060,7 +1091,7 @@ class TestScriptContractIntegration(unittest.TestCase):
         
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec],
             script_contract=mock_contract
@@ -1080,7 +1111,7 @@ class TestScriptContractIntegration(unittest.TestCase):
         # Create a step spec without script contract
         step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[self.dep_spec],
             outputs=[self.output_spec]
         )
@@ -1100,7 +1131,7 @@ class TestScriptContractIntegration(unittest.TestCase):
         # This tests that the new field doesn't break existing specifications
         step_spec = StepSpecification(
             step_type="LegacyStep",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             dependencies=[],
             outputs=[self.output_spec]
         )

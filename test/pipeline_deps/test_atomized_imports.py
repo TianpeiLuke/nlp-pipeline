@@ -216,11 +216,28 @@ class TestAtomizedImports(unittest.TestCase):
 class TestIntegrationWithAtomizedStructure(unittest.TestCase):
     """Test integration scenarios with the atomized structure."""
     
+    def setUp(self):
+        """Set up test fixtures."""
+        # Clear registry manager before each test
+        from src.pipeline_deps.registry_manager import registry_manager
+        registry_manager.clear_all_contexts()
+        
+        # Create fresh instances of the enums for each test to ensure isolation
+        from src.pipeline_deps.base_specifications import NodeType, DependencyType
+        self.node_type_source = NodeType.SOURCE
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        # Clear registry manager after each test
+        from src.pipeline_deps.registry_manager import registry_manager
+        registry_manager.clear_all_contexts()
+    
     def test_end_to_end_workflow(self):
         """Test complete workflow using atomized imports."""
         # Import directly from modules to avoid any import conflicts
         from src.pipeline_deps.registry_manager import get_registry
-        from src.pipeline_deps.base_specifications import StepSpecification, OutputSpec, NodeType, DependencyType
+        from src.pipeline_deps.base_specifications import StepSpecification, OutputSpec
         
         # Create registry
         registry = get_registry("integration_test")
@@ -236,7 +253,7 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         # Create and register specification
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.SOURCE,  # Use enum instance
+            node_type=self.node_type_source,  # Use instance variable for isolation
             dependencies=[],
             outputs=[output_spec]
         )
@@ -253,7 +270,7 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         from src.pipeline_deps.specification_registry import SpecificationRegistry
         from src.pipeline_deps.registry_manager import RegistryManager
         from src.pipeline_deps.base_specifications import (
-            StepSpecification, DependencyType, NodeType, OutputSpec
+            StepSpecification, OutputSpec
         )
         
         # Create manager and registry
@@ -266,7 +283,7 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         # Create output spec separately
         output_spec = OutputSpec(
             logical_name="output",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.test",
             data_type="S3Uri"
         )
@@ -274,7 +291,7 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         # Create spec using base_specifications
         spec = StepSpecification(
             step_type="CrossModuleTest",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             outputs=[output_spec]
         )
         

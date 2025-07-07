@@ -21,10 +21,14 @@ class TestRegistryManager(unittest.TestCase):
         # Create a fresh manager for each test
         self.manager = RegistryManager()
         
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_source = NodeType.SOURCE
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
+        
         # Create test specification
         output_spec = OutputSpec(
             logical_name="test_output",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Test output"
@@ -32,7 +36,7 @@ class TestRegistryManager(unittest.TestCase):
         
         self.test_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             dependencies=[],
             outputs=[output_spec]
         )
@@ -196,16 +200,20 @@ class TestConvenienceFunctions(unittest.TestCase):
         # Clear global registry manager state
         registry_manager.clear_all_contexts()
         
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_source = NodeType.SOURCE
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
+        
         output_spec = OutputSpec(
             logical_name="test_output",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
             data_type="S3Uri"
         )
         
         self.test_spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             dependencies=[],
             outputs=[output_spec]
         )

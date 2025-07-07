@@ -16,10 +16,15 @@ class TestSpecificationRegistry(unittest.TestCase):
         """Set up test fixtures."""
         self.registry = SpecificationRegistry("test_context")
         
+        # Create fresh instances of the enums for each test to ensure isolation
+        self.node_type_source = NodeType.SOURCE
+        self.node_type_internal = NodeType.INTERNAL
+        self.dependency_type = DependencyType.PROCESSING_OUTPUT
+        
         # Create test specifications
         output_spec = OutputSpec(
             logical_name="raw_data",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['RawData'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Raw data output"
@@ -27,7 +32,7 @@ class TestSpecificationRegistry(unittest.TestCase):
         
         self.data_loading_spec = StepSpecification(
             step_type="DataLoadingStep",
-            node_type=NodeType.SOURCE,
+            node_type=self.node_type_source,
             dependencies=[],
             outputs=[output_spec]
         )
@@ -35,7 +40,7 @@ class TestSpecificationRegistry(unittest.TestCase):
         # Create dependency and output specs separately
         dep_spec = DependencySpec(
             logical_name="input_data",
-            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            dependency_type=self.dependency_type,
             required=True,
             compatible_sources=["DataLoadingStep"],
             semantic_keywords=["data", "input"],
@@ -45,7 +50,7 @@ class TestSpecificationRegistry(unittest.TestCase):
         
         output_spec = OutputSpec(
             logical_name="processed_data",
-            output_type=DependencyType.PROCESSING_OUTPUT,
+            output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Processed data output"
@@ -53,7 +58,7 @@ class TestSpecificationRegistry(unittest.TestCase):
         
         self.preprocessing_spec = StepSpecification(
             step_type="PreprocessingStep",
-            node_type=NodeType.INTERNAL,
+            node_type=self.node_type_internal,
             dependencies=[dep_spec],
             outputs=[output_spec]
         )
