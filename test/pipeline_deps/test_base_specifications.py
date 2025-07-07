@@ -180,8 +180,12 @@ class TestDependencySpec(unittest.TestCase):
         self.assertIsInstance(dict_data, dict)
         self.assertEqual(dict_data["logical_name"], "training_data")
         
+        # Convert the string dependency_type back to enum for validation
+        dict_data_copy = dict_data.copy()
+        dict_data_copy["dependency_type"] = DependencyType(dict_data["dependency_type"])
+        
         # Test deserialization
-        new_spec = DependencySpec.model_validate(dict_data)
+        new_spec = DependencySpec.model_validate(dict_data_copy)
         self.assertEqual(new_spec.logical_name, dep_spec.logical_name)
         self.assertEqual(new_spec.dependency_type, dep_spec.dependency_type)
     
@@ -306,8 +310,12 @@ class TestOutputSpec(unittest.TestCase):
         self.assertIsInstance(dict_data, dict)
         self.assertEqual(dict_data["logical_name"], "processed_data")
         
+        # Convert the string output_type back to enum for validation
+        dict_data_copy = dict_data.copy()
+        dict_data_copy["output_type"] = DependencyType(dict_data["output_type"])
+        
         # Test deserialization
-        new_spec = OutputSpec.model_validate(dict_data)
+        new_spec = OutputSpec.model_validate(dict_data_copy)
         self.assertEqual(new_spec.logical_name, output_spec.logical_name)
         self.assertEqual(new_spec.output_type, output_spec.output_type)
 
@@ -553,6 +561,8 @@ class TestStepSpecification(unittest.TestCase):
             dependencies=[],
             outputs=[self.output_spec]
         )
+        # With use_enum_values=False, we expect an enum instance
+        self.assertIsInstance(step_spec.node_type, NodeType)
         self.assertEqual(step_spec.node_type, NodeType.SOURCE)
     
     def test_dependency_and_output_access(self):
@@ -808,14 +818,14 @@ class TestEnumValidation(unittest.TestCase):
     def test_node_type_enum_values(self):
         """Test all NodeType enum values."""
         valid_values = [
-            "source",
-            "internal",
-            "sink",
-            "singular"
+            NodeType.SOURCE,
+            NodeType.INTERNAL,
+            NodeType.SINK,
+            NodeType.SINGULAR
         ]
         
         for value in valid_values:
-            if value == "source":
+            if value == NodeType.SOURCE:
                 # SOURCE nodes need outputs but no dependencies
                 step_spec = StepSpecification(
                     step_type="TestStep",
@@ -827,7 +837,7 @@ class TestEnumValidation(unittest.TestCase):
                         property_path="properties.test.path"
                     )]
                 )
-            elif value == "sink":
+            elif value == NodeType.SINK:
                 # SINK nodes need dependencies but no outputs
                 step_spec = StepSpecification(
                     step_type="TestStep",
@@ -838,7 +848,7 @@ class TestEnumValidation(unittest.TestCase):
                     )],
                     outputs=[]
                 )
-            elif value == "singular":
+            elif value == NodeType.SINGULAR:
                 # SINGULAR nodes have no dependencies or outputs
                 step_spec = StepSpecification(
                     step_type="TestStep",

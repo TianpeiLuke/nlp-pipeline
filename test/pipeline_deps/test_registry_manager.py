@@ -22,19 +22,19 @@ class TestRegistryManager(unittest.TestCase):
         self.manager = RegistryManager()
         
         # Create test specification
+        output_spec = OutputSpec(
+            logical_name="test_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
+            data_type="S3Uri",
+            description="Test output"
+        )
+        
         self.test_spec = StepSpecification(
             step_type="TestStep",
             node_type=NodeType.SOURCE,
             dependencies=[],
-            outputs=[
-                OutputSpec(
-                    logical_name="test_output",
-                    output_type=DependencyType.PROCESSING_OUTPUT,
-                    property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
-                    data_type="S3Uri",
-                    description="Test output"
-                )
-            ]
+            outputs=[output_spec]
         )
         
     def tearDown(self):
@@ -196,18 +196,18 @@ class TestConvenienceFunctions(unittest.TestCase):
         # Clear global registry manager state
         registry_manager.clear_all_contexts()
         
+        output_spec = OutputSpec(
+            logical_name="test_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
+            data_type="S3Uri"
+        )
+        
         self.test_spec = StepSpecification(
             step_type="TestStep",
             node_type=NodeType.SOURCE,
             dependencies=[],
-            outputs=[
-                OutputSpec(
-                    logical_name="test_output",
-                    output_type=DependencyType.PROCESSING_OUTPUT,
-                    property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
-                    data_type="S3Uri"
-                )
-            ]
+            outputs=[output_spec]
         )
     
     def tearDown(self):

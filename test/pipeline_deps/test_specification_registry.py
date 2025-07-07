@@ -17,44 +17,45 @@ class TestSpecificationRegistry(unittest.TestCase):
         self.registry = SpecificationRegistry("test_context")
         
         # Create test specifications
+        output_spec = OutputSpec(
+            logical_name="raw_data",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['RawData'].S3Output.S3Uri",
+            data_type="S3Uri",
+            description="Raw data output"
+        )
+        
         self.data_loading_spec = StepSpecification(
             step_type="DataLoadingStep",
             node_type=NodeType.SOURCE,
             dependencies=[],
-            outputs=[
-                OutputSpec(
-                    logical_name="raw_data",
-                    output_type=DependencyType.PROCESSING_OUTPUT,
-                    property_path="properties.ProcessingOutputConfig.Outputs['RawData'].S3Output.S3Uri",
-                    data_type="S3Uri",
-                    description="Raw data output"
-                )
-            ]
+            outputs=[output_spec]
+        )
+        
+        # Create dependency and output specs separately
+        dep_spec = DependencySpec(
+            logical_name="input_data",
+            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            required=True,
+            compatible_sources=["DataLoadingStep"],
+            semantic_keywords=["data", "input"],
+            data_type="S3Uri",
+            description="Input data for preprocessing"
+        )
+        
+        output_spec = OutputSpec(
+            logical_name="processed_data",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri",
+            data_type="S3Uri",
+            description="Processed data output"
         )
         
         self.preprocessing_spec = StepSpecification(
             step_type="PreprocessingStep",
             node_type=NodeType.INTERNAL,
-            dependencies=[
-                DependencySpec(
-                    logical_name="input_data",
-                    dependency_type=DependencyType.PROCESSING_OUTPUT,
-                    required=True,
-                    compatible_sources=["DataLoadingStep"],
-                    semantic_keywords=["data", "input"],
-                    data_type="S3Uri",
-                    description="Input data for preprocessing"
-                )
-            ],
-            outputs=[
-                OutputSpec(
-                    logical_name="processed_data",
-                    output_type=DependencyType.PROCESSING_OUTPUT,
-                    property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri",
-                    data_type="S3Uri",
-                    description="Processed data output"
-                )
-            ]
+            dependencies=[dep_spec],
+            outputs=[output_spec]
         )
         
     def tearDown(self):

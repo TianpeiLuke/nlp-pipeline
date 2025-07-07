@@ -220,24 +220,25 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         """Test complete workflow using atomized imports."""
         # Import directly from modules to avoid any import conflicts
         from src.pipeline_deps.registry_manager import get_registry
-        from src.pipeline_deps.base_specifications import StepSpecification, OutputSpec
+        from src.pipeline_deps.base_specifications import StepSpecification, OutputSpec, NodeType, DependencyType
         
         # Create registry
         registry = get_registry("integration_test")
         
+        # Create output spec separately
+        output_spec = OutputSpec(
+            logical_name="test_output",
+            output_type="processing_output",  # Use string value instead of enum
+            property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
+            data_type="S3Uri"
+        )
+        
         # Create and register specification
         spec = StepSpecification(
             step_type="TestStep",
-            node_type="source",  # Use string value instead of enum
+            node_type=NodeType.SOURCE,  # Use enum instance
             dependencies=[],
-            outputs=[
-                OutputSpec(
-                    logical_name="test_output",
-                    output_type="processing_output",  # Use string value instead of enum
-                    property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
-                    data_type="S3Uri"
-                )
-            ]
+            outputs=[output_spec]
         )
         
         registry.register("test_step", spec)
@@ -262,18 +263,19 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
         # Should be SpecificationRegistry instance
         self.assertIsInstance(registry, SpecificationRegistry)
         
+        # Create output spec separately
+        output_spec = OutputSpec(
+            logical_name="output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.test",
+            data_type="S3Uri"
+        )
+        
         # Create spec using base_specifications
         spec = StepSpecification(
             step_type="CrossModuleTest",
             node_type=NodeType.SOURCE,
-            outputs=[
-                OutputSpec(
-                    logical_name="output",
-                    output_type=DependencyType.PROCESSING_OUTPUT,
-                    property_path="properties.test",
-                    data_type="S3Uri"
-                )
-            ]
+            outputs=[output_spec]
         )
         
         # Register using registry from manager
