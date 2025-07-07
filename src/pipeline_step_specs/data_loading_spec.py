@@ -10,7 +10,7 @@ from ..pipeline_registry.step_names import get_spec_step_type
 
 # Cradle Data Loading Step Specification
 DATA_LOADING_SPEC = StepSpecification(
-    step_type=get_spec_step_type("CradleDataLoading"),
+    step_type=get_spec_step_type("CradleDataLoading") + "_Training",
     node_type=NodeType.SOURCE,
     dependencies=[
         # Note: CradleDataLoading is typically the first step in a pipeline

@@ -1,15 +1,16 @@
 """
-Cradle Data Loading Testing Step Specification.
+Cradle Data Loading Step Specification for Testing Job Type.
 
 This module defines the declarative specification for Cradle data loading steps
-specifically for testing data, including their dependencies and outputs.
+specifically for testing jobs, including their dependencies and outputs.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
+from ..pipeline_registry.step_names import get_spec_step_type
 
-# Cradle Data Loading Testing Step Specification
+# Cradle Data Loading Step Specification for Testing
 DATA_LOADING_TESTING_SPEC = StepSpecification(
-    step_type="CradleDataLoading_Testing",
+    step_type=get_spec_step_type("CradleDataLoading") + "_Testing",
     node_type=NodeType.SOURCE,
     dependencies=[
         # Note: CradleDataLoading is typically the first step in a pipeline
@@ -21,24 +22,21 @@ DATA_LOADING_TESTING_SPEC = StepSpecification(
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['DATA'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Testing data output from Cradle data loading",
-            semantic_keywords=["testing", "test", "data", "input", "raw", "dataset", "model_testing", "holdout", "source"]
+            description="Main data output from Cradle data loading"
         ),
         OutputSpec(
             logical_name="METADATA",
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['METADATA'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Testing metadata output from Cradle data loading",
-            semantic_keywords=["testing", "test", "metadata", "schema", "info", "description", "model_testing", "holdout"]
+            description="Metadata output from Cradle data loading"
         ),
         OutputSpec(
             logical_name="SIGNATURE",
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['SIGNATURE'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Testing signature output from Cradle data loading",
-            semantic_keywords=["testing", "test", "signature", "validation", "checksum", "model_testing", "holdout"]
+            description="Signature output from Cradle data loading"
         )
     ]
 )
