@@ -330,7 +330,7 @@ class StepSpecification(BaseModel):
     model_config = ConfigDict(
         validate_assignment=True,
         arbitrary_types_allowed=True,
-        use_enum_values=False,  # Keep node_type as enum instance for tests
+        use_enum_values=False,  # Store enum instances, not values
         json_schema_extra={
             "examples": [
                 {
@@ -452,7 +452,7 @@ class StepSpecification(BaseModel):
     
     @field_validator('node_type', mode='before')
     @classmethod
-    def validate_node_type(cls, v) -> Union[NodeType, str]:
+    def validate_node_type(cls, v) -> NodeType:
         """Validate node type is a valid enum value."""
         if isinstance(v, str):
             try:
@@ -466,9 +466,9 @@ class StepSpecification(BaseModel):
         else:
             # Handle other cases more gracefully
             try:
-                if hasattr(v, 'value'):
-                    return v  # Might be an enum-like object
-                return str(v)  # Try to convert to string
+                if hasattr(v, 'value') and v.value in [e.value for e in NodeType]:
+                    return NodeType(v.value)  # Convert enum-like object to NodeType
+                return NodeType(str(v))  # Try to convert to string and then to NodeType
             except:
                 raise ValueError(f"node_type must be a NodeType enum or valid string value, got: {type(v).__name__}")
     
@@ -673,6 +673,13 @@ class StepSpecification(BaseModel):
                 try:
                     obj = obj.copy()  # Create a copy to avoid modifying the original
                     obj['node_type'] = NodeType(obj['node_type'])
+                except ValueError:
+                    pass  # Let the validator handle the error
+            elif hasattr(obj['node_type'], 'value'):
+                # Handle case where node_type is already an enum instance
+                try:
+                    obj = obj.copy()
+                    obj['node_type'] = NodeType(obj['node_type'].value)
                 except ValueError:
                     pass  # Let the validator handle the error
         return super().model_validate(obj, **kwargs)

@@ -18,6 +18,7 @@ class TestRegistryManager(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
+        # Create a fresh manager for each test
         self.manager = RegistryManager()
         
         # Create test specification
@@ -35,6 +36,13 @@ class TestRegistryManager(unittest.TestCase):
                 )
             ]
         )
+        
+    def tearDown(self):
+        """Clean up after tests."""
+        # Clear all contexts to avoid state leakage between tests
+        self.manager.clear_all_contexts()
+        # Also clear the global registry manager
+        registry_manager.clear_all_contexts()
     
     def test_manager_initialization(self):
         """Test registry manager initialization."""

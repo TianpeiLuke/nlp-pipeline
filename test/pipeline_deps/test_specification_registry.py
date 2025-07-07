@@ -56,6 +56,12 @@ class TestSpecificationRegistry(unittest.TestCase):
                 )
             ]
         )
+        
+    def tearDown(self):
+        """Clean up after tests."""
+        # Clear the global registry manager to avoid state leakage
+        from src.pipeline_deps.registry_manager import registry_manager
+        registry_manager.clear_all_contexts()
     
     def test_registry_initialization(self):
         """Test registry initialization with context name."""

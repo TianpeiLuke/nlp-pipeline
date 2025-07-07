@@ -29,7 +29,10 @@ class SpecificationRegistry:
     
     def register(self, step_name: str, specification: StepSpecification):
         """Register a step specification."""
-        if not isinstance(specification, StepSpecification):
+        # Check if it's a StepSpecification by checking for required attributes
+        # This is more robust than using isinstance which can fail with module reloading
+        if not hasattr(specification, 'step_type') or not hasattr(specification, 'node_type') or \
+           not hasattr(specification, 'dependencies') or not hasattr(specification, 'outputs'):
             raise ValueError("specification must be a StepSpecification instance")
         
         # Validate the specification (Pydantic handles most validation automatically)
