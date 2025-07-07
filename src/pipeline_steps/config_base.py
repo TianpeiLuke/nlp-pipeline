@@ -4,24 +4,8 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-STEP_REGISTRY = {
-        'BasePipelineConfig':         'Base',
-        'PytorchTrainingConfig':      'PytorchTraining',
-        'PytorchModelCreationConfig': 'PytorchModel',
-        'XGBoostTrainingConfig':      'XGBoostTraining',
-        'XGBoostModelCreationConfig': 'XGBoostModel',
-        'ProcessingStepConfigBase':   'Processing',
-        'PackageStepConfig':          'Package',
-        'ModelRegistrationConfig':    'Registration',
-        'PayloadConfig':              'Payload',
-        'TabularPreprocessingConfig': 'TabularPreprocessing',
-        'CurrencyConversionConfig':   'CurrencyConversion',
-        'CradleDataLoadConfig':       'CradleDataLoading',
-        'BatchTransformStepConfig':   'BatchTransform',
-        'XGBoostModelEvalConfig':     'XGBoostModelEval',
-        'PytorchModelEvalConfig':     'PytorchModelEval',
-        'HyperparameterPrepConfig':   'HyperparameterPrep',
-    }
+# Import step registry from central source of truth
+from ..pipeline_registry.step_names import CONFIG_STEP_REGISTRY as STEP_REGISTRY
 
 
 class BasePipelineConfig(BaseModel):

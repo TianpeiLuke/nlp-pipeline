@@ -6,10 +6,11 @@ including their dependencies and outputs based on the actual implementation.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
+from ..pipeline_registry.step_names import get_spec_step_type
 
 # Tabular Preprocessing Step Specification
 PREPROCESSING_SPEC = StepSpecification(
-    step_type="TabularPreprocessing",
+    step_type=get_spec_step_type("TabularPreprocessing"),
     node_type=NodeType.INTERNAL,
     dependencies=[
         DependencySpec(

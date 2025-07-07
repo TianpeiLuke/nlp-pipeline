@@ -6,6 +6,7 @@ including their dependencies and outputs based on the actual implementation.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
+from ..pipeline_registry.step_names import get_spec_step_type
 
 # Import the contract at runtime to avoid circular imports
 def _get_mims_payload_contract():
@@ -14,7 +15,7 @@ def _get_mims_payload_contract():
 
 # MIMS Payload Step Specification
 PAYLOAD_SPEC = StepSpecification(
-    step_type="Payload",
+    step_type=get_spec_step_type("Payload"),
     node_type=NodeType.INTERNAL,
     script_contract=_get_mims_payload_contract(),
     dependencies=[

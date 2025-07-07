@@ -40,24 +40,8 @@ def safe_value_for_logging(value):
         return f"[Object of type: {type(value).__name__}]"
 
 
-STEP_NAMES = {
-    'Base':                 'BaseStep',
-    'Processing':           'ProcessingStep',
-    'PytorchTraining':      'PytorchTrainingStep',
-    'XGBoostTraining':      'XGBoostTrainingStep',
-    'PytorchModel':         'CreatePytorchModelStep',
-    'XGBoostModel':         'CreateXGBoostModelStep',
-    'Package':              'PackagingStep',
-    'Payload':              'PayloadTestStep',
-    'Registration':         'RegistrationStep',
-    'TabularPreprocessing': 'TabularPreprocessingStep',
-    'CurrencyConversion':   'CurrencyConversionStep',
-    'CradleDataLoading':    'CradleDataLoadingStep',
-    'BatchTransform':       'BatchTransformStep',
-    'XGBoostModelEval':     'XGBoostModelEvaluationStep',
-    'PytorchModelEval':     'PytorchModelEvaluationStep',
-    'HyperparameterPrep':   'HyperparameterPrepStep',
-    }
+# Import step names from central source of truth
+from ..pipeline_registry.step_names import BUILDER_STEP_NAMES as STEP_NAMES
 
 
 class StepBuilderBase(ABC):

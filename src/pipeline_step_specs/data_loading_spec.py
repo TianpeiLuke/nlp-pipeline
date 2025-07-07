@@ -6,10 +6,11 @@ including their dependencies and outputs based on the actual implementation.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
+from ..pipeline_registry.step_names import get_spec_step_type
 
 # Cradle Data Loading Step Specification
 DATA_LOADING_SPEC = StepSpecification(
-    step_type="CradleDataLoading",
+    step_type=get_spec_step_type("CradleDataLoading"),
     node_type=NodeType.SOURCE,
     dependencies=[
         # Note: CradleDataLoading is typically the first step in a pipeline

@@ -6,6 +6,7 @@ including their dependencies and outputs based on the actual implementation.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
+from ..pipeline_registry.step_names import get_spec_step_type
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ def _get_model_evaluation_contract():
 
 # XGBoost Model Evaluation Step Specification
 MODEL_EVAL_SPEC = StepSpecification(
-    step_type="XGBoostModelEvaluation",
+    step_type=get_spec_step_type("XGBoostModelEvaluation"),
     node_type=NodeType.INTERNAL,
     script_contract=_get_model_evaluation_contract(),
     dependencies=[
