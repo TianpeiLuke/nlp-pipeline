@@ -14,7 +14,8 @@ XGBOOST_TRAIN_CONTRACT = TrainingScriptContract(
         "hyperparameters_s3_uri": "/opt/ml/input/data/config/hyperparameters.json"
     },
     expected_output_paths={
-        "model_output": "/opt/ml/model"
+        "model_output": "/opt/ml/model",
+        "evaluation_output": "/opt/ml/output/data"
     },
     required_env_vars=[
         # No strictly required environment variables - script uses hyperparameters.json
@@ -61,10 +62,13 @@ XGBOOST_TRAIN_CONTRACT = TrainingScriptContract(
       - /opt/ml/model/feature_importance.json: Feature importance scores
       - /opt/ml/model/feature_columns.txt: Ordered feature column names
       - /opt/ml/model/hyperparameters.json: Model hyperparameters
+    - /opt/ml/output/data: Evaluation results directory
+      - /opt/ml/output/data/val.tar.gz: Validation predictions and metrics
+      - /opt/ml/output/data/test.tar.gz: Test predictions and metrics
     
     Contract aligned with step specification:
     - Inputs: input_path (required), hyperparameters_s3_uri (optional)
-    - Outputs: model_output (primary)
+    - Outputs: model_output (primary), evaluation_output (secondary)
     
     Hyperparameters (via JSON config):
     - Data fields: tab_field_list, cat_field_list, label_name, id_name

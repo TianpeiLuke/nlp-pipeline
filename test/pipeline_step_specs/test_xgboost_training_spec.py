@@ -105,7 +105,8 @@ class TestXGBoostTrainingSpec(unittest.TestCase):
         ]
         
         for alias in model_output_aliases:
-            alias_output = XGBOOST_TRAINING_SPEC.get_output(alias)
+            alias_output = XGBOOST_TRAINING_SPEC.get_output_by_name_or_alias(alias)
+            self.assertIsNotNone(alias_output, f"Alias {alias} should be found")
             self.assertEqual(
                 model_output.property_path, 
                 alias_output.property_path,
@@ -114,12 +115,14 @@ class TestXGBoostTrainingSpec(unittest.TestCase):
         
         # Training job name alias
         training_job_name = XGBOOST_TRAINING_SPEC.get_output("training_job_name")
-        job_name_alias = XGBOOST_TRAINING_SPEC.get_output("TrainingJobName")
+        job_name_alias = XGBOOST_TRAINING_SPEC.get_output_by_name_or_alias("TrainingJobName")
+        self.assertIsNotNone(job_name_alias, "TrainingJobName alias should be found")
         self.assertEqual(training_job_name.property_path, job_name_alias.property_path)
         
         # Metrics output alias
         metrics_output = XGBOOST_TRAINING_SPEC.get_output("metrics_output")
-        metrics_alias = XGBOOST_TRAINING_SPEC.get_output("TrainingMetrics")
+        metrics_alias = XGBOOST_TRAINING_SPEC.get_output_by_name_or_alias("TrainingMetrics")
+        self.assertIsNotNone(metrics_alias, "TrainingMetrics alias should be found")
         self.assertEqual(metrics_output.property_path, metrics_alias.property_path)
     
     def test_compatible_sources(self):

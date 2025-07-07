@@ -43,70 +43,31 @@ XGBOOST_TRAINING_SPEC = StepSpecification(
             output_type=DependencyType.MODEL_ARTIFACTS,
             property_path="properties.ModelArtifacts.S3ModelArtifacts",
             data_type="S3Uri",
-            description="Trained XGBoost model artifacts"
+            description="Trained XGBoost model artifacts",
+            aliases=["ModelOutputPath", "ModelArtifacts", "model_data", "output_path", "model_input"]
         ),
         OutputSpec(
-            logical_name="ModelOutputPath",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
+            logical_name="evaluation_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
             data_type="S3Uri",
-            description="Model output path (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="ModelArtifacts",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model artifacts (alias for model_output)"
+            description="Model evaluation results and predictions (val.tar.gz, test.tar.gz)"
         ),
         OutputSpec(
             logical_name="training_job_name",
             output_type=DependencyType.CUSTOM_PROPERTY,
             property_path="properties.TrainingJobName",
             data_type="String",
-            description="SageMaker training job name"
+            description="SageMaker training job name",
+            aliases=["TrainingJobName"]
         ),
         OutputSpec(
             logical_name="metrics_output",
             output_type=DependencyType.CUSTOM_PROPERTY,
             property_path="properties.TrainingMetrics",
             data_type="String",
-            description="Training metrics from the job"
-        ),
-        OutputSpec(
-            logical_name="model_data",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model data (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="output_path",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Output path (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="model_input",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts",
-            data_type="S3Uri",
-            description="Model input reference (alias for model_output)"
-        ),
-        OutputSpec(
-            logical_name="TrainingJobName",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingJobName",
-            data_type="String",
-            description="Training job name (alias for training_job_name)"
-        ),
-        OutputSpec(
-            logical_name="TrainingMetrics",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingMetrics",
-            data_type="String",
-            description="Training metrics (alias for metrics_output)"
+            description="Training metrics from the job",
+            aliases=["TrainingMetrics"]
         )
     ]
 )
