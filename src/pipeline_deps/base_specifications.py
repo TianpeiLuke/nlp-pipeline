@@ -30,6 +30,12 @@ class DependencyType(Enum):
     HYPERPARAMETERS = "hyperparameters"
     PAYLOAD_SAMPLES = "payload_samples"
     CUSTOM_PROPERTY = "custom_property"
+    
+    def __eq__(self, other):
+        """Compare enum instances by value."""
+        if isinstance(other, DependencyType):
+            return self.value == other.value
+        return super().__eq__(other)
 
 
 class NodeType(Enum):
@@ -38,6 +44,12 @@ class NodeType(Enum):
     INTERNAL = "internal"  # Has both dependencies and outputs (e.g., processing, training)
     SINK = "sink"         # Has dependencies, no outputs (e.g., model registration)
     SINGULAR = "singular" # No dependencies, no outputs (e.g., standalone operations)
+    
+    def __eq__(self, other):
+        """Compare enum instances by value."""
+        if isinstance(other, NodeType):
+            return self.value == other.value
+        return super().__eq__(other)
 
 
 class DependencySpec(BaseModel):
@@ -121,6 +133,7 @@ class DependencySpec(BaseModel):
                 valid_values = [e.value for e in DependencyType]
                 raise ValueError(f"dependency_type must be one of: {valid_values}")
         elif isinstance(v, DependencyType):
+            # With use_enum_values=True, we should return the enum value
             return v
         else:
             raise ValueError("dependency_type must be a DependencyType enum or valid string value")
@@ -220,6 +233,7 @@ class OutputSpec(BaseModel):
                 valid_values = [e.value for e in DependencyType]
                 raise ValueError(f"output_type must be one of: {valid_values}")
         elif isinstance(v, DependencyType):
+            # With use_enum_values=True, we should return the enum value
             return v
         else:
             raise ValueError("output_type must be a DependencyType enum or valid string value")
@@ -316,6 +330,7 @@ class StepSpecification(BaseModel):
     model_config = ConfigDict(
         validate_assignment=True,
         arbitrary_types_allowed=True,
+        use_enum_values=False,  # Keep node_type as enum instance for tests
         json_schema_extra={
             "examples": [
                 {
@@ -437,18 +452,25 @@ class StepSpecification(BaseModel):
     
     @field_validator('node_type', mode='before')
     @classmethod
-    def validate_node_type(cls, v) -> NodeType:
+    def validate_node_type(cls, v) -> Union[NodeType, str]:
         """Validate node type is a valid enum value."""
-        if isinstance(v, NodeType):
-            return v
-        elif isinstance(v, str):
+        if isinstance(v, str):
             try:
                 return NodeType(v)
             except ValueError:
                 valid_values = [e.value for e in NodeType]
                 raise ValueError(f"node_type must be one of: {valid_values}, got: {v}")
+        elif isinstance(v, NodeType):
+            # Return the enum instance
+            return v
         else:
-            raise ValueError(f"node_type must be a NodeType enum or valid string value, got: {type(v).__name__}")
+            # Handle other cases more gracefully
+            try:
+                if hasattr(v, 'value'):
+                    return v  # Might be an enum-like object
+                return str(v)  # Try to convert to string
+            except:
+                raise ValueError(f"node_type must be a NodeType enum or valid string value, got: {type(v).__name__}")
     
     @model_validator(mode='after')
     def validate_node_type_constraints(self) -> 'StepSpecification':
@@ -641,6 +663,19 @@ class StepSpecification(BaseModel):
         return (f"StepSpecification(type='{self.step_type}', "
                 f"dependencies={len(self.dependencies)}, "
                 f"outputs={len(self.outputs)})")
+                
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        """Custom model_validate to handle enum conversion."""
+        if isinstance(obj, dict) and 'node_type' in obj:
+            # Convert string node_type to enum instance
+            if isinstance(obj['node_type'], str):
+                try:
+                    obj = obj.copy()  # Create a copy to avoid modifying the original
+                    obj['node_type'] = NodeType(obj['node_type'])
+                except ValueError:
+                    pass  # Let the validator handle the error
+        return super().model_validate(obj, **kwargs)
 
 
 # Note: SpecificationRegistry has been moved to specification_registry.py
