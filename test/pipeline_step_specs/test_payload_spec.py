@@ -14,8 +14,9 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from src.pipeline_deps.base_specifications import (
-    DependencyType, NodeType, SpecificationRegistry
+    DependencyType, NodeType
 )
+from src.pipeline_deps.specification_registry import SpecificationRegistry
 from src.pipeline_step_specs.payload_spec import PAYLOAD_SPEC
 
 
@@ -52,11 +53,13 @@ class TestPayloadSpec(unittest.TestCase):
     
     def test_outputs(self):
         """Test that the specification has the correct outputs."""
-        # Check output names
+        # Check output names (logical names only, no more duplicate entries)
         self.assertIsNotNone(PAYLOAD_SPEC.get_output("payload_sample"))
-        self.assertIsNotNone(PAYLOAD_SPEC.get_output("GeneratedPayloadSamples"))
         self.assertIsNotNone(PAYLOAD_SPEC.get_output("payload_metadata"))
-        self.assertIsNotNone(PAYLOAD_SPEC.get_output("PayloadMetadata"))
+        
+        # Check that old alias names are no longer separate outputs
+        self.assertIsNone(PAYLOAD_SPEC.get_output("GeneratedPayloadSamples"))
+        self.assertIsNone(PAYLOAD_SPEC.get_output("PayloadMetadata"))
         
         # Check output types
         payload_sample = PAYLOAD_SPEC.get_output("payload_sample")
@@ -65,25 +68,36 @@ class TestPayloadSpec(unittest.TestCase):
         payload_metadata = PAYLOAD_SPEC.get_output("payload_metadata")
         self.assertEqual(payload_metadata.output_type, DependencyType.PROCESSING_OUTPUT)
         
-        # Check property paths
+        # Check property paths (now using contract keys)
         self.assertEqual(
             payload_sample.property_path,
-            "properties.ProcessingOutputConfig.Outputs['GeneratedPayloadSamples'].S3Output.S3Uri"
+            "properties.ProcessingOutputConfig.Outputs['payload_sample'].S3Output.S3Uri"
         )
         self.assertEqual(
             payload_metadata.property_path,
-            "properties.ProcessingOutputConfig.Outputs['PayloadMetadata'].S3Output.S3Uri"
+            "properties.ProcessingOutputConfig.Outputs['payload_metadata'].S3Output.S3Uri"
         )
     
     def test_output_aliases(self):
-        """Test that the output aliases point to the same property paths."""
-        payload_sample = PAYLOAD_SPEC.get_output("payload_sample")
-        payload_sample_alias = PAYLOAD_SPEC.get_output("GeneratedPayloadSamples")
-        self.assertEqual(payload_sample.property_path, payload_sample_alias.property_path)
+        """Test that the new alias functionality works correctly."""
+        # Test that we can find outputs by alias using the new method
+        payload_sample_by_alias = PAYLOAD_SPEC.get_output_by_name_or_alias("GeneratedPayloadSamples")
+        self.assertIsNotNone(payload_sample_by_alias)
+        self.assertEqual(payload_sample_by_alias.logical_name, "payload_sample")
         
+        payload_metadata_by_alias = PAYLOAD_SPEC.get_output_by_name_or_alias("PayloadMetadata")
+        self.assertIsNotNone(payload_metadata_by_alias)
+        self.assertEqual(payload_metadata_by_alias.logical_name, "payload_metadata")
+        
+        # Test that aliases are properly defined
+        payload_sample = PAYLOAD_SPEC.get_output("payload_sample")
         payload_metadata = PAYLOAD_SPEC.get_output("payload_metadata")
-        payload_metadata_alias = PAYLOAD_SPEC.get_output("PayloadMetadata")
-        self.assertEqual(payload_metadata.property_path, payload_metadata_alias.property_path)
+        
+        # Check if aliases are defined (they should be if we add them to the spec)
+        if hasattr(payload_sample, 'aliases') and payload_sample.aliases:
+            self.assertIn("GeneratedPayloadSamples", payload_sample.aliases)
+        if hasattr(payload_metadata, 'aliases') and payload_metadata.aliases:
+            self.assertIn("PayloadMetadata", payload_metadata.aliases)
     
     def test_compatible_sources(self):
         """Test that the dependencies have the correct compatible sources."""

@@ -16,8 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from src.pipeline_deps.base_specifications import (
     StepSpecification, DependencySpec, OutputSpec, 
-    DependencyType, NodeType, SpecificationRegistry
+    DependencyType, NodeType
 )
+from src.pipeline_deps.specification_registry import SpecificationRegistry
 
 
 class TestNodeTypeSystem(unittest.TestCase):

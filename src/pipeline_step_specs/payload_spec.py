@@ -31,6 +31,7 @@ PAYLOAD_SPEC = StepSpecification(
     outputs=[
         OutputSpec(
             logical_name="payload_sample",
+            aliases=["GeneratedPayloadSamples"],
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['payload_sample'].S3Output.S3Uri",
             data_type="S3Uri",
@@ -38,6 +39,7 @@ PAYLOAD_SPEC = StepSpecification(
         ),
         OutputSpec(
             logical_name="payload_metadata",
+            aliases=["PayloadMetadata"],
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['payload_metadata'].S3Output.S3Uri",
             data_type="S3Uri",

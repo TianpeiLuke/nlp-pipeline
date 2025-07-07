@@ -159,8 +159,9 @@ class OutputSpec(BaseModel):
             "examples": [
                 {
                     "logical_name": "processed_data",
+                    "aliases": ["ProcessedData", "DATA"],
                     "output_type": "processing_output",
-                    "property_path": "properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri",
+                    "property_path": "properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
                     "data_type": "S3Uri",
                     "description": "Processed training data output"
                 }
@@ -170,9 +171,13 @@ class OutputSpec(BaseModel):
     
     logical_name: str = Field(
         ...,
-        description="How this output is referenced",
+        description="Primary name for this output",
         min_length=1,
         examples=["processed_data", "model_artifacts", "evaluation_results"]
+    )
+    aliases: List[str] = Field(
+        default_factory=list,
+        description="Alternative names that can be used to reference this output"
     )
     output_type: DependencyType = Field(
         ...,
@@ -219,6 +224,28 @@ class OutputSpec(BaseModel):
         else:
             raise ValueError("output_type must be a DependencyType enum or valid string value")
     
+    @field_validator('aliases')
+    @classmethod
+    def validate_aliases(cls, v: List[str]) -> List[str]:
+        """Validate aliases list."""
+        if not isinstance(v, list):
+            raise ValueError("aliases must be a list")
+        
+        # Remove empty strings, strip whitespace, and remove duplicates
+        cleaned = []
+        seen = set()
+        for alias in v:
+            if alias and alias.strip():
+                alias_clean = alias.strip()
+                # Validate alias follows same naming conventions as logical names
+                if not alias_clean.replace('_', '').replace('-', '').isalnum():
+                    raise ValueError(f"alias '{alias_clean}' should contain only alphanumeric characters, underscores, and hyphens")
+                if alias_clean.lower() not in seen:
+                    cleaned.append(alias_clean)
+                    seen.add(alias_clean.lower())
+        
+        return cleaned
+    
     @field_validator('property_path')
     @classmethod
     def validate_property_path(cls, v: str) -> str:
@@ -232,6 +259,18 @@ class OutputSpec(BaseModel):
             raise ValueError("property_path should start with 'properties.'")
         
         return v
+    
+    @model_validator(mode='after')
+    def validate_aliases_no_conflict(self) -> 'OutputSpec':
+        """Validate that aliases don't conflict with the logical name."""
+        if self.aliases:
+            # Check if any alias matches the logical name (case-insensitive)
+            logical_name_lower = self.logical_name.lower()
+            for alias in self.aliases:
+                if alias.lower() == logical_name_lower:
+                    raise ValueError(f"alias '{alias}' cannot be the same as logical_name '{self.logical_name}'")
+        
+        return self
 
 
 class PropertyReference(BaseModel):
@@ -438,7 +477,38 @@ class StepSpecification(BaseModel):
             if has_outputs:
                 raise ValueError(f"SINGULAR node '{self.step_type}' cannot have outputs")
         
+        # Validate that aliases don't conflict across outputs
+        self._validate_output_aliases()
+        
         return self
+    
+    def _validate_output_aliases(self) -> None:
+        """Validate that aliases don't conflict across different outputs."""
+        if not self.outputs:
+            return
+        
+        # Collect all logical names and aliases (case-insensitive)
+        all_names = set()
+        conflicts = []
+        
+        for output_spec in self.outputs.values():
+            # Check logical name
+            logical_name_lower = output_spec.logical_name.lower()
+            if logical_name_lower in all_names:
+                conflicts.append(f"Duplicate logical name: '{output_spec.logical_name}'")
+            else:
+                all_names.add(logical_name_lower)
+            
+            # Check aliases
+            for alias in output_spec.aliases:
+                alias_lower = alias.lower()
+                if alias_lower in all_names:
+                    conflicts.append(f"Alias '{alias}' conflicts with existing name or alias")
+                else:
+                    all_names.add(alias_lower)
+        
+        if conflicts:
+            raise ValueError(f"Output name/alias conflicts in step '{self.step_type}': {'; '.join(conflicts)}")
     
     def get_dependency(self, logical_name: str) -> Optional[DependencySpec]:
         """Get dependency specification by logical name."""
@@ -447,6 +517,42 @@ class StepSpecification(BaseModel):
     def get_output(self, logical_name: str) -> Optional[OutputSpec]:
         """Get output specification by logical name."""
         return self.outputs.get(logical_name)
+    
+    def get_output_by_name_or_alias(self, name: str) -> Optional[OutputSpec]:
+        """
+        Get output specification by logical name or alias.
+        
+        Args:
+            name: The logical name or alias to search for
+            
+        Returns:
+            OutputSpec if found, None otherwise
+        """
+        # First try exact logical name match
+        if name in self.outputs:
+            return self.outputs[name]
+        
+        # Then search through aliases (case-insensitive)
+        name_lower = name.lower()
+        for output_spec in self.outputs.values():
+            for alias in output_spec.aliases:
+                if alias.lower() == name_lower:
+                    return output_spec
+        
+        return None
+    
+    def list_all_output_names(self) -> List[str]:
+        """
+        Get list of all possible output names (logical names + aliases).
+        
+        Returns:
+            List of all names that can be used to reference outputs
+        """
+        all_names = []
+        for output_spec in self.outputs.values():
+            all_names.append(output_spec.logical_name)
+            all_names.extend(output_spec.aliases)
+        return all_names
     
     def list_required_dependencies(self) -> List[DependencySpec]:
         """Get list of required dependencies."""

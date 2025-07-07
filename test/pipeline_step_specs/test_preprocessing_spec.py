@@ -14,8 +14,9 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from src.pipeline_deps.base_specifications import (
-    DependencyType, NodeType, SpecificationRegistry
+    DependencyType, NodeType
 )
+from src.pipeline_deps.specification_registry import SpecificationRegistry
 from src.pipeline_step_specs.preprocessing_spec import PREPROCESSING_SPEC
 
 
