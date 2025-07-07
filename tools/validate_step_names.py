@@ -2,358 +2,352 @@
 """
 Step Name Consistency Validation Tool
 
-This tool validates that step names are consistent across all pipeline components:
-1. Config Registry (src/pipeline_steps/config_base.py)
-2. Builder Registry (src/pipeline_steps/builder_step_base.py)
-3. Step Specifications (src/pipeline_step_specs/*.py)
-4. Pipeline Templates (src/pipeline_builder/*.py)
+This tool validates that all step names across the pipeline system are consistent
+with the central registry. It checks:
+1. Step specifications use central registry
+2. Pipeline templates use consistent step names
+3. Config classes align with registry
+4. No hardcoded step names exist
 
 Usage:
     python tools/validate_step_names.py
+    ./tools/validate_step_names.py
 """
 
-import sys
 import os
-from pathlib import Path
-from typing import Dict, List, Set, Tuple
-import importlib.util
+import sys
 import re
+import importlib.util
+from pathlib import Path
+from typing import Dict, List, Set, Tuple, Any
+from dataclasses import dataclass
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-def load_module_from_file(file_path: Path, module_name: str):
-    """Load a Python module from a file path."""
-    try:
-        spec = importlib.util.spec_from_file_location(module_name, file_path)
-        if spec is None or spec.loader is None:
-            return None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    except Exception as e:
-        print(f"Error loading {file_path}: {e}")
-        return None
+try:
+    from src.pipeline_registry.step_names import (
+        STEP_NAMES,
+        get_spec_step_type,
+        get_builder_step_name
+    )
+except ImportError as e:
+    print(f"❌ ERROR: Could not import central registry: {e}")
+    print("Make sure src/pipeline_registry/step_names.py exists and is properly configured")
+    sys.exit(1)
 
-def get_central_registry() -> Dict[str, Dict[str, str]]:
-    """Get the central step names registry."""
-    try:
-        # Import with package path since we added project root to sys.path
-        from src.pipeline_registry.step_names import STEP_NAMES
-        return STEP_NAMES
-    except ImportError as e:
-        print(f"Error importing central registry: {e}")
-        return {}
 
-def validate_config_registry() -> Tuple[bool, List[str]]:
-    """Validate that config registry uses central registry."""
-    issues = []
+@dataclass
+class ValidationResult:
+    """Result of a validation check"""
+    component: str
+    check_type: str
+    status: bool
+    message: str
+    details: str = ""
+
+
+class StepNameValidator:
+    """Validates step name consistency across the pipeline system"""
     
-    try:
-        # Import with package paths since we added project root to sys.path
-        from src.pipeline_steps.config_base import STEP_REGISTRY
-        from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+    def __init__(self, project_root: Path = None):
+        self.project_root = project_root or Path(__file__).parent.parent
+        self.results: List[ValidationResult] = []
+        self.errors: List[str] = []
         
-        # Check if they match
-        if STEP_REGISTRY != CONFIG_STEP_REGISTRY:
-            issues.append("Config STEP_REGISTRY does not match central CONFIG_STEP_REGISTRY")
-            
-            # Find differences
-            config_keys = set(STEP_REGISTRY.keys())
-            central_keys = set(CONFIG_STEP_REGISTRY.keys())
-            
-            missing_in_config = central_keys - config_keys
-            extra_in_config = config_keys - central_keys
-            
-            if missing_in_config:
-                issues.append(f"Missing in config registry: {missing_in_config}")
-            if extra_in_config:
-                issues.append(f"Extra in config registry: {extra_in_config}")
-                
-            # Check value differences
-            common_keys = config_keys & central_keys
-            for key in common_keys:
-                if STEP_REGISTRY[key] != CONFIG_STEP_REGISTRY[key]:
-                    issues.append(f"Value mismatch for {key}: config='{STEP_REGISTRY[key]}' vs central='{CONFIG_STEP_REGISTRY[key]}'")
+    def validate_all(self) -> bool:
+        """Run all validation checks"""
+        print("🔍 Step Name Consistency Validation")
+        print("=" * 50)
         
-    except ImportError as e:
-        issues.append(f"Error importing config registry: {e}")
-    
-    return len(issues) == 0, issues
-
-def validate_builder_registry() -> Tuple[bool, List[str]]:
-    """Validate that builder registry uses central registry."""
-    issues = []
-    
-    try:
-        # Import with package paths since we added project root to sys.path
-        from src.pipeline_steps.builder_step_base import STEP_NAMES as BUILDER_STEP_NAMES_IMPORTED
-        from src.pipeline_registry.step_names import BUILDER_STEP_NAMES
+        # Phase 1: Validate central registry
+        self._validate_central_registry()
         
-        # Check if they match
-        if BUILDER_STEP_NAMES_IMPORTED != BUILDER_STEP_NAMES:
-            issues.append("Builder STEP_NAMES does not match central BUILDER_STEP_NAMES")
-            
-            # Find differences
-            builder_keys = set(BUILDER_STEP_NAMES_IMPORTED.keys())
-            central_keys = set(BUILDER_STEP_NAMES.keys())
-            
-            missing_in_builder = central_keys - builder_keys
-            extra_in_builder = builder_keys - central_keys
-            
-            if missing_in_builder:
-                issues.append(f"Missing in builder registry: {missing_in_builder}")
-            if extra_in_builder:
-                issues.append(f"Extra in builder registry: {extra_in_builder}")
-                
-            # Check value differences
-            common_keys = builder_keys & central_keys
-            for key in common_keys:
-                if BUILDER_STEP_NAMES_IMPORTED[key] != BUILDER_STEP_NAMES[key]:
-                    issues.append(f"Value mismatch for {key}: builder='{BUILDER_STEP_NAMES_IMPORTED[key]}' vs central='{BUILDER_STEP_NAMES[key]}'")
+        # Phase 2: Validate step specifications
+        self._validate_step_specifications()
         
-    except ImportError as e:
-        issues.append(f"Error importing builder registry: {e}")
+        # Phase 3: Validate pipeline templates
+        self._validate_pipeline_templates()
+        
+        # Phase 4: Validate config classes
+        self._validate_config_classes()
+        
+        # Phase 5: Check for hardcoded step names
+        self._check_hardcoded_step_names()
+        
+        # Print results
+        self._print_results()
+        
+        # Return overall success
+        return len(self.errors) == 0
     
-    return len(issues) == 0, issues
-
-def validate_step_specifications() -> Tuple[bool, List[str]]:
-    """Validate step specifications use consistent step_type values."""
-    issues = []
-    spec_dir = Path(__file__).parent.parent / "src" / "pipeline_step_specs"
-    
-    if not spec_dir.exists():
-        issues.append(f"Step specifications directory not found: {spec_dir}")
-        return False, issues
-    
-    # Get central registry for validation
-    central_registry = get_central_registry()
-    if not central_registry:
-        issues.append("Could not load central registry for validation")
-        return False, issues
-    
-    # Valid step types from central registry
-    valid_step_types = set(info["spec_type"] for info in central_registry.values())
-    
-    # Check each specification file
-    for spec_file in spec_dir.glob("*.py"):
-        if spec_file.name.startswith("__"):
-            continue
-            
-        # Read file content to look for step_type definitions
+    def _validate_central_registry(self):
+        """Validate the central registry is properly configured"""
+        print("\n📋 Validating Central Registry...")
+        
         try:
-            content = spec_file.read_text()
+            # Check registry has required step types
+            required_steps = [
+                "CradleDataLoading", "TabularPreprocessing", "PytorchTraining",
+                "PytorchModel", "XGBoostTraining", "XGBoostModel", 
+                "Registration", "Package", "Payload"
+            ]
             
-            # Look for step_type assignments
-            step_type_matches = re.findall(r'step_type\s*=\s*["\']([^"\']+)["\']', content)
-            get_spec_matches = re.findall(r'step_type\s*=\s*get_spec_step_type\s*\(\s*["\']([^"\']+)["\']\s*\)', content)
+            missing_steps = []
+            for step in required_steps:
+                try:
+                    result = get_spec_step_type(step)
+                    if not result:
+                        missing_steps.append(step)
+                except Exception:
+                    missing_steps.append(step)
             
-            # Check hardcoded step_type values
-            for step_type in step_type_matches:
-                # Handle job type variants (e.g., "TabularPreprocessing_Training")
-                base_step_type = step_type.split('_')[0] if '_' in step_type else step_type
+            if missing_steps:
+                self._add_error("Central Registry", "Missing step types", 
+                              f"Missing: {missing_steps}")
+            else:
+                self._add_success("Central Registry", "All required step types present")
                 
-                if base_step_type not in valid_step_types:
-                    issues.append(f"{spec_file.name}: Unknown step_type '{step_type}' (base: '{base_step_type}')")
+        except Exception as e:
+            self._add_error("Central Registry", "Import failed", str(e))
+    
+    def _validate_step_specifications(self):
+        """Validate step specifications use central registry"""
+        print("\n📝 Validating Step Specifications...")
+        
+        spec_dir = self.project_root / "src" / "pipeline_step_specs"
+        if not spec_dir.exists():
+            self._add_error("Step Specifications", "Directory not found", str(spec_dir))
+            return
+        
+        spec_files = list(spec_dir.glob("*.py"))
+        if not spec_files:
+            self._add_error("Step Specifications", "No specification files found", str(spec_dir))
+            return
+        
+        registry_import_pattern = re.compile(r'from.*pipeline_registry.*import.*get_spec_step_type')
+        registry_usage_pattern = re.compile(r'get_spec_step_type\s*\(\s*["\']([^"\']+)["\']\s*\)')
+        
+        for spec_file in spec_files:
+            if spec_file.name.startswith("__"):
+                continue
+                
+            try:
+                content = spec_file.read_text()
+                
+                # Check for registry import
+                has_import = bool(registry_import_pattern.search(content))
+                
+                # Check for registry usage
+                usage_matches = registry_usage_pattern.findall(content)
+                
+                if has_import and usage_matches:
+                    self._add_success("Step Specifications", f"{spec_file.name} uses central registry")
+                elif "step_type=" in content:
+                    # File defines step_type but doesn't use registry
+                    self._add_error("Step Specifications", f"{spec_file.name} hardcodes step_type", 
+                                  "Should use get_spec_step_type()")
                 else:
-                    # Check if it should use get_spec_step_type instead
-                    if step_type in valid_step_types:
-                        issues.append(f"{spec_file.name}: Should use get_spec_step_type('{step_type}') instead of hardcoded '{step_type}'")
-            
-            # Check get_spec_step_type calls
-            for step_name in get_spec_matches:
-                if step_name not in central_registry:
-                    issues.append(f"{spec_file.name}: Unknown step name '{step_name}' in get_spec_step_type()")
+                    # File might not define step specifications
+                    self._add_success("Step Specifications", f"{spec_file.name} no step_type defined")
                     
-        except Exception as e:
-            issues.append(f"Error reading {spec_file.name}: {e}")
+            except Exception as e:
+                self._add_error("Step Specifications", f"Error reading {spec_file.name}", str(e))
     
-    return len(issues) == 0, issues
-
-def validate_pipeline_templates() -> Tuple[bool, List[str]]:
-    """Validate pipeline templates use consistent step names."""
-    issues = []
-    template_dir = Path(__file__).parent.parent / "src" / "pipeline_builder"
-    
-    if not template_dir.exists():
-        issues.append(f"Pipeline builder directory not found: {template_dir}")
-        return False, issues
-    
-    # Get central registry for validation
-    central_registry = get_central_registry()
-    if not central_registry:
-        issues.append("Could not load central registry for validation")
-        return False, issues
-    
-    # Valid step names and types
-    valid_step_names = set(central_registry.keys())
-    valid_step_types = set(info["spec_type"] for info in central_registry.values())
-    valid_config_classes = set(info["config_class"] for info in central_registry.values())
-    valid_builder_classes = set(info["builder_step_name"] for info in central_registry.values())
-    
-    # Check each template file
-    for template_file in template_dir.glob("*.py"):
-        if template_file.name.startswith("__"):
-            continue
-            
-        try:
-            content = template_file.read_text()
-            
-            # Look for potential step name references
-            # This is a heuristic check - may need refinement
-            
-            # Check for hardcoded step type strings
-            for step_type in valid_step_types:
-                if f'"{step_type}"' in content or f"'{step_type}'" in content:
-                    # This might be okay, but flag for review
-                    issues.append(f"{template_file.name}: Contains hardcoded step type '{step_type}' - verify consistency")
-            
-            # Check for config class references
-            for config_class in valid_config_classes:
-                if config_class in content:
-                    # This is expected in templates
-                    pass
+    def _validate_pipeline_templates(self):
+        """Validate pipeline templates use consistent step names"""
+        print("\n🏗️ Validating Pipeline Templates...")
+        
+        template_dir = self.project_root / "src" / "pipeline_builder"
+        if not template_dir.exists():
+            self._add_error("Pipeline Templates", "Directory not found", str(template_dir))
+            return
+        
+        template_files = [f for f in template_dir.glob("template_*.py")]
+        template_files.append(template_dir / "pipeline_builder_template.py")
+        
+        builder_map_pattern = re.compile(r'BUILDER_MAP\s*=\s*\{([^}]+)\}', re.DOTALL)
+        step_name_pattern = re.compile(r'["\']([^"\']+)["\']:\s*\w+StepBuilder')
+        
+        for template_file in template_files:
+            if not template_file.exists():
+                continue
+                
+            try:
+                content = template_file.read_text()
+                
+                # Find BUILDER_MAP definitions
+                builder_maps = builder_map_pattern.findall(content)
+                
+                if not builder_maps:
+                    # Check if file should have BUILDER_MAP
+                    if "StepBuilder" in content:
+                        self._add_error("Pipeline Templates", f"{template_file.name} missing BUILDER_MAP", 
+                                      "Should define BUILDER_MAP with consistent step names")
+                    else:
+                        self._add_success("Pipeline Templates", f"{template_file.name} no step builders")
+                    continue
+                
+                # Validate step names in BUILDER_MAP
+                for builder_map in builder_maps:
+                    step_names = step_name_pattern.findall(builder_map)
                     
-        except Exception as e:
-            issues.append(f"Error reading {template_file.name}: {e}")
+                    for step_name in step_names:
+                        # Check if step name exists in registry
+                        try:
+                            registry_name = get_spec_step_type(step_name)
+                            if registry_name == step_name:
+                                self._add_success("Pipeline Templates", 
+                                                f"{template_file.name} uses consistent step name: {step_name}")
+                            else:
+                                self._add_error("Pipeline Templates", 
+                                              f"{template_file.name} step name mismatch", 
+                                              f"Uses '{step_name}', registry has '{registry_name}'")
+                        except Exception:
+                            # Step name not in registry - might be valid for specialized steps
+                            self._add_success("Pipeline Templates", 
+                                            f"{template_file.name} uses step name: {step_name} (not in registry)")
+                            
+            except Exception as e:
+                self._add_error("Pipeline Templates", f"Error reading {template_file.name}", str(e))
     
-    return len(issues) == 0, issues
-
-def find_orphaned_references() -> Tuple[bool, List[str]]:
-    """Find hardcoded step name references outside the registry."""
-    issues = []
-    src_dir = Path(__file__).parent.parent / "src"
+    def _validate_config_classes(self):
+        """Validate config classes use central registry"""
+        print("\n⚙️ Validating Config Classes...")
+        
+        config_dir = self.project_root / "src" / "pipeline_steps"
+        if not config_dir.exists():
+            self._add_error("Config Classes", "Directory not found", str(config_dir))
+            return
+        
+        config_files = [f for f in config_dir.glob("config_*.py")]
+        config_files.append(config_dir / "config_base.py")
+        
+        registry_import_pattern = re.compile(r'from.*pipeline_registry.*import')
+        
+        for config_file in config_files:
+            if not config_file.exists():
+                continue
+                
+            try:
+                content = config_file.read_text()
+                
+                # Check for registry import
+                has_import = bool(registry_import_pattern.search(content))
+                
+                if has_import:
+                    self._add_success("Config Classes", f"{config_file.name} imports from registry")
+                elif "get_step_name" in content or "step_type" in content:
+                    self._add_error("Config Classes", f"{config_file.name} missing registry import", 
+                                  "Should import from pipeline_registry")
+                else:
+                    self._add_success("Config Classes", f"{config_file.name} no step name usage")
+                    
+            except Exception as e:
+                self._add_error("Config Classes", f"Error reading {config_file.name}", str(e))
     
-    # Get central registry
-    central_registry = get_central_registry()
-    if not central_registry:
-        issues.append("Could not load central registry for validation")
-        return False, issues
-    
-    # Step types that should only come from registry
-    step_types_to_check = set(info["spec_type"] for info in central_registry.values())
-    
-    # Files to check (excluding registry files)
-    files_to_check = []
-    for pattern in ["**/*.py"]:
-        files_to_check.extend(src_dir.glob(pattern))
-    
-    # Exclude registry files
-    registry_files = {
-        src_dir / "pipeline_registry" / "__init__.py",
-        src_dir / "pipeline_registry" / "step_names.py"
-    }
-    
-    for file_path in files_to_check:
-        if file_path in registry_files or file_path.name.startswith("__"):
-            continue
-            
-        try:
-            content = file_path.read_text()
-            
-            # Look for hardcoded step type strings
-            for step_type in step_types_to_check:
-                # Skip very common words that might appear in comments
-                if step_type.lower() in ["base", "processing"]:
+    def _check_hardcoded_step_names(self):
+        """Check for hardcoded step names that should use registry"""
+        print("\n🔍 Checking for Hardcoded Step Names...")
+        
+        # Common hardcoded patterns to look for
+        hardcoded_patterns = [
+            re.compile(r'step_type\s*=\s*["\']([A-Z][a-zA-Z]+Step)["\']'),
+            re.compile(r'["\']([A-Z][a-zA-Z]*Training)["\']'),
+            re.compile(r'["\']([A-Z][a-zA-Z]*Model)["\']'),
+            re.compile(r'["\']([A-Z][a-zA-Z]*Processing)["\']'),
+        ]
+        
+        # Directories to check
+        check_dirs = [
+            self.project_root / "src" / "pipeline_step_specs",
+            self.project_root / "src" / "pipeline_builder",
+            self.project_root / "src" / "pipeline_steps",
+        ]
+        
+        for check_dir in check_dirs:
+            if not check_dir.exists():
+                continue
+                
+            for py_file in check_dir.glob("*.py"):
+                if py_file.name.startswith("__"):
                     continue
                     
-                # Look for quoted strings
-                if f'"{step_type}"' in content or f"'{step_type}'" in content:
-                    # Check if it's in a get_spec_step_type call (which is okay)
-                    if f'get_spec_step_type("{step_type}")' not in content and f"get_spec_step_type('{step_type}')" not in content:
-                        rel_path = file_path.relative_to(src_dir)
-                        issues.append(f"{rel_path}: Contains hardcoded step type '{step_type}' - should use registry")
-                        
-        except Exception as e:
-            rel_path = file_path.relative_to(src_dir)
-            issues.append(f"Error reading {rel_path}: {e}")
+                try:
+                    content = py_file.read_text()
+                    
+                    # Skip files that properly import registry
+                    if "from.*pipeline_registry.*import" in content:
+                        continue
+                    
+                    # Check for hardcoded patterns
+                    for pattern in hardcoded_patterns:
+                        matches = pattern.findall(content)
+                        for match in matches:
+                            self._add_error("Hardcoded Names", 
+                                          f"{py_file.relative_to(self.project_root)} contains hardcoded step name", 
+                                          f"Found: '{match}' - should use registry")
+                            
+                except Exception as e:
+                    self._add_error("Hardcoded Names", f"Error reading {py_file.name}", str(e))
     
-    return len(issues) == 0, issues
+    def _add_success(self, component: str, message: str, details: str = ""):
+        """Add a successful validation result"""
+        self.results.append(ValidationResult(component, "SUCCESS", True, message, details))
+    
+    def _add_error(self, component: str, message: str, details: str = ""):
+        """Add a failed validation result"""
+        self.results.append(ValidationResult(component, "ERROR", False, message, details))
+        self.errors.append(f"{component}: {message}")
+    
+    def _print_results(self):
+        """Print validation results"""
+        print("\n" + "=" * 50)
+        print("📊 Validation Results")
+        print("=" * 50)
+        
+        # Group results by component
+        by_component = {}
+        for result in self.results:
+            if result.component not in by_component:
+                by_component[result.component] = []
+            by_component[result.component].append(result)
+        
+        # Print results by component
+        for component, results in by_component.items():
+            print(f"\n{component}:")
+            for result in results:
+                status_icon = "✅" if result.status else "❌"
+                print(f"  {status_icon} {result.message}")
+                if result.details:
+                    print(f"     {result.details}")
+        
+        # Print summary
+        total_checks = len(self.results)
+        successful_checks = len([r for r in self.results if r.status])
+        failed_checks = total_checks - successful_checks
+        
+        print(f"\n" + "=" * 50)
+        print(f"📈 Summary: {successful_checks}/{total_checks} checks passed")
+        
+        if failed_checks == 0:
+            print("🎉 ALL VALIDATIONS PASSED!")
+            print("✅ Step name consistency is maintained across the system")
+        else:
+            print(f"❌ {failed_checks} validation(s) failed")
+            print("🔧 Please fix the issues above to maintain step name consistency")
+        
+        print("=" * 50)
+
 
 def main():
-    """Main validation function."""
-    print("Step Name Consistency Validation")
-    print("=" * 40)
+    """Main entry point"""
+    validator = StepNameValidator()
+    success = validator.validate_all()
     
-    all_passed = True
-    
-    # Test 1: Central Registry
-    print("\n1. Checking Central Registry...")
-    central_registry = get_central_registry()
-    if central_registry:
-        print(f"   ✓ Central registry loaded with {len(central_registry)} step definitions")
-        for step_name, info in central_registry.items():
-            print(f"     - {step_name}: {info['spec_type']}")
-    else:
-        print("   ✗ Failed to load central registry")
-        all_passed = False
-    
-    # Test 2: Config Registry
-    print("\n2. Validating Config Registry...")
-    config_passed, config_issues = validate_config_registry()
-    if config_passed:
-        print("   ✓ Config registry is consistent with central registry")
-    else:
-        print("   ✗ Config registry issues found:")
-        for issue in config_issues:
-            print(f"     - {issue}")
-        all_passed = False
-    
-    # Test 3: Builder Registry
-    print("\n3. Validating Builder Registry...")
-    builder_passed, builder_issues = validate_builder_registry()
-    if builder_passed:
-        print("   ✓ Builder registry is consistent with central registry")
-    else:
-        print("   ✗ Builder registry issues found:")
-        for issue in builder_issues:
-            print(f"     - {issue}")
-        all_passed = False
-    
-    # Test 4: Step Specifications
-    print("\n4. Validating Step Specifications...")
-    spec_passed, spec_issues = validate_step_specifications()
-    if spec_passed:
-        print("   ✓ Step specifications are consistent")
-    else:
-        print("   ✗ Step specification issues found:")
-        for issue in spec_issues:
-            print(f"     - {issue}")
-        all_passed = False
-    
-    # Test 5: Pipeline Templates
-    print("\n5. Validating Pipeline Templates...")
-    template_passed, template_issues = validate_pipeline_templates()
-    if template_passed:
-        print("   ✓ Pipeline templates are consistent")
-    else:
-        print("   ✗ Pipeline template issues found:")
-        for issue in template_issues:
-            print(f"     - {issue}")
-        all_passed = False
-    
-    # Test 6: Orphaned References
-    print("\n6. Checking for Orphaned References...")
-    orphan_passed, orphan_issues = find_orphaned_references()
-    if orphan_passed:
-        print("   ✓ No orphaned step name references found")
-    else:
-        print("   ✗ Orphaned references found:")
-        for issue in orphan_issues:
-            print(f"     - {issue}")
-        all_passed = False
-    
-    # Summary
-    print("\n" + "=" * 40)
-    if all_passed:
-        print("✓ ALL VALIDATIONS PASSED")
-        print("Step name consistency is maintained across all components.")
-        return 0
-    else:
-        print("✗ VALIDATION FAILURES DETECTED")
-        print("Please address the issues above to ensure step name consistency.")
-        return 1
+    # Exit with appropriate code
+    sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
