@@ -6,10 +6,11 @@ specifically for training data, including their dependencies and outputs.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
+from ..pipeline_registry.step_names import get_spec_step_type
 
 # Cradle Data Loading Training Step Specification
 DATA_LOADING_TRAINING_SPEC = StepSpecification(
-    step_type="CradleDataLoading_Training",
+    step_type=get_spec_step_type("CradleDataLoading") + "_Training",
     node_type=NodeType.SOURCE,
     dependencies=[
         # Note: CradleDataLoading is typically the first step in a pipeline
