@@ -19,8 +19,9 @@ from typing import Dict, List, Set, Tuple
 import importlib.util
 import re
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 def load_module_from_file(file_path: Path, module_name: str):
     """Load a Python module from a file path."""
@@ -38,7 +39,8 @@ def load_module_from_file(file_path: Path, module_name: str):
 def get_central_registry() -> Dict[str, Dict[str, str]]:
     """Get the central step names registry."""
     try:
-        from pipeline_registry.step_names import STEP_NAMES
+        # Import with package path since we added project root to sys.path
+        from src.pipeline_registry.step_names import STEP_NAMES
         return STEP_NAMES
     except ImportError as e:
         print(f"Error importing central registry: {e}")
@@ -49,8 +51,9 @@ def validate_config_registry() -> Tuple[bool, List[str]]:
     issues = []
     
     try:
-        from pipeline_steps.config_base import STEP_REGISTRY
-        from pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+        # Import with package paths since we added project root to sys.path
+        from src.pipeline_steps.config_base import STEP_REGISTRY
+        from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
         
         # Check if they match
         if STEP_REGISTRY != CONFIG_STEP_REGISTRY:
@@ -84,8 +87,9 @@ def validate_builder_registry() -> Tuple[bool, List[str]]:
     issues = []
     
     try:
-        from pipeline_steps.builder_step_base import STEP_NAMES as BUILDER_STEP_NAMES_IMPORTED
-        from pipeline_registry.step_names import BUILDER_STEP_NAMES
+        # Import with package paths since we added project root to sys.path
+        from src.pipeline_steps.builder_step_base import STEP_NAMES as BUILDER_STEP_NAMES_IMPORTED
+        from src.pipeline_registry.step_names import BUILDER_STEP_NAMES
         
         # Check if they match
         if BUILDER_STEP_NAMES_IMPORTED != BUILDER_STEP_NAMES:
