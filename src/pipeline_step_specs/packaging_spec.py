@@ -41,6 +41,7 @@ PACKAGING_SPEC = StepSpecification(
     outputs=[
         OutputSpec(
             logical_name="packaged_model",
+            aliases=["PackagedModel"],  # Add alias to match registration dependency
             output_type=DependencyType.MODEL_ARTIFACTS,
             property_path="properties.ProcessingOutputConfig.Outputs['packaged_model'].S3Output.S3Uri",
             data_type="S3Uri",
