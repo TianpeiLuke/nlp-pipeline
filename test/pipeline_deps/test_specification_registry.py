@@ -3,17 +3,21 @@ Tests for SpecificationRegistry - atomized registry functionality.
 """
 
 import unittest
+from test.pipeline_deps.test_helpers import IsolatedTestCase, reset_all_global_state
 from src.pipeline_deps.specification_registry import SpecificationRegistry
 from src.pipeline_deps.base_specifications import (
     StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 )
 
 
-class TestSpecificationRegistry(unittest.TestCase):
+class TestSpecificationRegistry(IsolatedTestCase):
     """Test cases for SpecificationRegistry."""
     
     def setUp(self):
         """Set up test fixtures."""
+        # Call parent setUp to reset global state
+        super().setUp()
+        
         self.registry = SpecificationRegistry("test_context")
         
         # Create fresh instances of the enums for each test to ensure isolation
@@ -65,9 +69,8 @@ class TestSpecificationRegistry(unittest.TestCase):
         
     def tearDown(self):
         """Clean up after tests."""
-        # Clear the global registry manager to avoid state leakage
-        from src.pipeline_deps.registry_manager import registry_manager
-        registry_manager.clear_all_contexts()
+        # Call parent tearDown to reset global state
+        super().tearDown()
     
     def test_registry_initialization(self):
         """Test registry initialization with context name."""

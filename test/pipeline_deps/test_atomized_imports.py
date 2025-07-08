@@ -3,11 +3,12 @@ Tests for atomized import structure - verify all imports work correctly.
 """
 
 import unittest
+from test.pipeline_deps.test_helpers import IsolatedTestCase, reset_all_global_state
 import sys
 import importlib
 
 
-class TestAtomizedImports(unittest.TestCase):
+class TestAtomizedImports(IsolatedTestCase):
     """Test that all imports work correctly with the new atomized structure."""
     
     def test_base_specifications_imports(self):
@@ -213,14 +214,13 @@ class TestAtomizedImports(unittest.TestCase):
             self.fail(f"Module reloading failed: {e}")
 
 
-class TestIntegrationWithAtomizedStructure(unittest.TestCase):
+class TestIntegrationWithAtomizedStructure(IsolatedTestCase):
     """Test integration scenarios with the atomized structure."""
     
     def setUp(self):
         """Set up test fixtures."""
-        # Clear registry manager before each test
-        from src.pipeline_deps.registry_manager import registry_manager
-        registry_manager.clear_all_contexts()
+        # Call parent setUp to reset global state
+        super().setUp()
         
         # Create fresh instances of the enums for each test to ensure isolation
         from src.pipeline_deps.base_specifications import NodeType, DependencyType
@@ -229,9 +229,8 @@ class TestIntegrationWithAtomizedStructure(unittest.TestCase):
     
     def tearDown(self):
         """Clean up after tests."""
-        # Clear registry manager after each test
-        from src.pipeline_deps.registry_manager import registry_manager
-        registry_manager.clear_all_contexts()
+        # Call parent tearDown to reset global state
+        super().tearDown()
     
     def test_end_to_end_workflow(self):
         """Test complete workflow using atomized imports."""

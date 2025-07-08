@@ -3,6 +3,7 @@ Tests for RegistryManager - multi-registry management functionality.
 """
 
 import unittest
+from test.pipeline_deps.test_helpers import IsolatedTestCase, reset_all_global_state
 from src.pipeline_deps.registry_manager import (
     RegistryManager, registry_manager, get_registry, get_pipeline_registry, 
     get_default_registry, list_contexts, clear_context, get_context_stats
@@ -13,11 +14,14 @@ from src.pipeline_deps.base_specifications import (
 )
 
 
-class TestRegistryManager(unittest.TestCase):
+class TestRegistryManager(IsolatedTestCase):
     """Test cases for RegistryManager."""
     
     def setUp(self):
         """Set up test fixtures."""
+        # Call parent setUp to reset global state
+        super().setUp()
+        
         # Create a fresh manager for each test
         self.manager = RegistryManager()
         
@@ -192,13 +196,13 @@ class TestRegistryManager(unittest.TestCase):
         self.assertIn("contexts=2", repr_str)
 
 
-class TestConvenienceFunctions(unittest.TestCase):
+class TestConvenienceFunctions(IsolatedTestCase):
     """Test convenience functions for registry management."""
     
     def setUp(self):
         """Set up test fixtures."""
-        # Clear global registry manager state
-        registry_manager.clear_all_contexts()
+        # Call parent setUp to reset global state
+        super().setUp()
         
         # Create fresh instances of the enums for each test to ensure isolation
         self.node_type_source = NodeType.SOURCE
@@ -220,7 +224,8 @@ class TestConvenienceFunctions(unittest.TestCase):
     
     def tearDown(self):
         """Clean up after tests."""
-        registry_manager.clear_all_contexts()
+        # Call parent tearDown to reset global state
+        super().tearDown()
     
     def test_get_registry_function(self):
         """Test get_registry convenience function."""

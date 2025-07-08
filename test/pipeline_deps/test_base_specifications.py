@@ -11,6 +11,7 @@ Tests the Pydantic V2 migration of base specifications including:
 """
 
 import unittest
+from test.pipeline_deps.test_helpers import IsolatedTestCase, reset_all_global_state
 import json
 from typing import List, Dict
 
@@ -21,7 +22,7 @@ from src.pipeline_deps.base_specifications import (
 from src.pipeline_deps.specification_registry import SpecificationRegistry
 
 
-class TestDependencySpec(unittest.TestCase):
+class TestDependencySpec(IsolatedTestCase):
     """Test cases for DependencySpec class."""
     
     def setUp(self):
@@ -202,7 +203,7 @@ class TestDependencySpec(unittest.TestCase):
         self.assertIn("examples", schema)
 
 
-class TestOutputSpec(unittest.TestCase):
+class TestOutputSpec(IsolatedTestCase):
     """Test cases for OutputSpec class."""
     
     def setUp(self):
@@ -324,7 +325,7 @@ class TestOutputSpec(unittest.TestCase):
         self.assertEqual(new_spec.output_type, output_spec.output_type)
 
 
-class TestPropertyReference(unittest.TestCase):
+class TestPropertyReference(IsolatedTestCase):
     """Test cases for PropertyReference class."""
     
     def setUp(self):
@@ -390,7 +391,7 @@ class TestPropertyReference(unittest.TestCase):
         self.assertEqual(repr(prop_ref), expected_repr)
 
 
-class TestStepSpecification(unittest.TestCase):
+class TestStepSpecification(IsolatedTestCase):
     """Test cases for StepSpecification class."""
     
     def setUp(self):
@@ -683,7 +684,7 @@ class TestStepSpecification(unittest.TestCase):
         self.assertIn("outputs=1", repr_str)
 
 
-class TestSpecificationRegistry(unittest.TestCase):
+class TestSpecificationRegistry(IsolatedTestCase):
     """Test cases for SpecificationRegistry class."""
     
     def setUp(self):
@@ -799,7 +800,7 @@ class TestSpecificationRegistry(unittest.TestCase):
         self.assertGreater(score_with_source, score_without_source)
 
 
-class TestEnumValidation(unittest.TestCase):
+class TestEnumValidation(IsolatedTestCase):
     """Test cases for enum validation across all classes."""
     
     def setUp(self):
@@ -897,7 +898,7 @@ class TestEnumValidation(unittest.TestCase):
             self.assertIsInstance(step_spec.node_type, NodeType)
 
 
-class TestPydanticFeatures(unittest.TestCase):
+class TestPydanticFeatures(IsolatedTestCase):
     """Test cases for Pydantic V2 specific features."""
     
     def setUp(self):
@@ -1011,7 +1012,7 @@ class TestPydanticFeatures(unittest.TestCase):
             dep_spec.logical_name = ""  # Should fail validation
 
 
-class TestScriptContractIntegration(unittest.TestCase):
+class TestScriptContractIntegration(IsolatedTestCase):
     """Test cases for script contract integration with StepSpecification."""
     
     def setUp(self):
@@ -1151,7 +1152,7 @@ class TestScriptContractIntegration(unittest.TestCase):
         self.assertTrue(result.is_valid)
 
 
-class TestStepSpecificationIntegration(unittest.TestCase):
+class TestStepSpecificationIntegration(IsolatedTestCase):
     """Integration tests for updated step specifications with script contracts."""
     
     def test_model_eval_spec_integration(self):
