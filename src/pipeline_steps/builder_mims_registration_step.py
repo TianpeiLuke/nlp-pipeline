@@ -22,6 +22,14 @@ except ImportError:
     REGISTRATION_SPEC = None
     SPEC_AVAILABLE = False
 
+# Import the script contract
+try:
+    from ..pipeline_script_contracts.mims_registration_contract import MIMS_REGISTRATION_CONTRACT
+    CONTRACT_AVAILABLE = True
+except ImportError:
+    MIMS_REGISTRATION_CONTRACT = None
+    CONTRACT_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +73,12 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             notebook_root=notebook_root
         )
         self.config: ModelRegistrationConfig = config
+        
+        # Store contract reference
+        self.contract = MIMS_REGISTRATION_CONTRACT if CONTRACT_AVAILABLE else None
+        
+        if self.spec and not self.contract:
+            logger.warning("Script contract not available - path resolution will use hardcoded values")
 
     def validate_configuration(self) -> None:
         """
@@ -94,7 +108,13 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
         
-        # Note: Input validation now handled by specification
+        # Validate spec-contract alignment if both are available
+        if self.spec and self.contract:
+            # Check if all required dependencies have container paths in the contract
+            for _, dependency in self.spec.dependencies.items():
+                logical_name = dependency.logical_name
+                if dependency.required and logical_name not in self.contract.expected_input_paths:
+                    raise ValueError(f"Required dependency '{logical_name}' in spec not found in contract expected_input_paths")
         
         logger.info("ModelRegistrationConfig validation succeeded.")
 
@@ -115,7 +135,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         if not self.spec:
             # Fallback to legacy method if no specification available
+            logger.warning("Step specification not available - using legacy input resolution")
             return self._get_processing_inputs_legacy(inputs)
+            
+        if not self.contract:
+            logger.warning("Script contract not available - path resolution will use hardcoded values")
             
         processing_inputs = []
         
@@ -131,8 +155,16 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             if dependency_spec.required and logical_name not in inputs:
                 raise ValueError(f"Required input '{logical_name}' not provided")
             
-            # Create ProcessingInput for MIMS step
-            container_path = "/opt/ml/processing/input/model" if logical_name == "PackagedModel" else "/opt/ml/processing/mims_payload"
+            # Get container path from contract instead of hardcoding it
+            if self.contract and logical_name in self.contract.expected_input_paths:
+                container_path = self.contract.expected_input_paths[logical_name]
+                logger.info(f"Using contract-defined container path for '{logical_name}': {container_path}")
+            else:
+                if self.contract:
+                    logger.warning(f"Input '{logical_name}' not found in contract expected_input_paths")
+                # Fallback to hardcoded paths only if contract not available or missing path
+                container_path = "/opt/ml/processing/input/model" if logical_name == "PackagedModel" else "/opt/ml/processing/mims_payload"
+                logger.info(f"Using hardcoded container path for '{logical_name}': {container_path}")
             
             processing_inputs.append(
                 ProcessingInput(
@@ -225,8 +257,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Use specification-driven input resolution
         inputs = {}
         if dependencies:
-            inputs = self.extract_inputs_from_dependencies(dependencies)
-            logger.info(f"Extracted inputs from dependencies: {list(inputs.keys())}")
+            try:
+                inputs = self.extract_inputs_from_dependencies(dependencies)
+                logger.info(f"Extracted inputs from dependencies: {list(inputs.keys())}")
+            except Exception as e:
+                logger.warning(f"Failed to extract inputs from dependencies: {e}")
         
         # Allow manual input override/supplement
         inputs.update(kwargs.get('inputs', {}))
@@ -246,6 +281,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         step_name = f"{self._get_step_name('Registration')}-{self.config.region}"
         
         try:
+            # Create registration step
             registration_step = MimsModelRegistrationProcessingStep(
                 step_name=step_name,
                 role=self.role,
@@ -255,9 +291,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 depends_on=dependencies
             )
             
-            # Attach specification for future reference
+            # Attach specification and contract for future reference
             if self.spec:
                 setattr(registration_step, '_spec', self.spec)
+            if self.contract:
+                setattr(registration_step, '_contract', self.contract)
             
             logger.info(f"Created MimsModelRegistrationProcessingStep: {registration_step.name}")
             return registration_step
