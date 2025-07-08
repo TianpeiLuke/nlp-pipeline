@@ -5,6 +5,14 @@ import json
 
 from .config_processing_step_base import ProcessingStepConfigBase
 
+# Import the script contract
+from ..pipeline_script_contracts.currency_conversion_contract import CURRENCY_CONVERSION_CONTRACT
+
+# Import for type hints only
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract
+
 
 class CurrencyConversionConfig(ProcessingStepConfigBase):
     """
@@ -71,16 +79,6 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
         description="If True, fill invalid codes with default_currency"
     )
 
-    # --- IO channel names (must match TabularPreprocessingStep outputs) ---
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {"data_input": "ProcessedTabularData"},
-        description="Should match TabularPreprocessingConfig.output_names['processed_data']"
-    )
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {"converted_data": "ConvertedCurrencyData"},
-        description="Mapping for the single output channel"
-    )
-
     class Config:
         json_encoders = {Path: str}
 
@@ -129,27 +127,26 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
             if self.mode == "split_after_conversion":
                 if not self.label_field:
                     raise ValueError("label_field required for split_after_conversion")
-        return self
-
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'CurrencyConversionConfig':
-        """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
-            self.input_names = {
-                "data_input": "ProcessedTabularData"
-            }
-        
-        if not self.output_names:
-            self.output_names = {
-                "converted_data": "ConvertedCurrencyData"
-            }
-        
+                    
+        # Validate that required environment variables from the contract have values
+        contract = self.get_script_contract()
+        if contract and contract.required_env_vars:
+            for env_var in contract.required_env_vars:
+                if env_var == "CURRENCY_CONVERSION_VARS" and not self.currency_conversion_var_list:
+                    raise ValueError("currency_conversion_var_list is required by the script contract")
+                elif env_var == "CURRENCY_CONVERSION_DICT" and not self.currency_conversion_dict:
+                    raise ValueError("currency_conversion_dict is required by the script contract")
+                elif env_var == "MARKETPLACE_INFO" and not self.marketplace_info:
+                    raise ValueError("marketplace_info is required by the script contract")
+                elif env_var == "LABEL_FIELD" and not self.label_field:
+                    raise ValueError("label_field is required by the script contract")
+                    
         return self
 
     def get_script_arguments(self) -> List[str]:
         """Flags for the argparse in currency_conversion.py"""
         args = [
-            "--data-type", self.data_type,
+            "--job-type", self.job_type,
             "--mode", self.mode,
             "--marketplace-id-col", self.marketplace_id_col,
             "--default-currency", self.default_currency,
@@ -172,3 +169,27 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
             "TEST_VAL_RATIO":             str(self.test_val_ratio),
         }
         return env
+        
+    def get_script_contract(self) -> 'ScriptContract':
+        """
+        Get script contract for this configuration.
+        
+        Returns:
+            The currency conversion script contract
+        """
+        return CURRENCY_CONVERSION_CONTRACT
+        
+    def get_script_path(self) -> str:
+        """
+        Get script path from contract.
+        
+        Returns:
+            Script path
+        """
+        # Use the entry_point from the contract
+        contract = self.get_script_contract()
+        if contract and contract.entry_point:
+            return contract.entry_point
+            
+        # Fall back to processing_entry_point if contract doesn't specify
+        return self.processing_entry_point

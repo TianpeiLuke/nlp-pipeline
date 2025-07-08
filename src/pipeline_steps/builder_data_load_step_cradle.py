@@ -6,9 +6,8 @@ import json
 import importlib
 from datetime import datetime
 
-from sagemaker.processing import ProcessingInput, ProcessingOutput
-from sagemaker.sklearn import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep, Step
+from sagemaker.workflow.steps import CacheConfig
 
 # Import CradleDataLoadingStep
 from secure_ai_sandbox_workflow_python_sdk.cradle_data_loading.cradle_data_loading_step import (
@@ -59,25 +58,6 @@ except ImportError:
     OUTPUT_TYPE_METADATA = "METADATA"  # Upper Case, correct one
     OUTPUT_TYPE_SIGNATURE = "SIGNATURE"  # Upper Case, correct one
 
-# Register property paths for Cradle Data Loading outputs
-StepBuilderBase.register_property_path(
-    "CradleDataLoadingStep",
-    "data_output",                                               # Logical name
-    "properties.ProcessingOutputConfig.Outputs['DATA'].S3Output.S3Uri"  # Runtime path
-)
-
-StepBuilderBase.register_property_path(
-    "CradleDataLoadingStep",
-    "metadata_output",
-    "properties.ProcessingOutputConfig.Outputs['METADATA'].S3Output.S3Uri"
-)
-
-StepBuilderBase.register_property_path(
-    "CradleDataLoadingStep",
-    "signature_output",
-    "properties.ProcessingOutputConfig.Outputs['SIGNATURE'].S3Output.S3Uri"
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -109,8 +89,33 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             raise ValueError(
                 "CradleDataLoadingStepBuilder requires a CradleDataLoadConfig instance."
             )
+            
+        # Select specification based on job type
+        spec = None
+        if hasattr(config, 'job_type'):
+            job_type = config.job_type.lower()
+            if job_type == "training":
+                from ..pipeline_step_specs.data_loading_training_spec import DATA_LOADING_TRAINING_SPEC
+                spec = DATA_LOADING_TRAINING_SPEC
+            elif job_type == "validation":
+                # If you have a validation spec, import and use it
+                # from ..pipeline_step_specs.data_loading_validation_spec import DATA_LOADING_VALIDATION_SPEC
+                # spec = DATA_LOADING_VALIDATION_SPEC
+                pass
+            elif job_type == "testing":
+                # If you have a testing spec, import and use it
+                # from ..pipeline_step_specs.data_loading_testing_spec import DATA_LOADING_TESTING_SPEC
+                # spec = DATA_LOADING_TESTING_SPEC
+                pass
+            elif job_type == "calibration":
+                # If you have a calibration spec, import and use it
+                # from ..pipeline_step_specs.data_loading_calibration_spec import DATA_LOADING_CALIBRATION_SPEC
+                # spec = DATA_LOADING_CALIBRATION_SPEC
+                pass
+                
         super().__init__(
             config=config,
+            spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
             notebook_root=notebook_root
@@ -191,88 +196,49 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
 
         logger.info("CradleDataLoadConfig validation succeeded.")
         
-    def get_input_requirements(self) -> Dict[str, str]:
+    def _get_inputs(self, inputs: Dict[str, Any]) -> List[Any]:
         """
-        Get the input requirements for this step builder.
+        Get inputs for the step.
         
-        Returns:
-            Dictionary mapping input parameter names to descriptions
-        """
-        # This step doesn't require any inputs from previous steps
-        input_reqs = {
-            "outputs": f"Dictionary containing {', '.join([f'{v}' for v in (self.config.output_names or {}).values()])} S3 paths",
-            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
-        }
-        return input_reqs
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        CradleDataLoadingStep is special in that it provides output locations through 
-        direct attribute access (step.DATA, step.METADATA, step.SIGNATURE) rather than
-        through the standard properties. However, it still adheres to the standard pattern
-        of using VALUES from output_names as keys in outputs dictionary where applicable.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        # Get output properties from config's output_names
-        output_props = {}
-        
-        # Map output names to their descriptions
-        output_descriptions = {
-            "data_output": "S3 URI of the loaded data",
-            "metadata_output": "S3 URI of the metadata",
-            "signature_output": "S3 URI of the signature"
-        }
-        
-        # Create output properties dictionary - use VALUES from output_names as property names
-        for logical_name, output_value in (self.config.output_names or {}).items():
-            if logical_name in output_descriptions:
-                output_props[output_value] = output_descriptions[logical_name]
-            else:
-                output_props[output_value] = f"S3 URI of the {logical_name}"
-        
-        # Add constants for direct attribute access
-        if OUTPUT_TYPE_DATA:
-            output_props[OUTPUT_TYPE_DATA] = "S3 URI of the loaded data (direct attribute)"
-        if OUTPUT_TYPE_METADATA:
-            output_props[OUTPUT_TYPE_METADATA] = "S3 URI of the metadata (direct attribute)"
-        if OUTPUT_TYPE_SIGNATURE:
-            output_props[OUTPUT_TYPE_SIGNATURE] = "S3 URI of the signature (direct attribute)"
-        
-        return output_props
-        
-    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
-                                prev_step: Step) -> Set[str]:
-        """
-        Match custom properties specific to CradleDataLoading step.
+        CradleDataLoadingStep typically doesn't have inputs from previous pipeline steps,
+        as it's usually the first step that loads data from external sources.
         
         Args:
-            inputs: Dictionary to add matched inputs to
-            input_requirements: Dictionary of input requirements
-            prev_step: The dependency step
+            inputs: Dictionary mapping logical names to input sources
             
         Returns:
-            Set of input names that were successfully matched
+            Empty list as CradleDataLoading doesn't take processing inputs
         """
-        matched_inputs = set()
+        # CradleDataLoading doesn't typically have inputs from prior steps
+        return []
         
-        # No custom properties to match for this step
-        return matched_inputs
-    
+    def _get_outputs(self, outputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get outputs for the step.
+        
+        CradleDataLoadingStep uses a different output mechanism than standard ProcessingStep,
+        so this method returns an empty dictionary.
+        
+        Args:
+            outputs: Dictionary mapping logical names to output destinations
+            
+        Returns:
+            Empty dictionary as CradleDataLoading handles outputs differently
+        """
+        # CradleDataLoading uses a different output mechanism
+        # The actual outputs are defined in the CradleDataLoadingStep itself
+        return {}
+        
     def create_step(self, **kwargs) -> Step:
         """
         Creates a specialized CradleDataLoadingStep for Cradle data loading.
         
         This method creates a CradleDataLoadingStep that directly interacts with the
-        Cradle service to load data. It also adds direct attribute access to output locations
-        to make the step compatible with PipelineBuilderTemplate.
+        Cradle service to load data. The step is a custom implementation that inherits
+        from MODSPredefinedProcessingStep rather than a standard SageMaker ProcessingStep.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
-                - outputs: A dictionary mapping output channel names to their S3 destinations.
                 - dependencies: Optional list of steps that this step depends on.
                 - enable_caching: A boolean indicating whether to cache the results of this step.
 
@@ -288,21 +254,30 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         
         logger.info("Creating CradleDataLoadingStep...")
         try:
-            # Create a CradleDataLoadingStep
+            # Extract dependencies from kwargs
+            dependencies = kwargs.get('dependencies', [])
+            enable_caching = kwargs.get('enable_caching', True)
+            
+            # Create a CradleDataLoadingStep - this is a custom step that handles its own
+            # initialization differently than standard SageMaker ProcessingStep
             step = CradleDataLoadingStep(
                 step_name=step_name,
                 role=self.role,
                 sagemaker_session=self.session
             )
             
-            # Add direct attributes for output locations to enable template compatibility
-            # These will be accessible as step.DATA, step.METADATA, step.SIGNATURE
-            if OUTPUT_TYPE_DATA:
-                setattr(step, OUTPUT_TYPE_DATA, step.job_outputs[OUTPUT_TYPE_DATA])
-            if OUTPUT_TYPE_METADATA:
-                setattr(step, OUTPUT_TYPE_METADATA, step.job_outputs[OUTPUT_TYPE_METADATA])
-            if OUTPUT_TYPE_SIGNATURE:
-                setattr(step, OUTPUT_TYPE_SIGNATURE, step.job_outputs[OUTPUT_TYPE_SIGNATURE])
+            # Add dependencies if provided
+            if dependencies:
+                step.add_depends_on(dependencies)
+                
+            # Handle caching (if CradleDataLoadingStep supports it)
+            if not enable_caching and hasattr(step, 'cache_config'):
+                step.cache_config.enable_caching = False
+            
+            # Store specification in the step for future reference
+            # This enables the specification-driven approach to work with the step
+            if hasattr(self, 'spec') and self.spec:
+                setattr(step, '_spec', self.spec)
             
             logger.info(f"Created CradleDataLoadingStep with name: {step.name}")
             
@@ -485,107 +460,89 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             logger.error(f"Error getting request dict: {e}")
             raise ValueError(f"Failed to get request dict: {e}") from e
             
-    def get_step_outputs(self, step: CradleDataLoadingStep, output_type: str = None) -> Union[Dict[str, str], str]:
-        """
-        Get the output locations from a created CradleDataLoadingStep.
-        
-        This method retrieves the S3 locations where the Cradle data loading step will store its outputs.
-        These locations can be used as inputs to subsequent steps in the pipeline.
-
-        Args:
-            step (CradleDataLoadingStep): The CradleDataLoadingStep created by this builder
-            output_type (str, optional): Specific output type to retrieve. If None, returns all output types.
-                                       Valid values are OUTPUT_TYPE_DATA, OUTPUT_TYPE_METADATA, OUTPUT_TYPE_SIGNATURE.
-
-        Returns:
-            Union[Dict[str, str], str]: 
-                - If output_type is None: Dictionary mapping output types to their S3 locations
-                - If output_type is specified: S3 location for the specified output type
-
-        Raises:
-            ValueError: If the step is not a CradleDataLoadingStep instance, wasn't created by this builder,
-                      or if the requested output_type is not valid
-
-        Example:
-            ```python
-            # Get all output locations
-            builder = CradleDataLoadingStepBuilder(config)
-            step = builder.create_step()
-            all_outputs = builder.get_step_outputs(step)
-            
-            # Get specific output location
-            data_location = builder.get_step_outputs(step, OUTPUT_TYPE_DATA)
-            
-            # Connect to downstream step
-            preprocessing_step = preprocessing_builder.build(
-                dependencies=[step],
-                inputs={
-                    "input_data": builder.get_step_outputs(step, OUTPUT_TYPE_DATA)
-                }
-            )
-            ```
-        """
-        if not isinstance(step, CradleDataLoadingStep):
-            raise ValueError("Argument must be a CradleDataLoadingStep instance")
-
-        expected_step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
-        if step.name != expected_step_name:
-            raise ValueError(f"Step was not created by this builder. Expected name: {expected_step_name}, got: {step.name}")
-
-        try:
-            # Get output locations based on whether output_type is specified
-            if output_type is None:
-                # Get all output locations
-                output_locations = step.get_output_locations()
-                
-                if not output_locations:
-                    raise ValueError("No output locations found in the step")
-                
-                # Validate that all required output types are present
-                required_outputs = {OUTPUT_TYPE_DATA, OUTPUT_TYPE_METADATA, OUTPUT_TYPE_SIGNATURE}
-                missing_outputs = required_outputs - set(output_locations.keys())
-                if missing_outputs:
-                    raise ValueError(f"Missing required output types: {missing_outputs}")
-                
-                return output_locations
-            else:
-                # Get specific output location
-                return step.get_output_locations(output_type)
-                
-        except Exception as e:
-            logger.error(f"Error getting output locations from step: {e}")
-            raise ValueError(f"Failed to get output locations from step: {e}") from e
-    
     def get_output_location(self, step: CradleDataLoadingStep, output_type: str) -> str:
         """
         Get a specific output location from a created CradleDataLoadingStep.
         
-        This is a convenience method that calls get_step_outputs with a specific output_type.
-        It's useful for connecting the output of this step to the input of a downstream step.
-
+        This method uses the specification-driven approach to get output locations,
+        falling back to the step's get_output_locations method if needed.
+        
         Args:
             step (CradleDataLoadingStep): The CradleDataLoadingStep created by this builder
             output_type (str): The output type to retrieve. Valid values are:
                              - OUTPUT_TYPE_DATA: Main data output location
                              - OUTPUT_TYPE_METADATA: Metadata output location
                              - OUTPUT_TYPE_SIGNATURE: Signature output location
-
+                             
         Returns:
             str: S3 location for the specified output type
-
+            
         Raises:
-            ValueError: If the step is not a CradleDataLoadingStep instance, wasn't created by this builder,
-                      or if the requested output_type is not valid
-
-        Example:
-            ```python
-            # Connect to downstream step
-            preprocessing_step = preprocessing_builder.build(
-                dependencies=[step],
-                inputs={
-                    "input_data": builder.get_output_location(step, OUTPUT_TYPE_DATA)
-                }
-            )
-            ```
+            ValueError: If the step is not a CradleDataLoadingStep instance or if
+                      the requested output_type is not valid
         """
-        return self.get_step_outputs(step, output_type)
+        if not isinstance(step, CradleDataLoadingStep):
+            raise ValueError("Argument must be a CradleDataLoadingStep instance")
+            
+        # Map output type to logical name
+        output_type_to_logical_name = {
+            OUTPUT_TYPE_DATA: "DATA",
+            OUTPUT_TYPE_METADATA: "METADATA", 
+            OUTPUT_TYPE_SIGNATURE: "SIGNATURE"
+        }
+        
+        logical_name = output_type_to_logical_name.get(output_type)
+        if not logical_name:
+            raise ValueError(f"Invalid output_type: {output_type}. Valid values are: {list(output_type_to_logical_name.keys())}")
+            
+        # Use specification-based property path if available
+        if self.spec and hasattr(step, '_spec'):
+            for output in self.spec.outputs:
+                if output.logical_name == logical_name:
+                    property_path = output.property_path
+                    if property_path:
+                        # Use dynamic property access to get the value from the step
+                        try:
+                            path_parts = property_path.split('.')
+                            value = step
+                            for part in path_parts:
+                                # Handle array indexing with string key
+                                if '[' in part and ']' in part:
+                                    base_part = part.split('[')[0]
+                                    key = part.split('[')[1].split(']')[0].strip("'\"")
+                                    value = getattr(value, base_part)[key]
+                                else:
+                                    value = getattr(value, part)
+                            return value
+                        except Exception as e:
+                            logger.warning(f"Error accessing property path {property_path}: {e}")
+        
+        # Fall back to the step's built-in method
+        return step.get_output_locations(output_type)
+        
+    def get_step_outputs(self, step: CradleDataLoadingStep, output_type: str = None) -> Union[Dict[str, str], str]:
+        """
+        Get the output locations from a created CradleDataLoadingStep.
+        
+        This method is a higher-level interface to get_output_location that can return
+        either all outputs or a specific output.
+        
+        Args:
+            step (CradleDataLoadingStep): The CradleDataLoadingStep created by this builder
+            output_type (str, optional): Specific output type to retrieve. If None, returns all output types.
+                                       Valid values are OUTPUT_TYPE_DATA, OUTPUT_TYPE_METADATA, OUTPUT_TYPE_SIGNATURE.
+                                       
+        Returns:
+            Union[Dict[str, str], str]: 
+                - If output_type is None: Dictionary mapping output types to their S3 locations
+                - If output_type is specified: S3 location for the specified output type
+                
+        Raises:
+            ValueError: If the step is not a CradleDataLoadingStep instance or if
+                      the requested output_type is not valid
+        """
+        if output_type:
+            return self.get_output_location(step, output_type)
+            
+        # Get all outputs - use the step's built-in method for simplicity
+        return step.get_output_locations()

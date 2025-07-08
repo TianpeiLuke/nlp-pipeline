@@ -1,8 +1,18 @@
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationInfo
-from typing import List, Optional, Dict, Any, ClassVar
+from typing import List, Optional, Dict, Any, ClassVar, TYPE_CHECKING
 from pathlib import Path
 import json
 from datetime import datetime
+import logging
+
+# Import for type hints only
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract
+else:
+    # Just for type hints, won't be used at runtime if not available
+    ScriptContract = Any
+
+logger = logging.getLogger(__name__)
 
 # Import step registry from central source of truth
 from ..pipeline_registry.step_names import CONFIG_STEP_REGISTRY as STEP_REGISTRY
@@ -20,16 +30,7 @@ class BasePipelineConfig(BaseModel):
     
     STEP_NAMES: ClassVar[Dict[str, str]] = STEP_REGISTRY
     
-    # Input/output names for standardization across all pipeline steps
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=dict,
-        description="Mapping of input channel names to their descriptions."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=dict,
-        description="Mapping of output channel names to their descriptions."
-    )
+    # Note: input_names and output_names have been removed in favor of script contracts
     
     # Shared basic info
     bucket: str = Field(description="S3 bucket name for pipeline artifacts and data.")
@@ -144,6 +145,83 @@ class BasePipelineConfig(BaseModel):
             if not Path(v).is_dir():
                 raise ValueError(f"Local source_dir is not a directory: {v}")
         return v
+
+    def get_script_contract(self) -> Optional['ScriptContract']:
+        """
+        Get script contract for this configuration.
+        
+        This base implementation returns None. Derived classes should override
+        this method to return their specific script contract.
+        
+        Returns:
+            Script contract instance or None if not available
+        """
+        # Check for hardcoded script_contract first (for backward compatibility)
+        if hasattr(self, '_script_contract'):
+            return self._script_contract
+            
+        # Otherwise attempt to load based on class and job_type
+        try:
+            class_name = self.__class__.__name__.replace('Config', '')
+            
+            # Try with job_type if available
+            if hasattr(self, 'job_type') and self.job_type:
+                module_name = f"..pipeline_script_contracts.{class_name.lower()}_{self.job_type.lower()}_contract"
+                contract_name = f"{class_name.upper()}_{self.job_type.upper()}_CONTRACT"
+                
+                try:
+                    contract_module = __import__(module_name, fromlist=[''])
+                    if hasattr(contract_module, contract_name):
+                        return getattr(contract_module, contract_name)
+                except (ImportError, AttributeError):
+                    pass
+            
+            # Try without job_type
+            module_name = f"..pipeline_script_contracts.{class_name.lower()}_contract"
+            contract_name = f"{class_name.upper()}_CONTRACT"
+            
+            try:
+                contract_module = __import__(module_name, fromlist=[''])
+                if hasattr(contract_module, contract_name):
+                    return getattr(contract_module, contract_name)
+            except (ImportError, AttributeError):
+                pass
+                
+        except Exception as e:
+            logger.debug(f"Error loading script contract: {e}")
+            
+        return None
+        
+    @property
+    def script_contract(self) -> Optional['ScriptContract']:
+        """
+        Property accessor for script contract.
+        
+        Returns:
+            Script contract instance or None if not available
+        """
+        return self.get_script_contract()
+        
+    def get_script_path(self, default_path: str = None) -> str:
+        """
+        Get script path, preferring contract-defined path if available.
+        
+        Args:
+            default_path: Default script path to use if not found in contract
+            
+        Returns:
+            Script path
+        """
+        # Try to get from contract
+        contract = self.get_script_contract()
+        if contract and hasattr(contract, 'script_path'):
+            return contract.script_path
+            
+        # Fall back to default or hardcoded path
+        if hasattr(self, 'script_path'):
+            return self.script_path
+            
+        return default_path
 
     @classmethod
     def get_step_name(cls, config_class_name: str) -> str:

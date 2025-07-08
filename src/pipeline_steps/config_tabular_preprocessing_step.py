@@ -1,10 +1,17 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, TYPE_CHECKING
 from pathlib import Path
 import logging
 
 from .config_processing_step_base import ProcessingStepConfigBase
 from .hyperparameters_base import ModelHyperparameters
+
+# Import contract
+from ..pipeline_script_contracts.tabular_preprocess_contract import TABULAR_PREPROCESS_CONTRACT
+
+# Import for type hints only
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract
 
 logger = logging.getLogger(__name__)
 
@@ -51,24 +58,7 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
         description="Fraction of the holdout to allocate to the test set vs. validation (only if data_type=='training')."
     )
 
-    # 5) Required input/output channel mappings
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "DATA": "RawData",        # KEY: logical name from upstream output, VALUE: script input name
-            "METADATA": "Metadata",   # KEY: logical name from upstream output, VALUE: script input name
-            "SIGNATURE": "Signature"  # KEY: logical name from upstream output, VALUE: script input name
-        },
-        description="Mapping of logical input names (keys) to script input names (values). "
-                   "Must contain 'DATA'. 'METADATA' and 'SIGNATURE' are optional. "
-                   "These keys directly match CradleDataLoadingStep output keys."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "processed_data": "ProcessedTabularData",  # KEY: logical name, VALUE: output descriptor
-        },
-        description="Mapping of logical output names (keys) to output descriptors (values)."
-    )
+    # Note: input_names and output_names have been removed and replaced with script contract
 
     class Config(ProcessingStepConfigBase.Config):
         arbitrary_types_allowed = True
@@ -105,41 +95,29 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
         return v
 
     @model_validator(mode="after")
-    def validate_label_and_channels(self) -> "TabularPreprocessingConfig":
-        """Validate label name and channel configurations."""
+    def validate_label(self) -> "TabularPreprocessingConfig":
+        """Validate label name."""
         # Validate label name
         if not self.hyperparameters.label_name or not self.hyperparameters.label_name.strip():
             raise ValueError("hyperparameters.label_name must be provided and non‐empty")
-
-        # Set default input names if None or empty dict - directly modify the attribute
-        if self.input_names is None or len(self.input_names) == 0:
-            self.input_names = {
-                "DATA": "RawData",        # Consistent with class-level default
-                "METADATA": "Metadata",   # Consistent with class-level default
-                "SIGNATURE": "Signature"  # Consistent with class-level default
-            }
-        
-        # Set default output names if None or empty dict - directly modify the attribute
-        if self.output_names is None or len(self.output_names) == 0:
-            self.output_names = {
-                "processed_data": "ProcessedTabularData"
-            }
-        
-        # Validate required input channel
-        if "DATA" not in self.input_names:
-            raise ValueError("input_names must contain key 'DATA'")
-
-        # Validate required output channels
-        if "processed_data" not in self.output_names:
-            raise ValueError("output_names must contain key 'processed_data'")
-
-        # Validate optional input channels - only uppercase constants for standardization
-        valid_input_channels = {
-            "DATA", "METADATA", "SIGNATURE"  # Only uppercase constants for standardization
-        }
-        invalid_channels = set(self.input_names.keys()) - valid_input_channels
-        if invalid_channels:
-            raise ValueError(f"Invalid input channel names: {invalid_channels}. "
-                           f"Must be one of: {valid_input_channels}")
-
+            
         return self
+        
+    def get_script_contract(self) -> 'ScriptContract':
+        """
+        Get script contract for this configuration.
+        
+        Returns:
+            The tabular preprocessing script contract
+        """
+        return TABULAR_PREPROCESS_CONTRACT
+        
+    def get_script_path(self) -> str:
+        """
+        Get script path from contract.
+        
+        Returns:
+            Script path
+        """
+        # Use the entry_point from the contract
+        return self.script_contract.entry_point

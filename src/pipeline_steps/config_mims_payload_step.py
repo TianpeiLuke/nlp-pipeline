@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Dict, List, Any, Union
+from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
@@ -15,25 +15,16 @@ logger = logging.getLogger(__name__)
 
 from .config_mims_registration_step import ModelRegistrationConfig, VariableType
 
+# Import the script contract
+from ..pipeline_script_contracts.mims_payload_contract import MIMS_PAYLOAD_CONTRACT
+
+# Import for type hints only
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract
+
 
 class PayloadConfig(ModelRegistrationConfig):
     """Configuration for payload generation and testing."""
-    
-    # Override input_names and output_names from parent class with specific defaults
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model_input": "ModelArtifacts"  # KEY: logical name, VALUE: script input name (matches PackageStepConfig)
-        },
-        description="Mapping of logical input names (keys) to script input names (values)."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "payload_sample": "GeneratedPayloadSamples",  # KEY: logical name, VALUE: output descriptor
-            "payload_metadata": "PayloadMetadata"         # KEY: logical name, VALUE: output descriptor
-        },
-        description="Mapping of logical output names (keys) to output descriptors (values)."
-    )
     
     # Performance metrics
     expected_tps: int = Field(
@@ -146,27 +137,6 @@ class PayloadConfig(ModelRegistrationConfig):
         
         # Update model with sample payload S3 key
         self = self.model_copy(update={"sample_payload_s3_key": self.sample_payload_s3_key})
-        
-        return self
-        
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'PayloadConfig':
-        """Ensure default input and output names are set if not provided or empty."""
-        if self.input_names is None or len(self.input_names) == 0:
-            self.__dict__["input_names"] = {
-                "model_input": "ModelArtifacts"  # KEY: logical name, VALUE: script input name (matches PackageStepConfig)
-            }
-        else:
-            # Ensure model_input always uses the correct script input parameter name
-            # regardless of what's in the config file
-            if "model_input" in self.input_names:
-                self.__dict__["input_names"]["model_input"] = "ModelArtifacts"
-        
-        if self.output_names is None or len(self.output_names) == 0:
-            self.__dict__["output_names"] = {
-                "payload_sample": "GeneratedPayloadSamples",  # KEY: logical name, VALUE: output descriptor
-                "payload_metadata": "PayloadMetadata"         # KEY: logical name, VALUE: output descriptor
-            }
         
         return self
         
@@ -454,11 +424,17 @@ class PayloadConfig(ModelRegistrationConfig):
         
     def get_script_path(self) -> Optional[str]:
         """
-        Get the full path to the processing script.
+        Get the path to the processing script.
         
         Returns:
-            Optional[str]: Full path to the script or None if entry_point not available
+            Optional[str]: Path to the script or None if entry_point not available
         """
+        # First try to use the contract's entry_point
+        contract = self.get_script_contract()
+        if contract and contract.entry_point:
+            return contract.entry_point
+            
+        # Fall back to inference entry point if necessary
         if self.inference_entry_point is None:
             return None
             
@@ -470,6 +446,15 @@ class PayloadConfig(ModelRegistrationConfig):
             return f"{effective_source_dir.rstrip('/')}/{self.inference_entry_point}"
         
         return str(Path(effective_source_dir) / self.inference_entry_point)
+        
+    def get_script_contract(self) -> 'ScriptContract':
+        """
+        Get script contract for this configuration.
+        
+        Returns:
+            The MIMS payload script contract
+        """
+        return MIMS_PAYLOAD_CONTRACT
 
     def model_dump(self, **kwargs) -> Dict[str, Any]:
         """Custom serialization"""

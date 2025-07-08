@@ -372,7 +372,7 @@ class OutputSpecificationConfig(BaseModel):
       - output_path: str (S3 URI)
       - output_format: str (e.g. 'PARQUET', 'CSV', etc.)
       - output_save_mode: str (e.g. 'ERRORIFEXISTS', 'OVERWRITE', 'APPEND', 'IGNORE')
-      - output_file_count: int (0 means “auto”)
+      - output_file_count: int (0 means "auto")
       - keep_dot_in_output_schema: bool
       - include_header_in_s3_output: bool
     """
@@ -502,21 +502,6 @@ class CradleDataLoadConfig(BasePipelineConfig):
         default=None,
         description="If set, skip Cradle data pull and use this S3 prefix directly"
     )
-    
-    # Input/output names for data loading
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=dict,
-        description="Mapping of input channel names to their descriptions."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "data_output": OUTPUT_TYPE_DATA,
-            "metadata_output": OUTPUT_TYPE_METADATA,
-            "signature_output": OUTPUT_TYPE_SIGNATURE
-        },
-        description="Mapping of output channel names to their descriptions."
-    )
 
     @field_validator("job_type")
     @classmethod
@@ -529,21 +514,13 @@ class CradleDataLoadConfig(BasePipelineConfig):
     @model_validator(mode="after")
     @classmethod
     def check_split_and_override(cls, model: "CradleDataLoadConfig") -> "CradleDataLoadConfig":
-        # (1) If splitting is enabled, merge_sql must be provided
+        # If splitting is enabled, merge_sql must be provided
         if model.transform_spec.job_split_options.split_job \
            and not model.transform_spec.job_split_options.merge_sql:
             raise ValueError("When split_job=True, merge_sql must be provided")
-
-        # (2) If user supplied s3_input_override, they can skip transform or data sources,
-        #     but we don't enforce that here. We simply allow s3_input_override to bypass usage.
-        #     No extra checks are necessary—downstream code should look at s3_input_override first.
-
-        # (3) Deal with empty input names and empty output names separately
-        if not model.output_names:
-            model.output_names = {
-                "data_output": OUTPUT_TYPE_DATA,
-                "metadata_output": OUTPUT_TYPE_METADATA,
-                "signature_output": OUTPUT_TYPE_SIGNATURE
-            }
-
+        
+        # If user supplied s3_input_override, they can skip transform or data sources,
+        # but we don't enforce that here. We simply allow s3_input_override to bypass usage.
+        # No extra checks are necessary—downstream code should look at s3_input_override first.
+        
         return model
