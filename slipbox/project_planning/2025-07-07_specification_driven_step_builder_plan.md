@@ -363,12 +363,16 @@ def _create_standard_processing_input(self, logical_name: str, inputs: Dict[str,
 
 ### Phase 6: Complete Model and Registration Steps (Week 6)
 
-#### 6.1 Update Model Creation Steps
-- [ ] Update `ModelStepXGBoostBuilder` and `ModelStepPytorchBuilder`
-- [ ] Implement specification-driven `_get_inputs` and `_get_outputs` 
-- [ ] Integrate with UnifiedDependencyResolver
+#### 6.1 Update Model Creation Steps - ✅ COMPLETED
+- [x] Update `ModelStepXGBoostBuilder` and `ModelStepPytorchBuilder`
+- [x] Implement specification-driven `_get_inputs` and `_get_outputs` 
+- [x] Integrate with UnifiedDependencyResolver
+- [x] Remove redundant `input_names`/`output_names` from configurations
+- [x] Remove legacy property path registrations and custom matching logic
 
-#### 6.2 Update Registration and Packaging Steps
+**📋 Implementation Details**: See **[Phase 6.1 Model Steps Implementation Summary](./2025-07-07_phase6_model_steps_implementation_summary.md)** for complete implementation details, code reduction metrics, and architecture benefits.
+
+#### 6.2 Update Registration and Packaging Steps - 🔄 NEXT
 - [ ] Update `MIMSRegistrationStepBuilder` and `MIMSPackagingStepBuilder`
 - [ ] Apply specification-driven patterns
 - [ ] Simplify code using UnifiedDependencyResolver
@@ -412,3 +416,4 @@ def _create_standard_processing_input(self, logical_name: str, inputs: Dict[str,
 | 5.1 | Update XGBoostTrainingStepBuilder | ✅ Complete | July 7, 2025 | High |
 | 5.2 | Update PytorchTrainingStepBuilder | ✅ Complete | July 7, 2025 | High |
 | 5.3 | Clean Up Training Step Configurations | ✅ Complete | July 7, 2025 | **HIGH** |
+| 6.1 | Update Model Creation Steps | ✅ Complete | July 7, 2025 | **HIGH** |

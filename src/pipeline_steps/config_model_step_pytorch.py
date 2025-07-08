@@ -34,21 +34,6 @@ class PyTorchModelStepConfig(BasePipelineConfig): # Renamed from PytorchModelCre
     # Tags for the model
     tags: Optional[List[Dict[str, str]]] = Field(default=None, description="Tags for the model.")
     
-    # Input/output names for model creation - updated to follow standard pattern
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model_data": "ModelArtifacts"  # KEY: logical name, VALUE: script input name
-        },
-        description="Mapping of logical input names (keys) to script input names (values)."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model": "ModelName",  # KEY: logical name, VALUE: output descriptor
-            "model_artifacts_path": "ModelArtifactsPath"  # KEY: logical name, VALUE: output descriptor
-        },
-        description="Mapping of logical output names (keys) to output descriptors (values)."
-    )
 
     # Endpoint / Container specific settings
     initial_instance_count: int = Field(default=1, ge=1, description="Initial instance count for endpoint (used by EndpointConfig).")
@@ -75,21 +60,6 @@ class PyTorchModelStepConfig(BasePipelineConfig): # Renamed from PytorchModelCre
             
         return self
 
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'PyTorchModelStepConfig':
-        """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
-            self.input_names = {
-                "model_data": "ModelArtifacts"
-            }
-        
-        if not self.output_names:
-            self.output_names = {
-                "model": "ModelName",
-                "model_artifacts_path": "ModelArtifactsPath"
-            }
-        
-        return self
 
     def _validate_memory_constraints(self) -> None:
         """Validate memory-related constraints"""

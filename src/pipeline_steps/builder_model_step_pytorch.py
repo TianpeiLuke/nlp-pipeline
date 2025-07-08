@@ -8,20 +8,7 @@ from sagemaker.model import Model
 
 from .config_model_step_pytorch import PyTorchModelStepConfig
 from .builder_step_base import StepBuilderBase
-
-# Register property paths for PyTorch Model outputs
-StepBuilderBase.register_property_path(
-    "PyTorchModelStep",
-    "model",                                # Logical name in output_names
-    "properties.ModelName"                  # Runtime property path
-)
-
-# Register path to model name for compatibility with different naming patterns
-StepBuilderBase.register_property_path(
-    "PyTorchModelStep", 
-    "ModelName",
-    "properties.ModelName"
-)
+from ..pipeline_step_specs.pytorch_model_spec import PYTORCH_MODEL_SPEC
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +41,14 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             raise ValueError(
                 "PyTorchModelStepBuilder requires a PyTorchModelStepConfig instance."
             )
+        
+        # Validate specification availability
+        if PYTORCH_MODEL_SPEC is None:
+            raise ValueError("PyTorch model specification not available")
+            
         super().__init__(
             config=config,
+            spec=PYTORCH_MODEL_SPEC,  # Add specification
             sagemaker_session=sagemaker_session,
             role=role,
             notebook_root=notebook_root
@@ -149,73 +142,39 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             
         logger.info(f"Model environment variables: {env_vars}")
         return env_vars
-        
-    def get_input_requirements(self) -> Dict[str, str]:
+
+    def _get_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Get the input requirements for this step builder.
-        
-        Returns:
-            Dictionary mapping input parameter names to descriptions
-        """
-        # Get input requirements from config's input_names
-        input_reqs = {}
-        
-        # Add all input channel names from config
-        for k, v in (self.config.input_names or {}).items():
-            input_reqs[k] = f"S3 path for {v}"
-        
-        # Add other required parameters
-        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
-        input_reqs["enable_caching"] = self.COMMON_PROPERTIES["enable_caching"]
-        
-        return input_reqs
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        # Get output properties from config's output_names
-        return {k: v for k, v in (self.config.output_names or {}).items()}
-        
-    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
-                                prev_step: Step) -> Set[str]:
-        """
-        Match custom properties specific to PyTorchModel step.
+        Use specification dependencies to get model_data.
         
         Args:
-            inputs: Dictionary to add matched inputs to
-            input_requirements: Dictionary of input requirements
-            prev_step: The dependency step
+            inputs: Dictionary of available inputs
             
         Returns:
-            Set of input names that were successfully matched
+            Dictionary containing processed inputs for model creation
         """
-        matched_inputs = set()
+        # Spec defines: model_data dependency from PyTorchTraining, ProcessingStep, ModelArtifactsStep
+        model_data_key = "model_data"  # From spec.dependencies
         
-        # Look for model artifacts from a TrainingStep
-        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelArtifacts"):
-            try:
-                model_artifacts = prev_step.properties.ModelArtifacts.S3ModelArtifacts
-                
-                # Get the input key from config
-                model_data_key = next(iter(self.config.input_names.keys()), "model_data")
-                
-                # Initialize inputs dict if needed
-                if "inputs" not in inputs:
-                    inputs["inputs"] = {}
-                    
-                # Add model artifacts to inputs
-                if model_data_key not in inputs.get("inputs", {}):
-                    inputs["inputs"][model_data_key] = model_artifacts
-                    matched_inputs.add("inputs")
-                    logger.info(f"Found model artifacts from TrainingStep: {getattr(prev_step, 'name', str(prev_step))}")
-            except AttributeError as e:
-                logger.warning(f"Could not extract model artifacts from step: {e}")
-                
-        return matched_inputs
+        if model_data_key not in inputs:
+            raise ValueError(f"Required input '{model_data_key}' not found")
+            
+        return {model_data_key: inputs[model_data_key]}
+    
+    def _get_outputs(self, outputs: Dict[str, Any]) -> str:
+        """
+        Use specification outputs - returns model name.
+        
+        Args:
+            outputs: Dictionary to store outputs (not used for CreateModelStep)
+            
+        Returns:
+            None - CreateModelStep handles outputs automatically
+        """
+        # Spec defines: model output with property_path="properties.ModelName"
+        # For CreateModelStep, we don't need to return specific outputs
+        # The step automatically provides ModelName property
+        return None
     
     def create_step(self, **kwargs) -> CreateModelStep:
         """
@@ -236,44 +195,21 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         logger.info("Creating PyTorch ModelStep...")
 
         # Extract parameters
-        inputs_raw = self._extract_param(kwargs, 'inputs', {})
-        model_data = self._extract_param(kwargs, 'model_data')
         dependencies = self._extract_param(kwargs, 'dependencies', [])
-        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         
-        # Normalize inputs
-        inputs = self._normalize_inputs(inputs_raw)
+        # Use dependency resolver to extract inputs
+        if dependencies:
+            extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+        else:
+            # Handle direct parameters for backward compatibility
+            extracted_inputs = self._normalize_inputs(kwargs.get('inputs', {}))
+            model_data = self._extract_param(kwargs, 'model_data')
+            if model_data:
+                extracted_inputs['model_data'] = model_data
         
-        # Add direct model_data parameter if provided
-        if model_data is not None:
-            inputs["model_data"] = model_data
-            self.log_info("Using directly provided model_data: %s", model_data)
-            
-        # Look for inputs from dependencies if we don't have what we need
-        if "model_data" not in inputs and dependencies:
-            input_requirements = self.get_input_requirements()
-            
-            # Extract inputs from dependencies
-            for dep_step in dependencies:
-                # Temporary dictionary to collect inputs from matching
-                temp_inputs = {}
-                matched = self._match_custom_properties(temp_inputs, input_requirements, dep_step)
-                
-                if matched:
-                    # Normalize any nested inputs from the matching
-                    normalized_deps = self._normalize_inputs(temp_inputs)
-                    
-                    # Add to our main inputs dictionary
-                    inputs.update(normalized_deps)
-                    logger.info(f"Found inputs from dependency: {getattr(dep_step, 'name', None)}")
-                    
-        # Get model_data from inputs
-        model_data_key = next(iter(self.config.input_names.keys()), "model_data")
-        model_data_value = inputs.get(model_data_key)
-        
-        # Validate required parameters
-        if not model_data_value:
-            raise ValueError(f"{model_data_key} must be provided")
+        # Use specification-driven input processing
+        model_inputs = self._get_inputs(extracted_inputs)
+        model_data_value = model_inputs['model_data']
 
         # Create the model
         if hasattr(self.config, 'use_pytorch_framework') and self.config.use_pytorch_framework:
