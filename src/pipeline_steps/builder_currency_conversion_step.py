@@ -1,13 +1,25 @@
-from typing import Dict, Optional, Any, List, Set
+from typing import Dict, Optional, Any, List
 from pathlib import Path
 import logging
+import importlib
 
-from sagemaker.sklearn import SKLearnProcessor
-from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep, Step
+from sagemaker.processing import ProcessingInput, ProcessingOutput
+from sagemaker.sklearn import SKLearnProcessor
 
 from .config_currency_conversion_step import CurrencyConversionConfig
 from .builder_step_base import StepBuilderBase
+
+# Import specifications based on job type
+try:
+    from ..pipeline_step_specs.currency_conversion_training_spec import CURRENCY_CONVERSION_TRAINING_SPEC
+    from ..pipeline_step_specs.currency_conversion_calibration_spec import CURRENCY_CONVERSION_CALIBRATION_SPEC
+    from ..pipeline_step_specs.currency_conversion_validation_spec import CURRENCY_CONVERSION_VALIDATION_SPEC
+    from ..pipeline_step_specs.currency_conversion_testing_spec import CURRENCY_CONVERSION_TESTING_SPEC
+    SPECS_AVAILABLE = True
+except ImportError:
+    CURRENCY_CONVERSION_TRAINING_SPEC = CURRENCY_CONVERSION_CALIBRATION_SPEC = CURRENCY_CONVERSION_VALIDATION_SPEC = CURRENCY_CONVERSION_TESTING_SPEC = None
+    SPECS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +27,9 @@ logger = logging.getLogger(__name__)
 class CurrencyConversionStepBuilder(StepBuilderBase):
     """
     Builder for a Currency Conversion ProcessingStep.
-    This class is responsible for configuring and creating a SageMaker ProcessingStep
-    that executes the currency conversion script.
+    
+    This implementation uses the fully specification-driven approach where inputs, outputs,
+    and behavior are defined by step specifications and script contracts.
     """
 
     def __init__(
@@ -27,86 +40,90 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         notebook_root: Optional[Path] = None,
     ):
         """
-        Initializes the builder with a specific configuration for the currency conversion step.
-
+        Initialize with specification based on job type.
+        
         Args:
-            config: A CurrencyConversionConfig instance containing all necessary settings.
-            sagemaker_session: The SageMaker session object to manage interactions with AWS.
-            role: The IAM role ARN to be used by the SageMaker Processing Job.
-            notebook_root: The root directory of the notebook environment, used for resolving
-                         local paths if necessary.
+            config: Configuration for the step
+            sagemaker_session: SageMaker session
+            role: IAM role
+            notebook_root: Root directory of notebook
+            
+        Raises:
+            ValueError: If no specification is available for the job type
         """
-        if not isinstance(config, CurrencyConversionConfig):
-            raise ValueError(
-                "CurrencyConversionStepBuilder requires a CurrencyConversionConfig instance."
-            )
-        super().__init__(
-            config=config,
-            sagemaker_session=sagemaker_session,
-            role=role,
-            notebook_root=notebook_root
-        )
+        # Get the appropriate spec based on job type
+        spec = None
+        if not hasattr(config, 'job_type'):
+            raise ValueError("config.job_type must be specified")
+            
+        job_type = config.job_type.lower()
+        
+        # Get specification based on job type
+        if job_type == "training" and CURRENCY_CONVERSION_TRAINING_SPEC is not None:
+            spec = CURRENCY_CONVERSION_TRAINING_SPEC
+        elif job_type == "calibration" and CURRENCY_CONVERSION_CALIBRATION_SPEC is not None:
+            spec = CURRENCY_CONVERSION_CALIBRATION_SPEC
+        elif job_type == "validation" and CURRENCY_CONVERSION_VALIDATION_SPEC is not None:
+            spec = CURRENCY_CONVERSION_VALIDATION_SPEC
+        elif job_type == "testing" and CURRENCY_CONVERSION_TESTING_SPEC is not None:
+            spec = CURRENCY_CONVERSION_TESTING_SPEC
+        else:
+            # Try dynamic import
+            try:
+                module_path = f"..pipeline_step_specs.currency_conversion_{job_type}_spec"
+                module = importlib.import_module(module_path, package=__package__)
+                spec_var_name = f"CURRENCY_CONVERSION_{job_type.upper()}_SPEC"
+                if hasattr(module, spec_var_name):
+                    spec = getattr(module, spec_var_name)
+            except (ImportError, AttributeError):
+                logger.warning(f"Could not import specification for job type: {job_type}")
+                
+        if not spec:
+            raise ValueError(f"No specification found for job type: {job_type}")
+                
+        logger.info(f"Using specification for {job_type}")
+        
+        super().__init__(config=config, spec=spec, sagemaker_session=sagemaker_session,
+                         role=role, notebook_root=notebook_root)
         self.config: CurrencyConversionConfig = config
 
     def validate_configuration(self) -> None:
         """
-        Validates the provided configuration to ensure all required fields for this
-        specific step are present and valid before attempting to build the step.
-
-        Raises:
-            ValueError: If any required configuration is missing or invalid.
-        """
-        logger.info("Validating CurrencyConversionConfig…")
+        Validate required configuration.
         
-        # Validate required attributes
+        Raises:
+            ValueError: If required attributes are missing
+        """
+        # Required processing configuration
         required_attrs = [
-            'processing_instance_count',
-            'processing_volume_size',
-            'processing_entry_point',
-            'processing_source_dir',
-            'processing_framework_version',
+            'processing_instance_count', 'processing_volume_size',
+            'processing_instance_type_large', 'processing_instance_type_small',
+            'processing_framework_version', 'use_large_processing_instance',
             'job_type'
         ]
         
         for attr in required_attrs:
-            if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
-                raise ValueError(f"CurrencyConversionConfig missing required attribute: {attr}")
-        
-        # Validate instance type settings
-        if not hasattr(self.config, 'processing_instance_type_large'):
-            raise ValueError("Missing required attribute: processing_instance_type_large")
-        if not hasattr(self.config, 'processing_instance_type_small'):
-            raise ValueError("Missing required attribute: processing_instance_type_small")
-        if not hasattr(self.config, 'use_large_processing_instance'):
-            raise ValueError("Missing required attribute: use_large_processing_instance")
+            if not hasattr(self.config, attr) or getattr(self.config, attr) is None:
+                raise ValueError(f"Missing required attribute: {attr}")
         
         # Validate job type
-        if self.config.job_type not in ["training", "validation", "testing"]:
-            raise ValueError(
-                f"job_type must be one of 'training', 'validation', 'testing', got '{self.config.job_type}'"
-            )
+        if self.config.job_type not in ["training", "validation", "testing", "calibration"]:
+            raise ValueError(f"Invalid job_type: {self.config.job_type}")
         
-        # Validate input and output names
-        if "data_input" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'data_input'")
-        
-        if "converted_data" not in (self.config.output_names or {}):
-            raise ValueError(
-                "output_names must contain the key 'converted_data'"
-            )
-        
-        logger.info("CurrencyConversionConfig validation succeeded.")
+        # Currency-specific validation
+        if self.config.enable_currency_conversion:
+            if not self.config.marketplace_id_col:
+                raise ValueError("marketplace_id_col must be provided when conversion is enabled")
+            if not self.config.currency_conversion_var_list:
+                raise ValueError("currency_conversion_var_list cannot be empty when conversion is enabled")
 
     def _create_processor(self) -> SKLearnProcessor:
         """
-        Creates and configures the SKLearnProcessor for the SageMaker Processing Job.
-        This defines the execution environment for the script, including the instance
-        type, framework version, and environment variables.
-
+        Create the SKLearn processor for the processing job.
+        
         Returns:
-            An instance of sagemaker.sklearn.SKLearnProcessor.
+            SKLearnProcessor: Configured processor for the step
         """
-        # Get the appropriate instance type based on use_large_processing_instance
         instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
         
         return SKLearnProcessor(
@@ -115,133 +132,144 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('CurrencyConversion')}-{self.config.job_type}"
-            ),
+            base_job_name=self._sanitize_name_for_sagemaker(f"CurrencyConversion-{self.config.job_type.capitalize()}"),
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
 
     def _get_environment_variables(self) -> Dict[str, str]:
         """
-        Constructs a dictionary of environment variables to be passed to the processing job.
-        These variables are used to control the behavior of the currency conversion script
-        without needing to pass them as command-line arguments.
-
+        Create environment variables for the processing job.
+        
         Returns:
-            A dictionary of environment variables.
+            Dict[str, str]: Environment variables for the processing job
         """
         import json
         
-        # Start with required environment variables from the config
         env_vars = {
-            "JOB_TYPE": self.config.job_type,
-            "MARKETPLACE_ID_COL": self.config.marketplace_id_col,
-            "DEFAULT_CURRENCY": self.config.default_currency,
-            "ENABLE_CONVERSION": str(self.config.enable_currency_conversion).lower(),
             "CURRENCY_CONVERSION_VARS": json.dumps(self.config.currency_conversion_var_list),
             "CURRENCY_CONVERSION_DICT": json.dumps(self.config.currency_conversion_dict),
             "MARKETPLACE_INFO": json.dumps(self.config.marketplace_info),
             "LABEL_FIELD": self.config.label_field,
             "TRAIN_RATIO": str(self.config.train_ratio),
             "TEST_VAL_RATIO": str(self.config.test_val_ratio),
-            "MODE": self.config.mode
         }
         
-        # Add optional environment variables if they exist
-        if hasattr(self.config, "currency_col") and self.config.currency_col:
-            env_vars["CURRENCY_COL"] = self.config.currency_col
-            
-        if hasattr(self.config, "skip_invalid_currencies") and self.config.skip_invalid_currencies:
-            env_vars["SKIP_INVALID_CURRENCIES"] = str(self.config.skip_invalid_currencies).lower()
-            
-        if hasattr(self.config, "date_field") and self.config.date_field:
-            env_vars["DATE_FIELD"] = self.config.date_field
-            
-        if hasattr(self.config, "exchange_rate_source") and self.config.exchange_rate_source:
-            env_vars["EXCHANGE_RATE_SOURCE"] = self.config.exchange_rate_source
-            
-        logger.info(f"Processing environment variables: {env_vars}")
         return env_vars
 
-    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+    def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
-        Constructs a list of ProcessingInput objects from the provided inputs dictionary.
-        This defines the data channels for the processing job, mapping S3 locations
-        to local directories inside the container.
-
+        Get inputs for the step using specification and contract.
+        
+        This method creates ProcessingInput objects for each dependency defined in the specification.
+        
         Args:
-            inputs: A dictionary mapping logical input channel names (e.g., 'data_input')
-                    to their S3 URIs or dynamic Step properties.
-
+            inputs: Input data sources keyed by logical name
+            
         Returns:
-            A list of sagemaker.processing.ProcessingInput objects.
+            List of ProcessingInput objects
+            
+        Raises:
+            ValueError: If no specification or contract is available
         """
-        # Get the data input key from config
-        key_in = self.config.input_names["data_input"]
+        if not self.spec:
+            raise ValueError("Step specification is required")
+            
+        if not self.contract:
+            raise ValueError("Script contract is required for input mapping")
+            
+        processing_inputs = []
         
-        # Check if inputs is empty or doesn't contain the required key
-        if not inputs:
-            raise ValueError(f"Inputs dictionary is empty. Must supply an S3 URI for '{key_in}'")
-        
-        if key_in not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_in}' in 'inputs'")
-
-        # Define the primary data input channel.
-        processing_inputs = [
-            ProcessingInput(
-                input_name=key_in,
-                source=inputs[key_in],
-                destination="/opt/ml/processing/input/data"
-            )
-        ]
-        
-        # Add optional exchange rates input if available
-        if "exchange_rates_input" in self.config.input_names and "exchange_rates_input" in inputs:
+        # Process each dependency in the specification
+        for _, dependency_spec in self.spec.dependencies.items():
+            logical_name = dependency_spec.logical_name
+            
+            # Skip if optional and not provided
+            if not dependency_spec.required and logical_name not in inputs:
+                continue
+                
+            # Make sure required inputs are present
+            if dependency_spec.required and logical_name not in inputs:
+                raise ValueError(f"Required input '{logical_name}' not provided")
+            
+            # Get container path from contract
+            container_path = None
+            if logical_name in self.contract.expected_input_paths:
+                container_path = self.contract.expected_input_paths[logical_name]
+            else:
+                raise ValueError(f"No container path found for input: {logical_name}")
+                
             processing_inputs.append(
                 ProcessingInput(
-                    input_name=self.config.input_names["exchange_rates_input"],
-                    source=inputs[self.config.input_names["exchange_rates_input"]],
-                    destination="/opt/ml/processing/input/exchange_rates"
+                    input_name=logical_name,
+                    source=inputs[logical_name],
+                    destination=container_path
                 )
             )
-        
+            
         return processing_inputs
 
-    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+    def _get_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
         """
-        Constructs the ProcessingOutput objects needed for this step.
-        This defines the S3 location where the results of the processing job will be stored.
-
+        Get outputs for the step using specification and contract.
+        
+        This method creates ProcessingOutput objects for each output defined in the specification.
+        
         Args:
-            outputs: A dictionary mapping the logical output channel name ('converted_data')
-                     to its S3 destination URI.
-
+            outputs: Output destinations keyed by logical name
+            
         Returns:
-            A list containing sagemaker.processing.ProcessingOutput objects.
+            List of ProcessingOutput objects
+            
+        Raises:
+            ValueError: If no specification or contract is available
         """
-        key_out = self.config.output_names["converted_data"]
-        if not outputs or key_out not in outputs:
-            raise ValueError(f"Must supply an S3 URI for '{key_out}' in 'outputs'")
+        if not self.spec:
+            raise ValueError("Step specification is required")
+            
+        if not self.contract:
+            raise ValueError("Script contract is required for output mapping")
+            
+        processing_outputs = []
         
-        # Define the output for converted data
-        processing_outputs = [
-            ProcessingOutput(
-                output_name=key_out,
-                source="/opt/ml/processing/output",
-                destination=outputs[key_out]
+        # Process each output in the specification
+        for _, output_spec in self.spec.outputs.items():
+            logical_name = output_spec.logical_name
+            
+            # Get container path from contract
+            container_path = None
+            if logical_name in self.contract.expected_output_paths:
+                container_path = self.contract.expected_output_paths[logical_name]
+            else:
+                raise ValueError(f"No container path found for output: {logical_name}")
+                
+            # Try to find destination in outputs
+            destination = None
+            
+            # Look in outputs by logical name
+            if logical_name in outputs:
+                destination = outputs[logical_name]
+            else:
+                # Generate destination from config
+                destination = f"{self.config.pipeline_s3_loc}/currency_conversion/{self.config.job_type}/{logical_name}"
+                logger.info(f"Using generated destination for '{logical_name}': {destination}")
+            
+            processing_outputs.append(
+                ProcessingOutput(
+                    output_name=logical_name,
+                    source=container_path,
+                    destination=destination
+                )
             )
-        ]
-        
+            
         return processing_outputs
 
     def _get_job_arguments(self) -> List[str]:
         """
-        Constructs the list of command-line arguments to be passed to the processing script.
-        This allows for parameterizing the script's execution at runtime.
-
+        Get command-line arguments for the script.
+        
         Returns:
-            A list of strings representing the command-line arguments.
+            List[str]: Command-line arguments
         """
         args = [
             "--job-type", self.config.job_type,
@@ -259,97 +287,71 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
             args.append("--skip-invalid-currencies")
             
         return args
-        
-    def get_input_requirements(self) -> Dict[str, str]:
-        """
-        Get the input requirements for this step builder.
-        
-        Returns:
-            Dictionary mapping input parameter names to descriptions
-        """
-        # Get input requirements from config's input_names
-        input_reqs = {
-            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
-            "outputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.output_names or {}).keys()])} S3 paths",
-            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
-        }
-        return input_reqs
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        # Get output properties from config's output_names
-        return {k: v for k, v in (self.config.output_names or {}).items()}
-        
-    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
-                                prev_step: Step) -> Set[str]:
-        """
-        Match custom properties specific to CurrencyConversion step.
-        
-        Args:
-            inputs: Dictionary to add matched inputs to
-            input_requirements: Dictionary of input requirements
-            prev_step: The dependency step
-            
-        Returns:
-            Set of input names that were successfully matched
-        """
-        matched_inputs = set()
-        
-        # No custom properties to match for this step
-        return matched_inputs
-    
+
     def create_step(self, **kwargs) -> ProcessingStep:
         """
-        Creates the final, fully configured SageMaker ProcessingStep for the pipeline.
-        This method orchestrates the assembly of the processor, inputs, outputs, and
-        script arguments into a single, executable pipeline step.
-
+        Create the ProcessingStep.
+        
         Args:
-            **kwargs: Keyword arguments for configuring the step, including:
-                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
-                - outputs: A dictionary mapping output channel names to their S3 destinations.
-                - dependencies: Optional list of steps that this step depends on.
-                - enable_caching: A boolean indicating whether to cache the results of this step
-                                to speed up subsequent pipeline runs with the same inputs.
-
+            **kwargs: Step parameters including:
+                - inputs: Input data sources
+                - outputs: Output destinations
+                - dependencies: Steps this step depends on
+                - enable_caching: Whether to enable caching
+                
         Returns:
-            A configured sagemaker.workflow.steps.ProcessingStep instance.
+            Configured ProcessingStep
         """
-        logger.info("Creating CurrencyConversion ProcessingStep...")
-
         # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs')
-        outputs = self._extract_param(kwargs, 'outputs')
-        dependencies = self._extract_param(kwargs, 'dependencies')
-        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
+        inputs_raw = kwargs.get('inputs', {})
+        outputs = kwargs.get('outputs', {})
+        dependencies = kwargs.get('dependencies', [])
+        enable_caching = kwargs.get('enable_caching', True)
         
-        # Validate required parameters
-        if not inputs:
-            raise ValueError("inputs must be provided")
-        if not outputs:
-            raise ValueError("outputs must be provided")
-
+        # Handle inputs
+        inputs = {}
+        
+        # If dependencies are provided, extract inputs from them
+        if dependencies:
+            try:
+                extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+                inputs.update(extracted_inputs)
+            except Exception as e:
+                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                
+        # Add explicitly provided inputs (overriding any extracted ones)
+        inputs.update(inputs_raw)
+        
+        # Add direct keyword arguments (e.g., data_input from template)
+        for key in ["data_input"]:
+            if key in kwargs and key not in inputs:
+                inputs[key] = kwargs[key]
+        
+        # Create processor and get inputs/outputs
         processor = self._create_processor()
-        proc_inputs = self._get_processor_inputs(inputs)
-        proc_outputs = self._get_processor_outputs(outputs)
+        proc_inputs = self._get_inputs(inputs)
+        proc_outputs = self._get_outputs(outputs)
         job_args = self._get_job_arguments()
-
-        step_name = f"{self._get_step_name('CurrencyConversion')}-{self.config.job_type.capitalize()}"
         
-        processing_step = ProcessingStep(
+        # Get step name from spec or construct one
+        step_name = getattr(self.spec, 'step_type', None) or f"CurrencyConversion-{self.config.job_type.capitalize()}"
+        
+        # Get script path from contract or config
+        script_path = self.config.get_script_path()
+        
+        # Create step
+        step = ProcessingStep(
             name=step_name,
             processor=processor,
             inputs=proc_inputs,
             outputs=proc_outputs,
-            code=self.config.get_script_path(),
+            code=script_path,
             job_arguments=job_args,
-            depends_on=dependencies or [],
+            depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)
         )
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
-        return processing_step
+        
+        # Attach specification to the step for future reference
+        setattr(step, '_spec', self.spec)
+        
+        return step

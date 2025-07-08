@@ -1,7 +1,8 @@
 from pydantic import Field, field_validator, model_validator
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from pathlib import Path
 import json
+import logging
 
 from .config_processing_step_base import ProcessingStepConfigBase
 
@@ -9,25 +10,45 @@ from .config_processing_step_base import ProcessingStepConfigBase
 from ..pipeline_script_contracts.currency_conversion_contract import CURRENCY_CONVERSION_CONTRACT
 
 # Import for type hints only
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..pipeline_script_contracts.base_script_contract import ScriptContract
+
+logger = logging.getLogger(__name__)
 
 
 class CurrencyConversionConfig(ProcessingStepConfigBase):
     """
-    Configuration for currency conversion processing step,
-    chained immediately after TabularPreprocessingStep.
+    Configuration for currency conversion processing step.
+    
+    This configuration follows the specification-driven approach where inputs and outputs
+    are defined by step specifications and script contracts, not by hardcoded dictionaries.
     """
-    # --- Splitting / chaining fields ---
+    
+    # Job type configuration
     job_type: str = Field(
-        default="validation",
+        default="training",
         description="One of ['training','validation','testing','calibration']"
     )
+    
+    # Processing entry point
+    processing_entry_point: str = Field(
+        default="currency_conversion.py",
+        description="Entry point script for currency conversion."
+    )
+    
+    # Instance sizing
+    use_large_processing_instance: bool = Field(
+        default=False,
+        description="Whether to use large instance type."
+    )
+    
+    # Currency conversion mode
     mode: str = Field(
         default="per_split",
         description="One of ['per_split','split_after_conversion']"
     )
+    
+    # Split ratios (used when mode is split_after_conversion)
     train_ratio: float = Field(
         default=0.7, ge=0.0, le=1.0,
         description="Train fraction when split_after_conversion"
@@ -39,18 +60,8 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
     label_field: str = Field(
         ..., description="Label column name for stratified splitting"
     )
-
-    # --- Processing entry & sizing (inherits other fields) ---
-    processing_entry_point: str = Field(
-        default="currency_conversion.py",
-        description="Entry point script for currency conversion."
-    )
-    use_large_processing_instance: bool = Field(
-        default=False,
-        description="Whether to use large instance type."
-    )
-
-    # --- Currency conversion parameters ---
+    
+    # Currency conversion parameters
     marketplace_id_col: str = Field(..., description="Column with marketplace IDs")
     currency_col: Optional[str] = Field(
         default=None,
@@ -79,24 +90,28 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
         description="If True, fill invalid codes with default_currency"
     )
 
-    class Config:
-        json_encoders = {Path: str}
+    class Config(ProcessingStepConfigBase.Config):
+        arbitrary_types_allowed = True
+        validate_assignment = True
 
     @field_validator('job_type')
-    def _validate_data_type(cls, v: str) -> str:
-        allowed = {"training","validation","testing","calibration"}
+    @classmethod
+    def _validate_job_type(cls, v: str) -> str:
+        allowed = {"training", "validation", "testing", "calibration"}
         if v not in allowed:
             raise ValueError(f"job_type must be one of {allowed}, got {v!r}")
         return v
 
     @field_validator('mode')
+    @classmethod
     def _validate_mode(cls, v: str) -> str:
-        allowed = {"per_split","split_after_conversion"}
+        allowed = {"per_split", "split_after_conversion"}
         if v not in allowed:
             raise ValueError(f"mode must be one of {allowed}, got {v!r}")
         return v
 
     @field_validator('currency_conversion_dict')
+    @classmethod
     def _validate_dict(cls, v: Dict[str, float]) -> Dict[str, float]:
         if not v:
             raise ValueError("currency_conversion_dict cannot be empty")
@@ -108,10 +123,21 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
         return v
 
     @field_validator('currency_conversion_var_list')
+    @classmethod
     def _validate_vars(cls, v: List[str]) -> List[str]:
         if len(v) != len(set(v)):
             dup = [x for x in v if v.count(x) > 1]
             raise ValueError(f"Duplicate vars in currency_conversion_var_list: {dup}")
+        return v
+
+    @field_validator("processing_entry_point")
+    @classmethod
+    def validate_entry_point_relative(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure processing_entry_point is a non‐empty relative path."""
+        if v is None or not v.strip():
+            raise ValueError("processing_entry_point must be a non‐empty relative path")
+        if Path(v).is_absolute() or v.startswith("/") or v.startswith("s3://"):
+            raise ValueError("processing_entry_point must be a relative path within source directory")
         return v
 
     @model_validator(mode='after')
@@ -142,33 +168,6 @@ class CurrencyConversionConfig(ProcessingStepConfigBase):
                     raise ValueError("label_field is required by the script contract")
                     
         return self
-
-    def get_script_arguments(self) -> List[str]:
-        """Flags for the argparse in currency_conversion.py"""
-        args = [
-            "--job-type", self.job_type,
-            "--mode", self.mode,
-            "--marketplace-id-col", self.marketplace_id_col,
-            "--default-currency", self.default_currency,
-            "--enable-conversion", str(self.enable_currency_conversion).lower(),
-        ]
-        if self.currency_col:
-            args += ["--currency-col", self.currency_col]
-        if self.skip_invalid_currencies:
-            args.append("--skip-invalid-currencies")
-        return args
-
-    def get_environment_variables(self) -> Dict[str, str]:
-        """Env vars so script knows splits and split‐ratios and label field"""
-        env = {
-            "CURRENCY_CONVERSION_VARS":   json.dumps(self.currency_conversion_var_list),
-            "CURRENCY_CONVERSION_DICT":   json.dumps(self.currency_conversion_dict),
-            "MARKETPLACE_INFO":           json.dumps(self.marketplace_info),
-            "LABEL_FIELD":                self.label_field,
-            "TRAIN_RATIO":                str(self.train_ratio),
-            "TEST_VAL_RATIO":             str(self.test_val_ratio),
-        }
-        return env
         
     def get_script_contract(self) -> 'ScriptContract':
         """
