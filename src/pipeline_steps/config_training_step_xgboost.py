@@ -11,41 +11,9 @@ from .config_base import BasePipelineConfig
 class XGBoostTrainingConfig(BasePipelineConfig):
     """
     Configuration specific to the SageMaker XGBoost Training Step.
-    This version is adapted to pass hyperparameters as a single config file
-    via an S3 input channel, avoiding character limits.
+    This version is streamlined to work with specification-driven architecture.
+    Input/output paths are now provided via step specifications and dependencies.
     """
-    # Input names mapping to script input names
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "input_path": "TrainingDataDirectory",  # KEY: logical name, VALUE: script input name
-            "config": "HyperparametersConfig"       # KEY: logical name, VALUE: script input name
-        },
-        description="Mapping of logical input names (keys) to script input names (values)."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model_data": "ModelArtifacts",    # KEY: logical name, VALUE: output descriptor
-            "output_path": "ModelOutputPath"   # KEY: logical name, VALUE: output descriptor
-        },
-        description="Mapping of logical output names (keys) to output descriptors (values)."
-    )
-    
-    # S3 paths for data inputs and model outputs
-    input_path: str = Field(
-        description="S3 path for input training data (containing train/val/test channels).",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
-    )
-    output_path: str = Field(
-        description="S3 path for output model artifacts.",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
-    )
-    checkpoint_path: Optional[str] = Field(
-        default=None,
-        description="Optional S3 path for model checkpoints.",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
-    )
-
     # Instance configuration
     training_instance_type: str = Field(default='ml.m5.xlarge', description="Instance type for XGBoost training job.")
     training_instance_count: int = Field(default=1, ge=1, description="Number of instances for XGBoost training job.")
@@ -58,91 +26,12 @@ class XGBoostTrainingConfig(BasePipelineConfig):
     framework_version: str = Field(default="1.7-1", description="SageMaker XGBoost framework version.")
     py_version: str = Field(default="py3", description="Python version for the SageMaker XGBoost container.")
 
-
     # XGBoost specific hyperparameters object
     hyperparameters: XGBoostModelHyperparameters
-
-
-    # --- ADDED: S3 path for the hyperparameter config file ---
-    hyperparameters_s3_uri: Optional[str] = Field(
-        default=None,
-        description="S3 URI *prefix* under which `hyperparameters.json` will be uploaded.  e.g. `s3://my-bucket/pipeline/config/2025-06-12/`",
-        pattern=r'^s3://[a-zA-Z0-9.-]+(?:/.+?)?$'  # Made trailing slash optional
-    )
 
     class Config(BasePipelineConfig.Config):
         pass
 
-    @model_validator(mode='before')
-    @classmethod
-    def _construct_paths(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """Constructs S3 paths if they are not explicitly provided and normalizes all paths."""
-        values = super()._construct_base_attributes(values)
-
-        bucket       = values.get('bucket')
-        current_date = values.get('current_date')
-        pipeline_name = values.get('pipeline_name', 'DefaultPipeline')
-
-        if not values.get('input_path'):
-            values['input_path'] = (
-                f"s3://{bucket}/{pipeline_name}/preprocessed_data/{current_date}"
-            )
-        if not values.get('output_path'):
-            values['output_path'] = (
-                f"s3://{bucket}/{pipeline_name}/training_output/"
-                f"{current_date}/model"
-            )
-        if 'checkpoint_path' not in values:
-            values['checkpoint_path'] = (
-                f"s3://{bucket}/{pipeline_name}/training_checkpoints/"
-                f"{current_date}"
-            )
-
-        # Default S3 *prefix* under which the builder will write `hyperparameters.json`
-        if not values.get('hyperparameters_s3_uri'):
-            values['hyperparameters_s3_uri'] = (
-                f"s3://{bucket}/{pipeline_name}/training_config/"
-                f"{current_date}"  # Removed trailing slash
-            )
-
-        # Normalize all paths to ensure no trailing slashes
-        for path_key in ['hyperparameters_s3_uri', 'input_path', 'output_path', 'checkpoint_path']:
-            if path_key in values and values.get(path_key):
-                values[path_key] = values[path_key].rstrip('/')
-
-        return values
-
-
-    @model_validator(mode='after')
-    def _validate_training_paths_logic(self) -> 'XGBoostTrainingConfig':
-        """Validates S3 path requirements for training."""
-        paths_to_check: Dict[str, Optional[str]] = {
-            'input_path': self.input_path,
-            'output_path': self.output_path
-        }
-        if self.checkpoint_path: # Only add if it's not None
-            paths_to_check['checkpoint_path'] = self.checkpoint_path
-
-        # Filter out None paths before checking for uniqueness
-        defined_paths = {k: v for k, v in paths_to_check.items() if v is not None}
-
-        if len(set(defined_paths.values())) != len(defined_paths):
-            # Identify which paths are duplicated for a clearer error message
-            from collections import Counter
-            path_counts = Counter(defined_paths.values())
-            duplicates = {path: count for path, count in path_counts.items() if count > 1}
-            raise ValueError(f"All defined paths (input, output, checkpoint) must be unique. Duplicates found: {duplicates}")
-            
-        min_depth = 2 # S3 bucket + at least one prefix level
-        for path_name, path_value in defined_paths.items():
-            if path_value: # Should always be true due to filter, but defensive
-                # s3://bucket/prefix1/prefix2 -> ['bucket', 'prefix1', 'prefix2'] -> length 3
-                depth = len(path_value.replace("s3://", "").split('/'))
-                if depth < min_depth:
-                    raise ValueError(
-                        f"{path_name} ('{path_value}') must have at least {min_depth} levels of hierarchy (bucket + prefix)."
-                    )
-        return self
 
     @model_validator(mode='after')
     def validate_hyperparameter_fields(self) -> 'XGBoostTrainingConfig':
@@ -178,22 +67,6 @@ class XGBoostTrainingConfig(BasePipelineConfig):
 
         return self
 
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'XGBoostTrainingConfig':
-        """Ensure default input and output names are set if not provided."""
-        if self.input_names is None or len(self.input_names) == 0:
-            self.input_names = {
-                "input_path": "TrainingDataDirectory",  # KEY: logical name, VALUE: script input name
-                "config": "HyperparametersConfig"       # KEY: logical name, VALUE: script input name
-            }
-        
-        if self.output_names is None or len(self.output_names) == 0:
-            self.output_names = {
-                "model_data": "ModelArtifacts",    # KEY: logical name, VALUE: output descriptor
-                "output_path": "ModelOutputPath"   # KEY: logical name, VALUE: output descriptor
-            }
-        
-        return self
     
     @field_validator('training_instance_type')
     @classmethod
@@ -220,11 +93,3 @@ class XGBoostTrainingConfig(BasePipelineConfig):
                 f"Must be one of: {', '.join(valid_instances)}"
             )
         return v
-
-    def get_checkpoint_uri(self) -> Optional[str]:
-        """Returns the S3 URI for checkpoints."""
-        return self.checkpoint_path
-
-    def has_checkpoint(self) -> bool:
-        """Checks if a checkpoint path is configured."""
-        return self.checkpoint_path is not None
