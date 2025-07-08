@@ -202,112 +202,97 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
     
     def create_step(self, **kwargs) -> Step:
         """
-        Creates a specialized MimsModelRegistrationProcessingStep for the pipeline.
-        This method orchestrates the assembly of the inputs and configuration
-        into a single, executable pipeline step.
-
-        Note: The MimsModelRegistrationProcessingStep does not define property files (outputs)
-        that can be referenced by subsequent steps in the pipeline. It registers the model in MIMS
-        as a side effect but doesn't produce output artifacts that can be accessed through properties.
-
+        Creates a MimsModelRegistrationProcessingStep using specification-driven approach.
+        
+        This simplified method leverages the specification and dependency resolver to automatically
+        handle input resolution, eliminating complex parameter handling logic.
+        
         Args:
-            **kwargs: Keyword arguments for configuring the step, including:
-                - inputs: A dictionary mapping input channel names to their sources (S3 URIs or Step properties).
-                - OR individual parameters:
-                  - packaged_model_output: S3 URI of the packaged model
-                  - payload_s3_key: S3 key for the payload
-                  - payload_s3_uri: S3 URI for the payload (alternative to payload_s3_key)
-                - dependencies: Optional list of steps that this step depends on.
-                - performance_metadata_location: Optional S3 location of performance metadata file.
-                  If not provided, no performance metadata will be used.
-                - regions: Optional list of regions to register the model in.
-
+            **kwargs: Keyword arguments including:
+                - dependencies: List of upstream steps (preferred approach)
+                - inputs: Dictionary of input mappings (fallback)
+                - performance_metadata_location: Optional S3 location of performance metadata
+                
         Returns:
-            A configured MimsModelRegistrationProcessingStep instance that registers the model in MIMS.
+            A configured MimsModelRegistrationProcessingStep instance
         """
         logger.info("Creating MimsModelRegistrationProcessingStep...")
-
-        # Extract parameters
-        inputs = self._extract_param(kwargs, 'inputs')
-        dependencies = self._extract_param(kwargs, 'dependencies')
-        performance_metadata_location = self._extract_param(kwargs, 'performance_metadata_location')
         
-        # Check if individual input parameters were provided instead of 'inputs' dictionary
-        packaged_model_output = self._extract_param(kwargs, 'packaged_model_output')
-        payload_s3_key = self._extract_param(kwargs, 'payload_s3_key')
-        payload_s3_uri = self._extract_param(kwargs, 'payload_s3_uri')
+        # Extract core parameters
+        dependencies = kwargs.get('dependencies', [])
+        performance_metadata_location = kwargs.get('performance_metadata_location')
         
-        # Extract parameters using standardized keys
-        packaged_model = self._extract_param(kwargs, 'PackagedModel')
-        generated_payload_samples = self._extract_param(kwargs, 'GeneratedPayloadSamples')  # Updated key
-        payload_sample = self._extract_param(kwargs, 'payload_sample')  # Keep for backward compatibility
-        
-        # If individual parameters were provided, build the inputs dictionary
-        if not inputs and (packaged_model or packaged_model_output or generated_payload_samples or payload_sample or payload_s3_key or payload_s3_uri):
-            inputs = {}
-            # Prefer the new key name if provided
-            if packaged_model:
-                inputs["PackagedModel"] = packaged_model
-            # Fall back to old key name for backward compatibility
-            elif packaged_model_output:
-                inputs["PackagedModel"] = packaged_model_output  # Use new key for internal consistency
-                
-            # Prefer the new standardized key name for payload
-            if generated_payload_samples:
-                inputs["GeneratedPayloadSamples"] = generated_payload_samples
-            # Fall back to old key name for backward compatibility
-            elif payload_sample:
-                inputs["payload_sample"] = payload_sample
-                
-            # Keep support for older payload formats
-            if payload_s3_key:
-                inputs["payload_s3_key"] = payload_s3_key
-            if payload_s3_uri:
-                inputs["payload_s3_uri"] = payload_s3_uri
-        
-        # Validate required parameters
-        if not inputs:
-            raise ValueError("Either 'inputs' dictionary or individual 'packaged_model_output' and 'payload_s3_key'/'payload_s3_uri' must be provided")
-
-        # Handle inputs - use specification-driven approach
-        final_inputs = {}
-        
-        # If dependencies are provided, extract inputs from them using UnifiedDependencyResolver
+        # Use specification-driven input resolution
+        inputs = {}
         if dependencies:
-            try:
-                extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
-                final_inputs.update(extracted_inputs)
-                logger.info(f"Extracted inputs from dependencies: {list(extracted_inputs.keys())}")
-            except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
-                
-        # Add explicitly provided inputs (overriding any extracted ones)
-        final_inputs.update(inputs)
+            inputs = self.extract_inputs_from_dependencies(dependencies)
+            logger.info(f"Extracted inputs from dependencies: {list(inputs.keys())}")
+        
+        # Allow manual input override/supplement
+        inputs.update(kwargs.get('inputs', {}))
+        
+        # Handle legacy parameter formats for backward compatibility
+        legacy_inputs = self._handle_legacy_parameters(kwargs)
+        inputs.update(legacy_inputs)
+        
+        # Validate we have required inputs
+        if not inputs:
+            raise ValueError("No inputs provided. Either specify 'dependencies' or 'inputs'.")
         
         # Get processing inputs using specification-driven method
-        processing_inputs = self._get_inputs(final_inputs)
-
-        # Create step name
+        processing_inputs = self._get_inputs(inputs)
+        
+        # Create step with clean, simple logic
         step_name = f"{self._get_step_name('Registration')}-{self.config.region}"
         
-        # Create the specialized step
         try:
             registration_step = MimsModelRegistrationProcessingStep(
                 step_name=step_name,
                 role=self.role,
                 sagemaker_session=self.session,
-                processing_input=processing_inputs,  # This parameter name matches the expected signature
+                processing_input=processing_inputs,
                 performance_metadata_location=performance_metadata_location,
-                depends_on=dependencies or []
+                depends_on=dependencies
             )
             
-            # Attach specification to the step for future reference
-            if hasattr(self, 'spec') and self.spec:
+            # Attach specification for future reference
+            if self.spec:
                 setattr(registration_step, '_spec', self.spec)
             
-            logger.info(f"Created MimsModelRegistrationProcessingStep with name: {registration_step.name}")
+            logger.info(f"Created MimsModelRegistrationProcessingStep: {registration_step.name}")
             return registration_step
             
         except Exception as e:
             logger.error(f"Error creating MimsModelRegistrationProcessingStep: {e}")
             raise ValueError(f"Failed to create MimsModelRegistrationProcessingStep: {e}") from e
+
+    def _handle_legacy_parameters(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle legacy parameter formats for backward compatibility.
+        
+        Args:
+            kwargs: Original keyword arguments
+            
+        Returns:
+            Dictionary of normalized inputs
+        """
+        legacy_inputs = {}
+        
+        # Handle various legacy parameter names
+        legacy_mappings = {
+            'packaged_model_output': 'PackagedModel',
+            'PackagedModel': 'PackagedModel',
+            'packaged_model': 'PackagedModel',
+            'GeneratedPayloadSamples': 'GeneratedPayloadSamples',
+            'generated_payload_samples': 'GeneratedPayloadSamples',
+            'payload_sample': 'GeneratedPayloadSamples',
+            'payload_s3_key': 'GeneratedPayloadSamples',
+            'payload_s3_uri': 'GeneratedPayloadSamples'
+        }
+        
+        for legacy_key, standard_key in legacy_mappings.items():
+            if legacy_key in kwargs and kwargs[legacy_key]:
+                legacy_inputs[standard_key] = kwargs[legacy_key]
+                logger.info(f"Mapped legacy parameter '{legacy_key}' to '{standard_key}'")
+        
+        return legacy_inputs
