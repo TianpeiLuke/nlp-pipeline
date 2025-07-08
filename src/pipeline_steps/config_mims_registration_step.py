@@ -84,24 +84,7 @@ class ModelRegistrationConfig(BasePipelineConfig):
                    "2. List of pairs: [['var1', 'NUMERIC'], ['var2', 'TEXT']]"
     )
     
-    # Input/output names for registration
-    # IMPORTANT: The KEY in input_names must match the VALUE in the upstream step's output_names 
-    # to enable automatic message propagation:
-    # 1. "PackagedModel" matches packaging step's output descriptor
-    # 2. "GeneratedPayloadSamples" matches payload step's output descriptor
-    # This follows the standard pattern where input KEYs match output VALUES.
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "PackagedModel": "ModelPackage",           # KEY matches packaging's output descriptor
-            "GeneratedPayloadSamples": "PayloadData"   # KEY matches payload's output descriptor
-        },
-        description="Mapping of logical input names (keys) to script input names (values)."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=dict,  # Empty dictionary - MIMS Registration step has no outputs
-        description="Registration step doesn't produce accessible output properties."
-    )
+    # Note: input_names and output_names removed - now handled by specification and contract
  
     class Config(BasePipelineConfig.Config):
         arbitrary_types_allowed = True
@@ -143,26 +126,6 @@ class ModelRegistrationConfig(BasePipelineConfig):
         
         return self
 
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'ModelRegistrationConfig':
-        """Ensure default input and output names are set if not provided or empty."""
-        if self.input_names is None or len(self.input_names) == 0:
-            # Use __dict__ to modify the attribute directly without triggering validation
-            # VALUES should be actual script parameter names, not descriptions
-            # KEYS should match output descriptors from upstream steps
-            self.__dict__["input_names"] = {
-                "PackagedModel": "ModelPackage",           # KEY matches packaging's output descriptor
-                "GeneratedPayloadSamples": "PayloadData"   # KEY matches payload's output descriptor
-            }
-        
-        if self.output_names is None or len(self.output_names) == 0:
-            # Even though Registration step has no outputs, we should define this
-            # so it's properly captured in the config
-            # Use __dict__ to modify the attribute directly without triggering validation
-            self.__dict__["output_names"] = {}
-            logger.info("Registration step has no outputs, but output_names will be preserved in config")
-
-        return self
 
     @field_validator('source_model_inference_content_types', 'source_model_inference_response_types')
     @classmethod

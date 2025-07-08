@@ -14,79 +14,13 @@ from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_re
 from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
 
-# Register property paths for inputs to ModelRegistrationStep
-# Following the standard pattern:
-# 1. In config classes: output_names = {"logical_name": "DescriptiveValue"}
-# 2. In pipeline code: output_value = step.config.output_names["logical_name"]
-# 3. Properties access: step.properties.ProcessingOutputConfig.Outputs[output_value].S3Output.S3Uri
-
-# Primary registration using the PackagedModel VALUE
-StepBuilderBase.register_property_path(
-    "PackagingStep", 
-    "PackagedModel",                      # Use VALUE from output_names as property name
-    "properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri"  
-)
-
-# Register with index-based access for robustness
-StepBuilderBase.register_property_path(
-    "PackagingStep", 
-    "PackagedModel",                      # Use VALUE from output_names 
-    "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"  
-)
-
-# Additional registrations for variants of step name, still using the standard pattern
-StepBuilderBase.register_property_path(
-    "Package", 
-    "PackagedModel",                      # Use VALUE from output_names
-    "properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri"  
-)
-
-StepBuilderBase.register_property_path(
-    "Package", 
-    "PackagedModel",                      # Use VALUE from output_names
-    "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"  
-)
-
-StepBuilderBase.register_property_path(
-    "ProcessingStep", 
-    "PackagedModel",                      # Use VALUE from output_names
-    "properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri"  
-)
-
-StepBuilderBase.register_property_path(
-    "ProcessingStep", 
-    "PackagedModel",                      # Use VALUE from output_names
-    "properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri"  
-)
-
-# NOTE: For backward compatibility only - these do NOT follow the standard pattern
-# but are kept to ensure existing pipelines continue to work
-StepBuilderBase.register_property_path(
-    "PackagingStep", 
-    "packaged_model_output",              # Using KEY instead of VALUE (non-standard)
-    "properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri"  
-)
-
-StepBuilderBase.register_property_path(
-    "Package", 
-    "packaged_model_output",              # Using KEY instead of VALUE (non-standard)
-    "properties.ProcessingOutputConfig.Outputs['PackagedModel'].S3Output.S3Uri"  
-)
-
-# Standard Pattern for Input/Output Naming:
-# 1. In config classes:
-#    output_names = {"logical_name": "DescriptiveValue"}  # VALUE used as key in outputs dict
-#    input_names = {"DescriptiveValue": "ScriptInputName"} # KEY matches output VALUE
-# 2. In this file:
-#    - "GeneratedPayloadSamples" KEY in input_names matches OUTPUT DESCRIPTOR from PayloadStep
-#    - "PackagedModel" KEY matches OUTPUT DESCRIPTOR from PackagingStep
-
-# Register property path for payload step output
-StepBuilderBase.register_property_path(
-    "PayloadTestStep", 
-    "GeneratedPayloadSamples",  # Changed to match KEY in input_names                                                   
-    "properties.ProcessingOutputConfig.Outputs['GeneratedPayloadSamples'].S3Output.S3Uri"  
-)
+# Import the registration specification
+try:
+    from ..pipeline_step_specs.registration_spec import REGISTRATION_SPEC
+    SPEC_AVAILABLE = True
+except ImportError:
+    REGISTRATION_SPEC = None
+    SPEC_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +53,13 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             raise ValueError(
                 "ModelRegistrationStepBuilder requires a ModelRegistrationConfig instance."
             )
+            
+        # Use the registration specification if available
+        spec = REGISTRATION_SPEC if SPEC_AVAILABLE else None
+        
         super().__init__(
             config=config,
+            spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
             notebook_root=notebook_root
@@ -155,522 +94,111 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
         
-        # Validate input names
-        # Following standard pattern: input KEYs should match output descriptors from upstream steps
-        if "PackagedModel" not in (self.config.input_names or {}):
-            raise ValueError("input_names must contain key 'PackagedModel'")
-        
-        if "GeneratedPayloadSamples" not in (self.config.input_names or {}):  # Changed from "payload_sample"
-            raise ValueError("input_names must contain key 'GeneratedPayloadSamples'")
-        
-        # Registration step has no outputs, so no validation needed for output_names
+        # Note: Input validation now handled by specification
         
         logger.info("ModelRegistrationConfig validation succeeded.")
 
-    def _get_processing_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+    def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
-        Constructs a list of ProcessingInput objects using the standardized helper methods.
-        This defines the data channels for the processing job, mapping S3 locations
-        to local directories inside the container.
-
-        Args:
-            inputs: A dictionary mapping logical input channel names to their S3 URIs 
-                  or dynamic Step properties.
-
-        Returns:
-            A list of sagemaker.processing.ProcessingInput objects.
-        """
-        # NEW: Normalize inputs first to handle both nested and flat structures
-        inputs = self._normalize_inputs(inputs)
+        Get inputs for the step using specification and contract.
         
-        # Use the standard helper method for input validation
-        # We'll need to do a custom validation due to backward compatibility options
+        This method creates ProcessingInput objects for each dependency defined in the specification.
+        
+        Args:
+            inputs: Input data sources keyed by logical name
+            
+        Returns:
+            List of ProcessingInput objects
+            
+        Raises:
+            ValueError: If no specification is available or required inputs are missing
+        """
+        if not self.spec:
+            # Fallback to legacy method if no specification available
+            return self._get_processing_inputs_legacy(inputs)
+            
+        processing_inputs = []
+        
+        # Process each dependency in the specification
+        for _, dependency_spec in self.spec.dependencies.items():
+            logical_name = dependency_spec.logical_name
+            
+            # Skip if optional and not provided
+            if not dependency_spec.required and logical_name not in inputs:
+                continue
+                
+            # Make sure required inputs are present
+            if dependency_spec.required and logical_name not in inputs:
+                raise ValueError(f"Required input '{logical_name}' not provided")
+            
+            # Create ProcessingInput for MIMS step
+            container_path = "/opt/ml/processing/input/model" if logical_name == "PackagedModel" else "/opt/ml/processing/mims_payload"
+            
+            processing_inputs.append(
+                ProcessingInput(
+                    input_name=logical_name,
+                    source=inputs[logical_name],
+                    destination=container_path,
+                    s3_data_distribution_type="FullyReplicated",
+                    s3_input_mode="File"
+                )
+            )
+            
+        return processing_inputs
+
+    def _get_outputs(self, outputs: Dict[str, Any]) -> None:
+        """
+        Get outputs for the step.
+        
+        Registration step has no outputs - it registers the model as a side effect.
+        
+        Args:
+            outputs: Output destinations (unused for registration step)
+            
+        Returns:
+            None - registration step produces no outputs
+        """
+        return None
+
+    def _get_processing_inputs_legacy(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """
+        Legacy method for backward compatibility when no specification is available.
+        """
+        # Simplified legacy logic for backward compatibility
         if not inputs:
             raise ValueError("Inputs dictionary is empty")
         
-        # Get logical input names for better readability
-        model_package_key = "PackagedModel"  # Changed from "packaged_model_output"
-        payload_sample_key = "GeneratedPayloadSamples"  # Updated to match output descriptor
+        processing_inputs = []
         
-        # For backward compatibility
-        payload_key = "payload_s3_key"
-        payload_uri_key = "payload_s3_uri"
+        # Handle PackagedModel input
+        if "PackagedModel" in inputs:
+            processing_inputs.append(
+                ProcessingInput(
+                    input_name="PackagedModel",
+                    source=inputs["PackagedModel"],
+                    destination="/opt/ml/processing/input/model",
+                    s3_data_distribution_type="FullyReplicated",
+                    s3_input_mode="File"
+                )
+            )
         
-        # Map logical names to script input names using config.input_names
-        model_script_param = self.config.input_names.get(model_package_key, "ModelPackage")
-        payload_script_param = self.config.input_names.get(payload_sample_key, "PayloadSamples")
-        
-        self.log_info("Using script parameter '%s' for logical input '%s'", model_script_param, model_package_key)
-        self.log_info("Using script parameter '%s' for logical input '%s'", payload_script_param, payload_sample_key)
-        
-        # Enhanced debugging for input structure
-        self.log_info("Input structure before normalization: %s", list(inputs.keys()))
-        if "inputs" in inputs:
-            self.log_info("Nested inputs keys: %s", list(inputs['inputs'].keys()))
-        
-        # Check if we have a nested structure and normalize it
-        if "inputs" in inputs and isinstance(inputs["inputs"], dict):
-            self.log_info("Detected nested inputs structure - normalizing")
-            nested_inputs = inputs["inputs"]
-            
-            # CRITICAL FIX: Always copy relevant keys to top level, even if they already exist there
-            for key in [model_package_key, payload_sample_key, payload_key, payload_uri_key]:
-                if key in nested_inputs:
-                    inputs[key] = nested_inputs[key]
-                    self.log_info("Normalized nested input: '%s' to top level (overwriting if exists)", key)
-            
-            # CRITICAL FIX: Additional fix for GeneratedPayloadSamples edge case
-            # Sometimes payload is stored in a different key than we're looking for
-            if payload_sample_key not in inputs and payload_sample_key not in nested_inputs:
-                # If we have any keys that might contain payload data, try using them
-                payload_candidates = []
-                for key, value in nested_inputs.items():
-                    if any(payload_term in key.lower() for payload_term in ["payload", "sample", "generated"]):
-                        payload_candidates.append((key, value))
-                        
-                if payload_candidates:
-                    key, value = payload_candidates[0]
-                    inputs[payload_sample_key] = value
-                    self.log_info("Found payload from alternate key '%s', normalized to '%s'", key, payload_sample_key)
-        
-        # Post-normalization debugging
-        self.log_info("Input structure after normalization: %s", list(inputs.keys()))
-        # Add comprehensive logging to track payload location
-        for key in [payload_sample_key, payload_key, payload_uri_key]:
+        # Handle payload inputs (multiple possible keys for backward compatibility)
+        payload_keys = ["GeneratedPayloadSamples", "payload_s3_key", "payload_s3_uri"]
+        for key in payload_keys:
             if key in inputs:
-                self.log_info("SUCCESS: Found payload key at top level: %s = %s", key, inputs[key])
-            elif "inputs" in inputs and key in inputs["inputs"]:
-                self.log_info("FOUND NESTED ONLY: Payload key %s found in nested structure but not at top level", key)
-        
-        # Validate required model package input
-        if model_package_key not in inputs:
-            raise ValueError(f"Must supply an S3 URI for '{model_package_key}' in 'inputs'")
-        
-        # Validate we have at least one form of payload input
-        if (payload_sample_key not in inputs and 
-            payload_key not in inputs and payload_uri_key not in inputs):
-            raise ValueError(f"Must supply an S3 URI for either '{payload_sample_key}', '{payload_key}', or '{payload_uri_key}' in 'inputs'")
-        
-        # Define the input channels - use standard helper for model input
-        processing_inputs = [
-            self._create_standard_processing_input(
-                model_package_key,  # Logical name
-                inputs, 
-                "/opt/ml/processing/input/model",
-                s3_data_distribution_type="FullyReplicated",
-                s3_input_mode="File"
-            )
-        ]
-        
-        # Handle payload input with preference order - use standard helper when possible
-        if payload_sample_key in inputs:
-            # Use standard helper for preferred payload sample key
-            processing_inputs.append(
-                self._create_standard_processing_input(
-                    payload_sample_key,
-                    inputs,
-                    "/opt/ml/processing/mims_payload",
-                    s3_data_distribution_type="FullyReplicated",
-                    s3_input_mode="File"
+                processing_inputs.append(
+                    ProcessingInput(
+                        input_name="PayloadSamples",
+                        source=inputs[key],
+                        destination="/opt/ml/processing/mims_payload",
+                        s3_data_distribution_type="FullyReplicated",
+                        s3_input_mode="File"
+                    )
                 )
-            )
-        # Fallback to old keys for backward compatibility
-        # We can still use the helper by passing the payload key directly rather than using input_names mapping
-        elif payload_key in inputs:
-            processing_inputs.append(
-                ProcessingInput(
-                    input_name=payload_script_param,  # Use the script param name from config
-                    source=inputs[payload_key],
-                    destination="/opt/ml/processing/mims_payload",
-                    s3_data_distribution_type="FullyReplicated",
-                    s3_input_mode="File"
-                )
-            )
-        elif payload_uri_key in inputs:
-            processing_inputs.append(
-                ProcessingInput(
-                    input_name=payload_script_param,  # Use the script param name from config
-                    source=inputs[payload_uri_key],
-                    destination="/opt/ml/processing/mims_payload",
-                    s3_data_distribution_type="FullyReplicated",
-                    s3_input_mode="File"
-                )
-            )
+                break
         
         return processing_inputs
         
-    def get_input_requirements(self) -> Dict[str, str]:
-        """
-        Get the input requirements for this step builder.
-        
-        Returns:
-            Dictionary mapping input parameter names to descriptions
-        """
-        # Get input requirements from config's input_names
-        input_reqs = {
-            "inputs": f"Dictionary containing {', '.join([f'{k}' for k in (self.config.input_names or {}).keys()])} S3 paths",
-            "dependencies": self.COMMON_PROPERTIES["dependencies"],
-            "performance_metadata_location": "Optional S3 location of performance metadata file"
-        }
-        return input_reqs
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        Note: The MimsModelRegistrationProcessingStep does not produce any accessible outputs.
-        The step registers the model in MIMS as a side effect but doesn't create any
-        output properties that can be referenced by subsequent steps.
-        
-        Returns:
-            Empty dictionary since this step doesn't produce any outputs
-        """
-        # Registration step has no outputs
-        return {}
-
-    def _try_fallback_s3_config(self, model_package_key: str, inputs: Dict[str, Any], 
-                                matched_inputs: Set[str]) -> Set[str]:
-        """
-        Fallback to constructing a path using pipeline_s3_loc from config.
-        
-        Args:
-            model_package_key: Key to use in inputs dictionary
-            inputs: Dictionary to add matched inputs to
-            matched_inputs: Set of input names that were successfully matched
-            
-        Returns:
-            Updated set of matched input names
-        """
-        try:
-            # Find base_s3_loc in configs
-            base_s3_loc = None
-            
-            # First try from self.config if available
-            if hasattr(self, 'config') and hasattr(self.config, 'pipeline_s3_loc'):
-                base_s3_loc = self.config.pipeline_s3_loc
-                self.log_info("Using base_s3_loc from self.config: %s", base_s3_loc)
-            
-            # Alternatively check other configs
-            if not base_s3_loc and hasattr(self, "config_map"):
-                for cfg_name, cfg in self.config_map.items():
-                    if hasattr(cfg, 'pipeline_s3_loc') and cfg.pipeline_s3_loc:
-                        base_s3_loc = cfg.pipeline_s3_loc
-                        self.log_info("Using base_s3_loc from config_map: %s", base_s3_loc)
-                        break
-            
-            # If we found a base S3 location and have a pipeline name
-            if base_s3_loc and hasattr(self.config, 'pipeline_name'):
-                # Construct S3 path using pattern from generated outputs
-                s3_uri = f"{base_s3_loc}/package/packaged_model_output"
-                # Store directly at top level (not nested)
-                inputs[model_package_key] = s3_uri
-                matched_inputs.add(model_package_key)
-                self.log_info("Connected packaged model using fallback path from config: %s", s3_uri)
-                return matched_inputs
-        except Exception as e:
-            logger.debug(f"Config-based fallback failed: {e}")
-        
-        return matched_inputs
-        
-    def _handle_properties_list(self, outputs, model_package_key: str, inputs: Dict[str, Any], 
-                               matched_inputs: Set[str]) -> Set[str]:
-        """
-        Special handler for PropertiesList objects to safely extract S3Uri
-        
-        Args:
-            outputs: The PropertiesList object to handle
-            model_package_key: Key to use in inputs dictionary
-            inputs: Dictionary to add matched inputs to
-            matched_inputs: Set of input names that were successfully matched
-            
-        Returns:
-            Updated set of matched input names
-        """
-        try:
-            # DIRECT APPROACH: Always try index-based access first for PropertiesList
-            first_output = outputs[0]
-            logger.info(f"First output type: {type(first_output).__name__}")
-            
-            if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
-                s3_uri = first_output.S3Output.S3Uri
-                # Store directly at top level (not nested)
-                inputs[model_package_key] = s3_uri
-                matched_inputs.add(model_package_key)
-                logger.info("Connected packaged model using direct index access [0] for PropertiesList")
-                return matched_inputs
-        except Exception as e:
-            logger.info(f"Error accessing PropertiesList by index: {e}")
-        
-        return matched_inputs
-        
-    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
-                                prev_step: Step) -> Set[str]:
-        """
-        Match custom properties specific to ModelRegistration step.
-        
-        Args:
-            inputs: Dictionary to add matched inputs to
-            input_requirements: Dictionary of input requirements
-            prev_step: The dependency step
-            
-        Returns:
-            Set of input names that were successfully matched
-        """
-        matched_inputs = set()
-        
-        # Get step type name and step_name for better logging
-        step_type = prev_step.__class__.__name__ 
-        step_name = getattr(prev_step, 'name', str(prev_step))
-        logger.info(f"Matching properties for step: {step_name}, type: {step_type}")
-        
-        # FIRST ATTEMPT: Special handling for PackagingStep connections
-        # This is the most critical connection and needs dedicated logic
-        if hasattr(prev_step, "name") and ("packaging" in prev_step.name.lower() or "package" in step_type.lower()):
-            try:
-                logger.info(f"Attempting to connect from packaging step: {prev_step.name}")
-                # Direct connection for packaging step - try both methods
-                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
-                    outputs = prev_step.properties.ProcessingOutputConfig.Outputs
-                    model_package_key = "PackagedModel"  # Changed from "packaged_model_output"
-                    
-                    # Initialize inputs dict if needed
-                    if "inputs" not in inputs:
-                        inputs["inputs"] = {}
-                    
-                    # CRITICAL ENHANCEMENT: Inspect the actual structure of the outputs collection
-                    logger.info(f"Output collection type: {type(outputs).__name__}")
-                    if hasattr(outputs, "__dict__"):
-                        logger.info(f"Output collection attributes: {dir(outputs)}")
-                    
-                    # Get the output name that should be used from the packaging step config
-                    # Try to find the output descriptor (VALUE) from the packaging step config
-                    from src.pipeline_steps.config_mims_packaging_step import PackageStepConfig
-                    
-                    # Look for the correct output descriptor from packaging step's output_names
-                    packaging_output_name = "PackagedModel"  # Default if can't find
-                    
-                    # If we can find the step's config directly, get the output descriptor VALUE
-                    packaging_cfg = None
-                    if hasattr(self, "config_map"):
-                        for step_name, cfg in self.config_map.items():
-                            if isinstance(cfg, PackageStepConfig):
-                                packaging_cfg = cfg
-                                break
-                    
-                    if packaging_cfg and hasattr(packaging_cfg, 'output_names'):
-                        # Get the VALUE from output_names for packaged_model_output
-                        packaging_output_name = packaging_cfg.output_names.get("packaged_model_output", packaging_output_name)
-                        self.log_info("Found packaging output descriptor: %s from config", packaging_output_name)
-                    
-                    # CRITICAL FIX: Special handling for PropertiesList objects
-                    if hasattr(outputs, "__class__") and outputs.__class__.__name__ == "PropertiesList":
-                        logger.info("Detected PropertiesList - using safe access methods")
-                        matched_inputs = self._handle_properties_list(outputs, model_package_key, inputs, matched_inputs)
-                        if matched_inputs:
-                            return matched_inputs
-                            
-                    # Try by dict key access (for non-PropertiesList objects)
-                    if hasattr(outputs, "keys") and callable(outputs.keys):
-                        try:
-                            available_keys = list(outputs.keys())
-                            logger.info(f"Available named outputs: {available_keys}")
-                            
-                            # Try our preferred keys in order
-                            key_tries = [packaging_output_name]  # Start with the actual output descriptor from config
-                            # Then try fallbacks
-                            if packaging_output_name not in key_tries:
-                                key_tries.append("PackagedModel")
-                            key_tries.extend(["Model", "model", "packaged_model", "packaged"])
-                            
-                            logger.info(f"Trying keys in order: {key_tries}")
-                            for key in key_tries:
-                                try:
-                                    if key in available_keys:  # Pre-check with keys we know exist
-                                        output = outputs[key]
-                                        if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                            s3_uri = output.S3Output.S3Uri
-                                            # Store directly at top level (not nested)
-                                            inputs[model_package_key] = s3_uri
-                                            matched_inputs.add(model_package_key)  # Add the actual key name
-                                            logger.info(f"Connected packaged model using safe key lookup: {key}")
-                                            return matched_inputs
-                                except Exception as e:
-                                    logger.debug(f"Safe key access failed for {key}: {e}")
-                        except Exception as e:
-                            logger.debug(f"Error checking output keys: {e}")
-                    
-                    # Try index access as fallback for any collection with __getitem__
-                    if model_package_key not in inputs.get("inputs", {}) and hasattr(outputs, "__getitem__"):
-                        try:
-                            s3_uri = outputs[0].S3Output.S3Uri
-                            # Store directly at top level (not nested)
-                            inputs[model_package_key] = s3_uri
-                            matched_inputs.add(model_package_key)
-                            logger.info("Connected packaged model using index access")
-                            return matched_inputs
-                        except Exception as e:
-                            logger.debug(f"Index access failed: {e}")
-                            
-                    # FALLBACK S3 LOC: Use config for S3 path if needed
-                    if model_package_key not in inputs.get("inputs", {}):
-                        matched_inputs = self._try_fallback_s3_config(model_package_key, inputs, matched_inputs)
-                        if matched_inputs:
-                            return matched_inputs
-            except Exception as e:
-                logger.warning(f"Failed to connect packaging step output: {e}")
-        
-        # Try to find payload from payload_test step
-        if hasattr(prev_step, "name") and "payload" in prev_step.name.lower():
-            try:
-                logger.info(f"Attempting to connect from payload step: {prev_step.name}")
-                payload_key = "GeneratedPayloadSamples"
-                
-                # Check if the step properties has Outputs
-                if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
-                    outputs = prev_step.properties.ProcessingOutputConfig.Outputs
-                    
-                    # CRITICAL ENHANCEMENT: Inspect the actual structure of the outputs collection
-                    logger.info(f"Payload step output collection type: {type(outputs).__name__}")
-                    if hasattr(outputs, "__dict__"):
-                        logger.info(f"Payload step output collection attributes: {dir(outputs)}")
-                        
-                    # Get the output descriptor from config if possible
-                    from src.pipeline_steps.config_mims_payload_step import PayloadConfig
-                    
-                    # Look for the output descriptor from payload step's output_names
-                    payload_output_name = "GeneratedPayloadSamples"  # Default
-                    
-                    # If we can find the step's config directly
-                    payload_cfg = None
-                    if hasattr(self, "config_map"):
-                        for step_name, cfg in self.config_map.items():
-                            if isinstance(cfg, PayloadConfig):
-                                payload_cfg = cfg
-                                break
-                    
-                    if payload_cfg and hasattr(payload_cfg, 'output_names'):
-                        # Get the VALUE from output_names
-                        payload_output_name = payload_cfg.output_names.get("payload_sample", payload_output_name)
-                        self.log_info("Found payload output descriptor: %s from config", payload_output_name)
-                    
-                    # CRITICAL FIX: Special handling for PropertiesList objects
-                    if hasattr(outputs, "__class__") and outputs.__class__.__name__ == "PropertiesList":
-                        logger.info("Detected PropertiesList for payload outputs - using safe access methods")
-                        try:
-                            # Try all possible output descriptors
-                            key_tries = ["GeneratedPayloadSamples", "payload_sample", "PayloadSamples", payload_output_name]
-                            
-                            # First try direct property access by various keys
-                            for key in key_tries:
-                                try:
-                                    if hasattr(outputs, key):
-                                        output = getattr(outputs, key)
-                                        if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                            s3_uri = output.S3Output.S3Uri
-                                            # Store directly at top level (not nested)
-                                            inputs[payload_key] = s3_uri
-                                            matched_inputs.add(payload_key)
-                                            logger.info(f"Connected payload sample using direct attribute access with key: {key}")
-                                            return matched_inputs
-                                except Exception as e:
-                                    logger.debug(f"Direct attribute access failed for key {key}: {e}")
-                            
-                            # Try index-based access for PropertiesList
-                            try:
-                                for i in range(min(len(outputs), 3)):  # Try first few outputs
-                                    output = outputs[i]
-                                    if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                        s3_uri = output.S3Output.S3Uri
-                                        # Store directly at top level (not nested)
-                                        inputs[payload_key] = s3_uri
-                                        matched_inputs.add(payload_key)
-                                        self.log_info("Connected payload sample using index access: [%d]", i)
-                                        return matched_inputs
-                            except Exception as e:
-                                logger.debug(f"Index-based access failed: {e}")
-                                
-                        except Exception as e:
-                            logger.debug(f"All PropertiesList access methods failed: {e}")
-                    
-                    # Try by dict key access (for non-PropertiesList objects)
-                    if hasattr(outputs, "keys") and callable(outputs.keys):
-                        try:
-                            available_keys = list(outputs.keys())
-                            logger.info(f"Available payload output keys: {available_keys}")
-                            
-                            # Try all possible output keys
-                            key_tries = [payload_output_name, "GeneratedPayloadSamples", "payload_sample"]
-                            
-                            for key in key_tries:
-                                try:
-                                    if key in available_keys:
-                                        output = outputs[key]
-                                        if hasattr(output, "S3Output") and hasattr(output.S3Output, "S3Uri"):
-                                            s3_uri = output.S3Output.S3Uri
-                                            # Store directly at top level (not nested)
-                                            inputs[payload_key] = s3_uri
-                                            matched_inputs.add(payload_key)
-                                            logger.info(f"Connected payload sample using key lookup: {key}")
-                                            return matched_inputs
-                                except Exception as e:
-                                    logger.debug(f"Key lookup failed for {key}: {e}")
-                        except Exception as e:
-                            logger.debug(f"Error checking output keys: {e}")
-                                
-                    # Try any access method as fallback
-                    try:
-                        # Try to get payload_sample from any available output
-                        first_output = outputs[0]
-                        if hasattr(first_output, "S3Output") and hasattr(first_output.S3Output, "S3Uri"):
-                            s3_uri = first_output.S3Output.S3Uri
-                            # Store directly at top level (not nested)
-                            inputs[payload_key] = s3_uri
-                            matched_inputs.add(payload_key)
-                            logger.info(f"Connected payload sample using first output fallback")
-                            self.log_info("CRITICAL: Storing payload at both nested and top level: %s=%s", payload_key, s3_uri)
-                            return matched_inputs
-                    except Exception as e:
-                        logger.debug(f"Error accessing payload output: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to connect payload output: {e}")
-        
-        # Use registered property paths as a fallback
-        step_property_paths = {}
-        for registered_type in [step_type, step_name.replace("-", ""), "Package", "PackagingStep", "ProcessingStep"]:
-            if registered_type in self._PROPERTY_PATH_REGISTRY:
-                # Add all property paths for this step type to our search list
-                step_property_paths.update(self._PROPERTY_PATH_REGISTRY[registered_type])
-                
-        # Try to extract values using registered property paths
-        for logical_name, property_path in step_property_paths.items():
-            try:
-                # Skip if not a model registration input or if already matched
-                if logical_name not in self.config.input_names:
-                    continue
-                    
-                if "inputs" in inputs and logical_name in inputs["inputs"]:
-                    continue
-                
-                # Dynamically evaluate the property path
-                path_parts = property_path.split('.')
-                value = prev_step
-                for part in path_parts:
-                    # Handle dictionary access with quotes: ['key']
-                    if part.startswith("[") and part.endswith("]"):
-                        key = part[2:-2]  # Remove ["..."]
-                        value = value[key]
-                    # Handle regular attribute access
-                    else:
-                        value = getattr(value, part)
-                
-                # Add extracted value to inputs directly at top level
-                inputs[logical_name] = value
-                matched_inputs.add(logical_name)
-                logger.info(f"Found {logical_name} using registered property path")
-            except Exception as e:
-                logger.debug(f"Could not extract {logical_name} using property path: {e}")
-                
-        return matched_inputs
     
     def create_step(self, **kwargs) -> Step:
         """
@@ -741,8 +269,23 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if not inputs:
             raise ValueError("Either 'inputs' dictionary or individual 'packaged_model_output' and 'payload_s3_key'/'payload_s3_uri' must be provided")
 
-        # Get processing inputs
-        processing_inputs = self._get_processing_inputs(inputs)
+        # Handle inputs - use specification-driven approach
+        final_inputs = {}
+        
+        # If dependencies are provided, extract inputs from them using UnifiedDependencyResolver
+        if dependencies:
+            try:
+                extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+                final_inputs.update(extracted_inputs)
+                logger.info(f"Extracted inputs from dependencies: {list(extracted_inputs.keys())}")
+            except Exception as e:
+                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                
+        # Add explicitly provided inputs (overriding any extracted ones)
+        final_inputs.update(inputs)
+        
+        # Get processing inputs using specification-driven method
+        processing_inputs = self._get_inputs(final_inputs)
 
         # Create step name
         step_name = f"{self._get_step_name('Registration')}-{self.config.region}"
@@ -757,6 +300,10 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 performance_metadata_location=performance_metadata_location,
                 depends_on=dependencies or []
             )
+            
+            # Attach specification to the step for future reference
+            if hasattr(self, 'spec') and self.spec:
+                setattr(registration_step, '_spec', self.spec)
             
             logger.info(f"Created MimsModelRegistrationProcessingStep with name: {registration_step.name}")
             return registration_step
