@@ -572,8 +572,9 @@ class TestStepSpecification(IsolatedTestCase):
             dependencies=[],
             outputs=[self.output_spec]
         )
-        # With use_enum_values=False, we expect an enum instance
-        self.assertIsInstance(step_spec.node_type, NodeType)
+        # With use_enum_values=True, we expect a string value
+        self.assertEqual(step_spec.node_type, "source")
+        # We can still compare with the enum
         self.assertEqual(step_spec.node_type, NodeType.SOURCE)
     
     def test_dependency_and_output_access(self):
@@ -828,7 +829,10 @@ class TestEnumValidation(IsolatedTestCase):
                 logical_name="test_dep",
                 dependency_type=value
             )
-            self.assertIsInstance(dep_spec.dependency_type, DependencyType)
+            # With use_enum_values=True, we expect a string value
+            self.assertEqual(dep_spec.dependency_type, value)
+            # We can still compare with the enum
+            self.assertEqual(dep_spec.dependency_type, DependencyType(value))
             
             # Test in OutputSpec
             output_spec = OutputSpec(
@@ -836,7 +840,10 @@ class TestEnumValidation(IsolatedTestCase):
                 output_type=value,
                 property_path="properties.test.path"
             )
-            self.assertIsInstance(output_spec.output_type, DependencyType)
+            # With use_enum_values=True, we expect a string value
+            self.assertEqual(output_spec.output_type, value)
+            # We can still compare with the enum
+            self.assertEqual(output_spec.output_type, DependencyType(value))
     
     def test_node_type_enum_values(self):
         """Test all NodeType enum values."""
@@ -895,7 +902,10 @@ class TestEnumValidation(IsolatedTestCase):
                     )]
                 )
             
-            self.assertIsInstance(step_spec.node_type, NodeType)
+            # With use_enum_values=True, we expect a string value
+            self.assertEqual(step_spec.node_type, value.value)
+            # We can still compare with the enum
+            self.assertEqual(step_spec.node_type, value)
 
 
 class TestPydanticFeatures(IsolatedTestCase):

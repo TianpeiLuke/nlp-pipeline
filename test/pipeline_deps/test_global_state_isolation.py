@@ -25,6 +25,9 @@ class TestWithoutIsolation(unittest.TestCase):
     
     def test_registry_state_1(self):
         """First test that modifies global registry state."""
+        # Reset global state before the test
+        registry_manager.clear_all_contexts()
+        
         # Create a registry and add a specification
         registry = get_registry("test_pipeline")
         
@@ -59,6 +62,9 @@ class TestWithoutIsolation(unittest.TestCase):
         This test will fail if test_registry_state_1 runs first and doesn't
         clean up its global state.
         """
+        # Reset global state before the test
+        registry_manager.clear_all_contexts()
+        
         # This test assumes no registries exist yet
         contexts = registry_manager.list_contexts()
         
@@ -185,6 +191,13 @@ class TestWithHelperIsolation(IsolatedTestCase):
     These tests should pass whether run individually or together
     because they inherit from IsolatedTestCase, which handles global state cleanup.
     """
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        # Call parent setUp to reset global state
+        super().setUp()
+        # Explicitly clear registry manager to ensure clean state
+        registry_manager.clear_all_contexts()
     
     def test_registry_state_1(self):
         """First test that modifies global registry state."""
