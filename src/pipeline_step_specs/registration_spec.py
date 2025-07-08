@@ -7,11 +7,21 @@ including their dependencies and outputs based on the actual implementation.
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 from ..pipeline_registry.step_names import get_spec_step_type
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.mims_registration_contract import MIMS_REGISTRATION_CONTRACT
+
+# Import the contract at runtime to avoid circular imports
+def _get_mims_registration_contract():
+    from ..pipeline_script_contracts.mims_registration_contract import MIMS_REGISTRATION_CONTRACT
+    return MIMS_REGISTRATION_CONTRACT
 
 # Model Registration Step Specification
 REGISTRATION_SPEC = StepSpecification(
     step_type=get_spec_step_type("ModelRegistration"),
     node_type=NodeType.SINK,
+    script_contract=_get_mims_registration_contract(),  # Add reference to the script contract
     dependencies=[
         DependencySpec(
             logical_name="PackagedModel",
