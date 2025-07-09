@@ -144,19 +144,6 @@ class StepBuilderBase(ABC):
         "enable_caching": "Whether to enable caching for this step (default: True)"
     }
     
-    # Standard output properties for training steps
-    TRAINING_OUTPUT_PROPERTIES = {
-        "training_job_name": "Name of the training job",
-        "model_data": "S3 path to the model artifacts",
-        "model_data_url": "S3 URL to the model artifacts"
-    }
-    
-    # Standard output properties for model steps
-    MODEL_OUTPUT_PROPERTIES = {
-        "model_artifacts_path": "S3 path to model artifacts",
-        "model": "SageMaker model object"
-    }
-    
 
     def __init__(
         self,
