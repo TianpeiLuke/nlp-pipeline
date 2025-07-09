@@ -42,6 +42,16 @@ except ImportError:
     logger.warning("coral_utils not available. get_request_dict will not work.")
     CORAL_UTILS_AVAILABLE = False
 
+# Import the script contract
+try:
+    from ..pipeline_script_contracts.cradle_data_loading_contract import CRADLE_DATA_LOADING_CONTRACT
+    CONTRACT_AVAILABLE = True
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("Cradle data loading contract not available. Contract-driven path resolution will not work.")
+    CRADLE_DATA_LOADING_CONTRACT = None
+    CONTRACT_AVAILABLE = False
+
 from .config_data_load_step_cradle import CradleDataLoadConfig
 from .builder_step_base import StepBuilderBase
 
@@ -112,6 +122,15 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 # from ..pipeline_step_specs.data_loading_calibration_spec import DATA_LOADING_CALIBRATION_SPEC
                 # spec = DATA_LOADING_CALIBRATION_SPEC
                 pass
+            
+            # If no specific type-based spec is found, try to use the generic one
+            if spec is None:
+                try:
+                    from ..pipeline_step_specs.data_loading_spec import DATA_LOADING_SPEC
+                    spec = DATA_LOADING_SPEC
+                    logger.info(f"Using generic DATA_LOADING_SPEC for job type: {job_type}")
+                except ImportError:
+                    logger.warning(f"No specification found for job type: {job_type}")
                 
         super().__init__(
             config=config,
@@ -121,6 +140,12 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             notebook_root=notebook_root
         )
         self.config: CradleDataLoadConfig = config
+        
+        # Store contract reference
+        self.contract = CRADLE_DATA_LOADING_CONTRACT if CONTRACT_AVAILABLE else None
+        
+        if self.spec and not self.contract:
+            logger.warning("Script contract not available - path resolution will use hardcoded values")
 
     def validate_configuration(self) -> None:
         """
@@ -152,19 +177,19 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         # (3) For each data_source, check that required subfields are present
         for idx, ds_cfg in enumerate(ds_list):
             if ds_cfg.data_source_type == "MDS":
-                mds_props: MdsDataSourceConfig = ds_cfg.mds_data_source_properties  # type: ignore
+                mds_props = ds_cfg.mds_data_source_properties
                 if mds_props is None:
                     raise ValueError(f"DataSource #{idx} is MDS but mds_data_source_properties was not provided.")
                 # MdsDataSourceConfig validators have already run.
             elif ds_cfg.data_source_type == "EDX":
-                edx_props: EdxDataSourceConfig = ds_cfg.edx_data_source_properties  # type: ignore
+                edx_props = ds_cfg.edx_data_source_properties
                 if edx_props is None:
                     raise ValueError(f"DataSource #{idx} is EDX but edx_data_source_properties was not provided.")
                 # Check EDX manifest
                 if not edx_props.edx_manifest:
                     raise ValueError(f"DataSource #{idx} EDX manifest must be a nonempty string.")
             elif ds_cfg.data_source_type == "ANDES":
-                andes_props: AndesDataSourceConfig = ds_cfg.andes_data_source_properties  # type: ignore
+                andes_props = ds_cfg.andes_data_source_properties
                 if andes_props is None:
                     raise ValueError(f"DataSource #{idx} is ANDES but andes_data_source_properties was not provided.")
             else:
@@ -193,6 +218,14 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
 
         # (6) Everything else (output_path S3 URI, output_format, cluster_type, etc.) 
         #     is validated by Pydantic already.
+        
+        # (7) Validate spec-contract alignment if both are available
+        if self.spec and self.contract:
+            # Check if output logical names in spec match expected output paths in contract
+            for output in self.spec.outputs:
+                logical_name = output.logical_name
+                if logical_name not in self.contract.expected_output_paths:
+                    logger.warning(f"Output '{logical_name}' in spec not found in contract expected_output_paths")
 
         logger.info("CradleDataLoadConfig validation succeeded.")
         
@@ -217,7 +250,8 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         Get outputs for the step.
         
         CradleDataLoadingStep uses a different output mechanism than standard ProcessingStep,
-        so this method returns an empty dictionary.
+        so this method returns an empty dictionary. However, it logs information from the
+        contract about expected output paths if available.
         
         Args:
             outputs: Dictionary mapping logical names to output destinations
@@ -226,6 +260,11 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             Empty dictionary as CradleDataLoading handles outputs differently
         """
         # CradleDataLoading uses a different output mechanism
+        # But we can use the contract to validate and log output paths
+        if self.contract and hasattr(self.contract, 'expected_output_paths'):
+            for logical_name, container_path in self.contract.expected_output_paths.items():
+                logger.info(f"Contract defines output path for '{logical_name}': {container_path}")
+                
         # The actual outputs are defined in the CradleDataLoadingStep itself
         return {}
         
@@ -274,10 +313,12 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             if not enable_caching and hasattr(step, 'cache_config'):
                 step.cache_config.enable_caching = False
             
-            # Store specification in the step for future reference
+            # Store specification and contract in the step for future reference
             # This enables the specification-driven approach to work with the step
             if hasattr(self, 'spec') and self.spec:
                 setattr(step, '_spec', self.spec)
+            if self.contract:
+                setattr(step, '_contract', self.contract)
             
             logger.info(f"Created CradleDataLoadingStep with name: {step.name}")
             
