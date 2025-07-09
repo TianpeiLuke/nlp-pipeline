@@ -26,6 +26,7 @@ PREPROCESSING_CALIBRATION_SPEC = StepSpecification(
     outputs=[
         OutputSpec(
             logical_name="processed_data",
+            aliases=["eval_data_input", "calibration_data", "validation_data"],  # Added aliases for better matching
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri",
             data_type="S3Uri",

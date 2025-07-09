@@ -202,11 +202,17 @@ class UnifiedDependencyResolver:
         elif self._are_data_types_compatible(dep_spec.data_type, output_spec.data_type):
             score += 0.1
         
-        # 3. Semantic name similarity (25% weight)
-        semantic_score = self.semantic_matcher.calculate_similarity(
-            dep_spec.logical_name, output_spec.logical_name
+        # 3. Enhanced semantic name matching with alias support (25% weight)
+        semantic_score = self.semantic_matcher.calculate_similarity_with_aliases(
+            dep_spec.logical_name, output_spec
         )
         score += semantic_score * 0.25
+        
+        # Optional: Add direct match bonus for exact matches
+        if dep_spec.logical_name == output_spec.logical_name:
+            score += 0.05  # Exact logical name match bonus
+        elif dep_spec.logical_name in output_spec.aliases:
+            score += 0.05  # Exact alias match bonus
         
         # 4. Compatible source check (10% weight)
         if dep_spec.compatible_sources:

@@ -93,6 +93,35 @@ class SemanticMatcher:
         
         return total_score
     
+    def calculate_similarity_with_aliases(self, name: str, output_spec) -> float:
+        """
+        Calculate semantic similarity between a name and an output specification,
+        considering both logical_name and all aliases.
+        
+        Args:
+            name: The name to compare (typically the dependency's logical_name)
+            output_spec: OutputSpec with logical_name and potential aliases
+            
+        Returns:
+            The highest similarity score (0.0 to 1.0) between name and any name in output_spec
+        """
+        # Start with similarity to logical_name
+        best_score = self.calculate_similarity(name, output_spec.logical_name)
+        best_match = output_spec.logical_name
+        
+        # Check each alias
+        for alias in output_spec.aliases:
+            alias_score = self.calculate_similarity(name, alias)
+            if alias_score > best_score:
+                best_score = alias_score
+                best_match = alias
+        
+        # Log which name gave the best match (only for meaningful matches)
+        if best_score > 0.5:
+            logger.debug(f"Best match for '{name}': '{best_match}' (score: {best_score:.3f})")
+            
+        return best_score
+    
     def _normalize_name(self, name: str) -> str:
         """Normalize a name for comparison."""
         # Convert to lowercase

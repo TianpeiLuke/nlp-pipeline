@@ -7,11 +7,21 @@ including their dependencies and outputs based on the actual implementation.
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 from ..pipeline_registry.step_names import get_spec_step_type
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.cradle_data_loading_contract import CRADLE_DATA_LOADING_CONTRACT
+
+# Import the contract at runtime to avoid circular imports
+def _get_cradle_data_loading_contract():
+    from ..pipeline_script_contracts.cradle_data_loading_contract import CRADLE_DATA_LOADING_CONTRACT
+    return CRADLE_DATA_LOADING_CONTRACT
 
 # Cradle Data Loading Step Specification
 DATA_LOADING_SPEC = StepSpecification(
     step_type=get_spec_step_type("CradleDataLoading") + "_Training",
     node_type=NodeType.SOURCE,
+    script_contract=_get_cradle_data_loading_contract(),  # Add reference to the script contract
     dependencies=[
         # Note: CradleDataLoading is typically the first step in a pipeline
         # and doesn't depend on other pipeline steps - it loads data from external sources
