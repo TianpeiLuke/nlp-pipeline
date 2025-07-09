@@ -11,12 +11,12 @@ from .base_specifications import (
 )
 from .specification_registry import SpecificationRegistry
 from .registry_manager import (
-    RegistryManager, registry_manager,
+    RegistryManager,
     get_registry, get_pipeline_registry, get_default_registry, 
     integrate_with_pipeline_builder, list_contexts, clear_context, get_context_stats
 )
-from .dependency_resolver import UnifiedDependencyResolver, DependencyResolutionError, global_resolver
-from .semantic_matcher import SemanticMatcher, semantic_matcher
+from .dependency_resolver import UnifiedDependencyResolver, DependencyResolutionError, create_dependency_resolver
+from .semantic_matcher import SemanticMatcher
 
 __all__ = [
     # Core specification classes
@@ -41,12 +41,8 @@ __all__ = [
     # Dependency resolution
     'UnifiedDependencyResolver',
     'DependencyResolutionError',
+    'create_dependency_resolver',
     
     # Semantic matching
     'SemanticMatcher',
-    
-    # Global instances
-    'global_resolver',
-    'semantic_matcher',
-    'registry_manager',
 ]

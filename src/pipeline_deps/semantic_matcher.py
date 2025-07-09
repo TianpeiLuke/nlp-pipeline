@@ -266,7 +266,3 @@ class SemanticMatcher:
         }
         
         return explanation
-
-
-# Global semantic matcher instance
-semantic_matcher = SemanticMatcher()

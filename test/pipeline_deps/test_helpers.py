@@ -6,9 +6,6 @@ before and after tests, ensuring proper isolation between test cases.
 """
 
 import unittest
-from src.pipeline_deps.registry_manager import registry_manager
-from src.pipeline_deps.dependency_resolver import global_resolver
-from src.pipeline_deps.semantic_matcher import semantic_matcher
 
 
 def reset_all_global_state():
@@ -18,14 +15,9 @@ def reset_all_global_state():
     This function resets the state of all global singletons used in the pipeline_deps
     module, ensuring that tests start with a clean state.
     """
-    # Reset registry manager
-    registry_manager.clear_all_contexts()
-    
-    # Reset global resolver cache
-    global_resolver.clear_cache()
-    
-    # No explicit reset for semantic_matcher as it's stateless
-    # If semantic_matcher ever becomes stateful, add reset here
+    # Note: All components (RegistryManager, SemanticMatcher, and UnifiedDependencyResolver)
+    # are now created per-test and don't require global state reset
+    pass
 
 
 class IsolatedTestCase(unittest.TestCase):

@@ -25,15 +25,16 @@ class DependencyResolutionError(Exception):
 class UnifiedDependencyResolver:
     """Intelligent dependency resolver using declarative specifications."""
     
-    def __init__(self, registry: Optional[SpecificationRegistry] = None):
+    def __init__(self, registry: SpecificationRegistry, semantic_matcher: SemanticMatcher):
         """
         Initialize the dependency resolver.
         
         Args:
-            registry: Optional specification registry. If None, creates a new one.
+            registry: Specification registry
+            semantic_matcher: Semantic matcher for name similarity calculations
         """
-        self.registry = registry or SpecificationRegistry()
-        self.semantic_matcher = SemanticMatcher()
+        self.registry = registry
+        self.semantic_matcher = semantic_matcher
         self._resolution_cache: Dict[str, Dict[str, PropertyReference]] = {}
         
     def register_specification(self, step_name: str, spec: StepSpecification):
@@ -337,5 +338,25 @@ class UnifiedDependencyResolver:
         logger.debug("Dependency resolution cache cleared")
 
 
-# Global resolver instance
-global_resolver = UnifiedDependencyResolver()
+def create_dependency_resolver(registry: Optional[SpecificationRegistry] = None,
+                             semantic_matcher: Optional[SemanticMatcher] = None) -> UnifiedDependencyResolver:
+    """
+    Create a properly configured dependency resolver.
+    
+    Args:
+        registry: Optional specification registry. If None, creates a new one.
+        semantic_matcher: Optional semantic matcher. If None, creates a new one.
+        
+    Returns:
+        Configured UnifiedDependencyResolver instance
+    """
+    registry = registry or SpecificationRegistry()
+    semantic_matcher = semantic_matcher or SemanticMatcher()
+    return UnifiedDependencyResolver(registry, semantic_matcher)
+
+
+__all__ = [
+    'UnifiedDependencyResolver',
+    'DependencyResolutionError',
+    'create_dependency_resolver'
+]
