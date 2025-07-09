@@ -24,8 +24,10 @@ from .preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
 from .preprocessing_validation_spec import PREPROCESSING_VALIDATION_SPEC
 from .preprocessing_testing_spec import PREPROCESSING_TESTING_SPEC
 from .preprocessing_calibration_spec import PREPROCESSING_CALIBRATION_SPEC
+from .model_eval_spec import MODEL_EVAL_SPEC
 
 __all__ = [
+    "MODEL_EVAL_SPEC",
     # Original generic specifications
     "PREPROCESSING_SPEC",
     "XGBOOST_TRAINING_SPEC", 

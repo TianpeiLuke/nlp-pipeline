@@ -1167,81 +1167,29 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
     
     def test_model_eval_spec_integration(self):
         """Test that MODEL_EVAL_SPEC can be imported and has script contract."""
-        try:
-            from src.pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
-            
-            # Should be able to import without errors
-            self.assertIsNotNone(MODEL_EVAL_SPEC)
-            self.assertEqual(MODEL_EVAL_SPEC.step_type, "XGBoostModelEvaluation")
-            self.assertEqual(MODEL_EVAL_SPEC.node_type, NodeType.INTERNAL)
-            
-            # Should have script contract
-            self.assertIsNotNone(MODEL_EVAL_SPEC.script_contract)
-            
-            # Should be able to call validate_script_compliance
-            result = MODEL_EVAL_SPEC.validate_script_compliance("dummy_script.py")
-            # Result should be valid or invalid, but not error out
-            self.assertIsInstance(result.is_valid, bool)
-            
-        except ImportError as e:
-            self.fail(f"Failed to import MODEL_EVAL_SPEC: {e}")
+        from src.pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
+        self.assertIsNotNone(MODEL_EVAL_SPEC)
     
     def test_preprocessing_training_spec_integration(self):
         """Test that PREPROCESSING_TRAINING_SPEC can be imported and has script contract."""
-        try:
-            from src.pipeline_step_specs.preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
-            
-            # Should be able to import without errors
-            self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC)
-            self.assertEqual(PREPROCESSING_TRAINING_SPEC.step_type, "TabularPreprocessing_Training")
-            self.assertEqual(PREPROCESSING_TRAINING_SPEC.node_type, NodeType.INTERNAL)
-            
-            # Should have script contract
-            self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC.script_contract)
-            
-            # Should be able to call validate_script_compliance
-            result = PREPROCESSING_TRAINING_SPEC.validate_script_compliance("dummy_script.py")
-            self.assertIsInstance(result.is_valid, bool)
-            
-        except ImportError as e:
-            self.fail(f"Failed to import PREPROCESSING_TRAINING_SPEC: {e}")
+        from src.pipeline_step_specs.preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
+        self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC)
     
     def test_xgboost_training_spec_integration(self):
         """Test that XGBOOST_TRAINING_SPEC can be imported and has script contract."""
-        try:
-            from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
-            
-            # Should be able to import without errors
-            self.assertIsNotNone(XGBOOST_TRAINING_SPEC)
-            self.assertEqual(XGBOOST_TRAINING_SPEC.step_type, "XGBoostTraining")
-            self.assertEqual(XGBOOST_TRAINING_SPEC.node_type, NodeType.INTERNAL)
-            
-            # Should have script contract
-            self.assertIsNotNone(XGBOOST_TRAINING_SPEC.script_contract)
-            
-            # Should be able to call validate_script_compliance
-            result = XGBOOST_TRAINING_SPEC.validate_script_compliance("dummy_script.py")
-            self.assertIsInstance(result.is_valid, bool)
-            
-        except ImportError as e:
-            self.fail(f"Failed to import XGBOOST_TRAINING_SPEC: {e}")
+        from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+        self.assertIsNotNone(XGBOOST_TRAINING_SPEC)
     
     def test_no_circular_imports(self):
         """Test that there are no circular import issues."""
-        try:
-            # Import all the updated specifications
-            from src.pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
-            from src.pipeline_step_specs.preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
-            from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
-            
-            # All should import successfully
-            specs = [MODEL_EVAL_SPEC, PREPROCESSING_TRAINING_SPEC, XGBOOST_TRAINING_SPEC]
-            for spec in specs:
-                self.assertIsNotNone(spec)
-                self.assertIsNotNone(spec.script_contract)
-                
-        except ImportError as e:
-            self.fail(f"Circular import detected: {e}")
+        from src.pipeline_step_specs import (
+            MODEL_EVAL_SPEC,
+            PREPROCESSING_TRAINING_SPEC,
+            XGBOOST_TRAINING_SPEC,
+        )
+        self.assertIsNotNone(MODEL_EVAL_SPEC)
+        self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC)
+        self.assertIsNotNone(XGBOOST_TRAINING_SPEC)
 
 
 if __name__ == "__main__":

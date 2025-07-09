@@ -7,8 +7,7 @@ these issues using the test_helpers module.
 """
 
 import unittest
-from src.pipeline_deps.registry_manager import registry_manager, get_registry
-from src.pipeline_deps.dependency_resolver import global_resolver
+from src.pipeline_deps import RegistryManager, get_registry, create_dependency_resolver
 from src.pipeline_deps.base_specifications import (
     StepSpecification, OutputSpec, DependencyType, NodeType
 )
@@ -26,10 +25,10 @@ class TestWithoutIsolation(unittest.TestCase):
     def test_registry_state_1(self):
         """First test that modifies global registry state."""
         # Reset global state before the test
-        registry_manager.clear_all_contexts()
+        manager = RegistryManager()
         
         # Create a registry and add a specification
-        registry = get_registry("test_pipeline")
+        registry = get_registry(manager, "test_pipeline")
         
         # Create a simple specification
         output_spec = OutputSpec(
@@ -50,7 +49,7 @@ class TestWithoutIsolation(unittest.TestCase):
         registry.register("test_step_1", spec)
         
         # Verify it was registered
-        self.assertIn("test_pipeline", registry_manager.list_contexts())
+        self.assertIn("test_pipeline", manager.list_contexts())
         self.assertIn("test_step_1", registry.list_step_names())
         
         # Note: No cleanup is performed, so global state persists
@@ -63,17 +62,17 @@ class TestWithoutIsolation(unittest.TestCase):
         clean up its global state.
         """
         # Reset global state before the test
-        registry_manager.clear_all_contexts()
+        manager = RegistryManager()
         
         # This test assumes no registries exist yet
-        contexts = registry_manager.list_contexts()
+        contexts = manager.list_contexts()
         
         # This will fail if test_registry_state_1 ran first and didn't clean up
         self.assertEqual(len(contexts), 0, 
                        "Expected no contexts, but found: " + str(contexts))
         
         # Create a new registry
-        registry = get_registry("another_pipeline")
+        registry = get_registry(manager, "another_pipeline")
         
         # Create a simple specification
         output_spec = OutputSpec(
@@ -94,7 +93,7 @@ class TestWithoutIsolation(unittest.TestCase):
         registry.register("test_step_2", spec)
         
         # Verify it was registered
-        self.assertIn("another_pipeline", registry_manager.list_contexts())
+        self.assertIn("another_pipeline", manager.list_contexts())
         self.assertIn("test_step_2", registry.list_step_names())
 
 
@@ -107,21 +106,14 @@ class TestWithManualIsolation(unittest.TestCase):
     """
     
     def setUp(self):
-        """Set up test fixtures, resetting global state."""
-        # Reset global state before each test
-        registry_manager.clear_all_contexts()
-        global_resolver.clear_cache()
-    
-    def tearDown(self):
-        """Clean up after tests, resetting global state."""
-        # Reset global state after each test
-        registry_manager.clear_all_contexts()
-        global_resolver.clear_cache()
+        """Set up test fixtures, creating new instances for each test."""
+        self.manager = RegistryManager()
+        self.resolver = create_dependency_resolver()
     
     def test_registry_state_1(self):
-        """First test that modifies global registry state."""
+        """First test that modifies registry state."""
         # Create a registry and add a specification
-        registry = get_registry("test_pipeline")
+        registry = get_registry(self.manager, "test_pipeline")
         
         # Create a simple specification
         output_spec = OutputSpec(
@@ -142,24 +134,24 @@ class TestWithManualIsolation(unittest.TestCase):
         registry.register("test_step_1", spec)
         
         # Verify it was registered
-        self.assertIn("test_pipeline", registry_manager.list_contexts())
+        self.assertIn("test_pipeline", self.manager.list_contexts())
         self.assertIn("test_step_1", registry.list_step_names())
     
     def test_registry_state_2(self):
         """
-        Second test that assumes clean global registry state.
+        Second test that assumes clean registry state.
         
         This test will pass even if test_registry_state_1 runs first
-        because setUp() cleans up global state before each test.
+        because a new manager is created for each test.
         """
         # This test assumes no registries exist yet
-        contexts = registry_manager.list_contexts()
+        contexts = self.manager.list_contexts()
         
-        # This will pass because setUp() cleared all contexts
+        # This will pass because a new manager is created for each test
         self.assertEqual(len(contexts), 0)
         
         # Create a new registry
-        registry = get_registry("another_pipeline")
+        registry = get_registry(self.manager, "another_pipeline")
         
         # Create a simple specification
         output_spec = OutputSpec(
@@ -180,7 +172,7 @@ class TestWithManualIsolation(unittest.TestCase):
         registry.register("test_step_2", spec)
         
         # Verify it was registered
-        self.assertIn("another_pipeline", registry_manager.list_contexts())
+        self.assertIn("another_pipeline", self.manager.list_contexts())
         self.assertIn("test_step_2", registry.list_step_names())
 
 
@@ -196,13 +188,12 @@ class TestWithHelperIsolation(IsolatedTestCase):
         """Set up test fixtures."""
         # Call parent setUp to reset global state
         super().setUp()
-        # Explicitly clear registry manager to ensure clean state
-        registry_manager.clear_all_contexts()
+        self.manager = RegistryManager()
     
     def test_registry_state_1(self):
-        """First test that modifies global registry state."""
+        """First test that modifies registry state."""
         # Create a registry and add a specification
-        registry = get_registry("test_pipeline")
+        registry = get_registry(self.manager, "test_pipeline")
         
         # Create a simple specification
         output_spec = OutputSpec(
@@ -223,24 +214,24 @@ class TestWithHelperIsolation(IsolatedTestCase):
         registry.register("test_step_1", spec)
         
         # Verify it was registered
-        self.assertIn("test_pipeline", registry_manager.list_contexts())
+        self.assertIn("test_pipeline", self.manager.list_contexts())
         self.assertIn("test_step_1", registry.list_step_names())
     
     def test_registry_state_2(self):
         """
-        Second test that assumes clean global registry state.
+        Second test that assumes clean registry state.
         
         This test will pass even if test_registry_state_1 runs first
-        because IsolatedTestCase.setUp() cleans up global state before each test.
+        because a new manager is created for each test.
         """
         # This test assumes no registries exist yet
-        contexts = registry_manager.list_contexts()
+        contexts = self.manager.list_contexts()
         
         # This will pass because IsolatedTestCase.setUp() cleared all contexts
         self.assertEqual(len(contexts), 0)
         
         # Create a new registry
-        registry = get_registry("another_pipeline")
+        registry = get_registry(self.manager, "another_pipeline")
         
         # Create a simple specification
         output_spec = OutputSpec(
@@ -261,7 +252,7 @@ class TestWithHelperIsolation(IsolatedTestCase):
         registry.register("test_step_2", spec)
         
         # Verify it was registered
-        self.assertIn("another_pipeline", registry_manager.list_contexts())
+        self.assertIn("another_pipeline", self.manager.list_contexts())
         self.assertIn("test_step_2", registry.list_step_names())
 
 

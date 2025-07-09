@@ -50,7 +50,7 @@ class TestAtomizedImports(IsolatedTestCase):
         """Test imports from registry_manager module."""
         try:
             from src.pipeline_deps.registry_manager import (
-                RegistryManager, registry_manager, get_registry, 
+                RegistryManager, get_registry, 
                 get_pipeline_registry, get_default_registry,
                 list_contexts, clear_context, get_context_stats
             )
@@ -60,7 +60,7 @@ class TestAtomizedImports(IsolatedTestCase):
             self.assertIsInstance(manager, RegistryManager)
             
             # Test convenience functions
-            registry = get_registry("test")
+            registry = get_registry(manager, "test")
             self.assertIsNotNone(registry)
             
         except ImportError as e:
@@ -70,15 +70,12 @@ class TestAtomizedImports(IsolatedTestCase):
         """Test imports from dependency_resolver module."""
         try:
             from src.pipeline_deps.dependency_resolver import (
-                UnifiedDependencyResolver, DependencyResolutionError, global_resolver
+                UnifiedDependencyResolver, DependencyResolutionError, create_dependency_resolver
             )
             
             # Test resolver instantiation
-            resolver = UnifiedDependencyResolver()
+            resolver = create_dependency_resolver()
             self.assertIsInstance(resolver, UnifiedDependencyResolver)
-            
-            # Test global instance
-            self.assertIsInstance(global_resolver, UnifiedDependencyResolver)
             
         except ImportError as e:
             self.fail(f"Failed to import from dependency_resolver: {e}")
@@ -107,10 +104,12 @@ class TestAtomizedImports(IsolatedTestCase):
         try:
             # These should work for backward compatibility
             from src.pipeline_deps import get_pipeline_registry, get_default_registry
+            from src.pipeline_deps import RegistryManager
             
+            manager = RegistryManager()
             # Test they return the expected types
-            pipeline_registry = get_pipeline_registry("test_pipeline")
-            default_registry = get_default_registry()
+            pipeline_registry = get_pipeline_registry(manager, "test_pipeline")
+            default_registry = get_default_registry(manager)
             
             from src.pipeline_deps.specification_registry import SpecificationRegistry
             self.assertIsInstance(pipeline_registry, SpecificationRegistry)
@@ -156,7 +155,7 @@ class TestAtomizedImports(IsolatedTestCase):
         reg_manager = sys.modules['src.pipeline_deps.registry_manager']
         expected_manager_attrs = [
             'RegistryManager', 'get_registry', 'get_pipeline_registry', 
-            'get_default_registry', 'registry_manager'
+            'get_default_registry'
         ]
         for attr in expected_manager_attrs:
             self.assertTrue(hasattr(reg_manager, attr), f"Missing {attr} in registry_manager")
@@ -235,11 +234,12 @@ class TestIntegrationWithAtomizedStructure(IsolatedTestCase):
     def test_end_to_end_workflow(self):
         """Test complete workflow using atomized imports."""
         # Import directly from modules to avoid any import conflicts
-        from src.pipeline_deps.registry_manager import get_registry
+        from src.pipeline_deps.registry_manager import RegistryManager, get_registry
         from src.pipeline_deps.base_specifications import StepSpecification, OutputSpec
         
         # Create registry
-        registry = get_registry("integration_test")
+        manager = RegistryManager()
+        registry = get_registry(manager, "integration_test")
         
         # Create output spec separately
         output_spec = OutputSpec(

@@ -74,7 +74,10 @@ class ScriptContract(BaseModel):
     def validate_input_paths(cls, v: Dict[str, str]) -> Dict[str, str]:
         """Validate input paths are absolute SageMaker paths"""
         for logical_name, path in v.items():
-            if not path.startswith('/opt/ml/processing/input'):
+            if logical_name == "GeneratedPayloadSamples":
+                if not path.startswith('/opt/ml/processing/'):
+                    raise ValueError(f'Input path for {logical_name} must start with /opt/ml/processing/, got: {path}')
+            elif not path.startswith('/opt/ml/processing/input'):
                 raise ValueError(f'Input path for {logical_name} must start with /opt/ml/processing/input, got: {path}')
         return v
     
