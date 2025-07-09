@@ -45,4 +45,8 @@ __all__ = [
     
     # Semantic matching
     'SemanticMatcher',
+    
+    # Factory functions
+    'create_pipeline_components',
 ]
+from .factory import create_pipeline_components

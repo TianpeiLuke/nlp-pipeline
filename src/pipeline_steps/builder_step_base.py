@@ -161,10 +161,12 @@ class StepBuilderBase(ABC):
     def __init__(
         self,
         config: BasePipelineConfig,
-        spec: Optional[StepSpecification] = None,  # New parameter
+        spec: Optional[StepSpecification] = None,
         sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
+        registry_manager=None,
+        dependency_resolver=None,
     ):
         """
         Initialize base step builder.
@@ -175,12 +177,16 @@ class StepBuilderBase(ABC):
             sagemaker_session: SageMaker session
             role: IAM role
             notebook_root: Root directory of notebook
+            registry_manager: Optional RegistryManager instance
+            dependency_resolver: Optional UnifiedDependencyResolver instance
         """
         self.config = config
-        self.spec = spec  # Store the specification
+        self.spec = spec
         self.session = sagemaker_session
         self.role = role
         self.notebook_root = notebook_root or Path.cwd()
+        self.registry_manager = registry_manager
+        self.dependency_resolver = dependency_resolver
         
         # Get contract from specification if available, or directly from config
         self.contract = getattr(spec, 'script_contract', None) if spec else None
@@ -476,7 +482,7 @@ class StepBuilderBase(ABC):
         # Get step name
         step_name = self.__class__.__name__.replace("Builder", "Step")
         
-        resolver = UnifiedDependencyResolver()
+        resolver = self.dependency_resolver or self._get_dependency_resolver()
         resolver.register_specification(step_name, self.spec)
         
         # Register dependencies and enhance them with metadata
@@ -592,6 +598,22 @@ class StepBuilderBase(ABC):
             except Exception as e:
                 logger.debug(f"Error creating minimal specification for {dep_name}: {e}")
     
+    @abstractmethod
+    def _get_registry_manager(self):
+        """Get or create a registry manager."""
+        if not hasattr(self, '_registry_manager') or self._registry_manager is None:
+            from ..pipeline_deps.registry_manager import RegistryManager
+            self._registry_manager = RegistryManager()
+        return self._registry_manager
+
+    def _get_dependency_resolver(self):
+        """Get or create a dependency resolver."""
+        if not hasattr(self, '_dependency_resolver') or self._dependency_resolver is None:
+            from ..pipeline_deps.factory import create_dependency_resolver
+            registry = self._get_registry().get_registry(self._get_context_name())
+            self._dependency_resolver = create_dependency_resolver(registry)
+        return self._dependency_resolver
+
     @abstractmethod
     def create_step(self, **kwargs) -> Step:
         """
