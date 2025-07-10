@@ -452,30 +452,44 @@ class PayloadConfig(ProcessingStepConfigBase):
         """Get the effective source directory"""
         return self.processing_source_dir or self.source_dir
         
-    def get_script_path(self) -> Optional[str]:
+    def get_script_path(self) -> str:
         """
-        Get the path to the processing script.
+        Get script path with priority order:
+        1. Use processing_entry_point if provided
+        2. Fall back to script_contract.entry_point if available
+        
+        Always combines with effective source directory.
         
         Returns:
-            Optional[str]: Path to the script or None if entry_point not available
+            Script path or None if no entry point can be determined
         """
-        # First try to use the contract's entry_point
-        contract = self.get_script_contract()
-        if contract and contract.entry_point:
-            return contract.entry_point
-            
-        # Fall back to processing entry point 
-        if self.processing_entry_point is None:
-            return None
-            
-        effective_source_dir = self.get_effective_source_dir()
-        if effective_source_dir is None:
-            return None
-            
-        if effective_source_dir.startswith('s3://'):
-            return f"{effective_source_dir.rstrip('/')}/{self.processing_entry_point}"
+        # Determine which entry point to use
+        entry_point = None
         
-        return str(Path(effective_source_dir) / self.processing_entry_point)
+        # First priority: Use processing_entry_point if provided
+        if self.processing_entry_point:
+            entry_point = self.processing_entry_point
+        # Second priority: Use contract entry point
+        else:
+            contract = self.get_script_contract()
+            if contract and hasattr(contract, 'entry_point'):
+                entry_point = contract.entry_point
+        
+        if not entry_point:
+            return None
+        
+        # Get the effective source directory
+        effective_source_dir = self.get_effective_source_dir()
+        if not effective_source_dir:
+            return entry_point  # No source dir, just return entry point
+        
+        # Combine source dir with entry point
+        if effective_source_dir.startswith('s3://'):
+            full_path = f"{effective_source_dir.rstrip('/')}/{entry_point}"
+        else:
+            full_path = str(Path(effective_source_dir) / entry_point)
+        
+        return full_path
         
     def get_script_contract(self) -> 'ScriptContract':
         """

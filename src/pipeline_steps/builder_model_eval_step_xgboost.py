@@ -314,6 +314,9 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         step_name = getattr(self.spec, 'step_type', None) or f"XGBoostModelEvaluation-{self.config.job_type.capitalize()}"
         
         # Get script paths from config
+        # IMPORTANT: Using processing_entry_point directly rather than get_script_path()
+        # This is intentional - XGBoostModelEvalConfig.get_script_path() is designed to 
+        # return only the entry point without combining it with source directory
         script_path = self.config.processing_entry_point
         source_dir = self.config.processing_source_dir
         

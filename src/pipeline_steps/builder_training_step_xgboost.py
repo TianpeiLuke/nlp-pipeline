@@ -163,11 +163,32 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         logger.info(f"Training environment variables: {env_vars}")
         return env_vars
         
+    def _create_data_channels_from_source(self, base_path):
+        """
+        Create train, validation, and test channel inputs from a base path.
+        
+        Args:
+            base_path: Base S3 path containing train/val/test subdirectories
+            
+        Returns:
+            Dictionary of channel name to TrainingInput
+        """
+        from sagemaker.workflow.functions import Join
+        
+        channels = {
+            "train": TrainingInput(s3_data=Join(on='/', values=[base_path, "train/"])),
+            "val": TrainingInput(s3_data=Join(on='/', values=[base_path, "val/"])),
+            "test": TrainingInput(s3_data=Join(on='/', values=[base_path, "test/"]))
+        }
+        
+        return channels
+
     def _get_inputs(self, inputs: Dict[str, Any]) -> Dict[str, TrainingInput]:
         """
         Get inputs for the step using specification and contract.
         
         This method creates TrainingInput objects for each dependency defined in the specification.
+        Special handling is implemented for hyperparameters_s3_uri to always use internally generated ones.
         
         Args:
             inputs: Input data sources keyed by logical name
@@ -185,48 +206,89 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             raise ValueError("Script contract is required for input mapping")
             
         training_inputs = {}
+        matched_inputs = set()  # Track which inputs we've handled
+        
+        # SPECIAL CASE: Always generate hyperparameters internally first
+        hyperparameters_key = "hyperparameters_s3_uri"
+        
+        # Generate hyperparameters file regardless of whether inputs contains it
+        internal_hyperparameters_s3_uri = self._prepare_hyperparameters_file()
+        logger.info(f"[TRAINING INPUT OVERRIDE] Generated hyperparameters internally at: {internal_hyperparameters_s3_uri}")
+        logger.info(f"[TRAINING INPUT OVERRIDE] This will be used regardless of any dependency-provided values")
+        
+        # Get container path from contract for the hyperparameters
+        hyperparams_container_path = None
+        if hyperparameters_key in self.contract.expected_input_paths:
+            hyperparams_container_path = self.contract.expected_input_paths[hyperparameters_key]
+            
+            # Extract the channel name from the container path
+            # For '/opt/ml/input/data/config/hyperparameters.json', the channel name would be 'config'
+            parts = hyperparams_container_path.split('/')
+            if len(parts) > 4 and parts[1] == "opt" and parts[2] == "ml" and parts[3] == "input" and parts[4] == "data":
+                channel_name = parts[5]  # This would be 'config'
+                training_inputs[channel_name] = TrainingInput(s3_data=internal_hyperparameters_s3_uri)
+                logger.info(f"Created {channel_name} channel from internally generated hyperparameters: {internal_hyperparameters_s3_uri}")
+        else:
+            # Fallback to 'config' if not in contract
+            training_inputs["config"] = TrainingInput(s3_data=internal_hyperparameters_s3_uri)
+            logger.info(f"Created config channel from internally generated hyperparameters: {internal_hyperparameters_s3_uri}")
+        
+        matched_inputs.add(hyperparameters_key)
+        
+        # Create a copy of the inputs dictionary
+        working_inputs = inputs.copy()
+        
+        # Remove our special case from the inputs dictionary
+        if hyperparameters_key in working_inputs:
+            external_path = working_inputs[hyperparameters_key]
+            logger.info(f"[TRAINING INPUT OVERRIDE] Ignoring dependency-provided hyperparameters: {external_path}")
+            logger.info(f"[TRAINING INPUT OVERRIDE] Using internal hyperparameters instead: {internal_hyperparameters_s3_uri}")
+            del working_inputs[hyperparameters_key]
         
         # Process each dependency in the specification
         for _, dependency_spec in self.spec.dependencies.items():
             logical_name = dependency_spec.logical_name
             
+            # Skip inputs we've already handled
+            if logical_name in matched_inputs:
+                continue
+                
             # Skip if optional and not provided
-            if not dependency_spec.required and logical_name not in inputs:
+            if not dependency_spec.required and logical_name not in working_inputs:
                 continue
                 
             # Make sure required inputs are present
-            if dependency_spec.required and logical_name not in inputs:
+            if dependency_spec.required and logical_name not in working_inputs:
                 raise ValueError(f"Required input '{logical_name}' not provided")
             
             # Get container path from contract
             container_path = None
             if logical_name in self.contract.expected_input_paths:
                 container_path = self.contract.expected_input_paths[logical_name]
+                
+                # SPECIAL HANDLING FOR input_path
+                # For '/opt/ml/input/data', we need to create train/val/test channels
+                if logical_name == "input_path":
+                    base_path = working_inputs[logical_name]
+                    
+                    # Create separate channels for each data split using helper method
+                    data_channels = self._create_data_channels_from_source(base_path)
+                    training_inputs.update(data_channels)
+                    logger.info(f"Created data channels from {logical_name}: {base_path}")
+                else:
+                    # For other inputs, extract the channel name from the container path
+                    parts = container_path.split('/')
+                    if len(parts) > 4 and parts[1] == "opt" and parts[2] == "ml" and parts[3] == "input" and parts[4] == "data":
+                        if len(parts) > 5:
+                            channel_name = parts[5]  # Extract channel name from path
+                            training_inputs[channel_name] = TrainingInput(s3_data=working_inputs[logical_name])
+                            logger.info(f"Created {channel_name} channel from {logical_name}: {working_inputs[logical_name]}")
+                        else:
+                            # If no specific channel in path, use logical name as channel
+                            training_inputs[logical_name] = TrainingInput(s3_data=working_inputs[logical_name])
+                            logger.info(f"Created {logical_name} channel from {logical_name}: {working_inputs[logical_name]}")
             else:
                 raise ValueError(f"No container path found for input: {logical_name}")
-                
-            # Handle different input types based on logical name
-            if logical_name == "input_path":
-                # Training data - create train/val/test channels
-                base_path = inputs[logical_name]
-                
-                # Create separate channels for each data split
-                training_inputs["train"] = TrainingInput(s3_data=Join(on='/', values=[base_path, "train/"]))
-                training_inputs["val"] = TrainingInput(s3_data=Join(on='/', values=[base_path, "val/"]))
-                training_inputs["test"] = TrainingInput(s3_data=Join(on='/', values=[base_path, "test/"]))
-                
-                logger.info(f"Created train/val/test channels from input_path: {base_path}")
-                
-            elif logical_name == "hyperparameters_s3_uri":
-                # Hyperparameters config - single file
-                config_uri = inputs[logical_name]
-                
-                # Ensure we're using the full file path
-                if not S3PathHandler.get_name(config_uri) == "hyperparameters.json":
-                    config_uri = S3PathHandler.join(config_uri, "hyperparameters.json")
-                    
-                training_inputs["config"] = TrainingInput(s3_data=config_uri)
-                logger.info(f"Created config channel from hyperparameters_s3_uri: {config_uri}")
                 
         return training_inputs
 
@@ -270,19 +332,16 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 if logical_name in outputs:
                     primary_output_path = outputs[logical_name]
                 else:
-                    # Generate default output path using base config
-                    bucket = getattr(self.config, 'bucket', 'default-bucket')
-                    pipeline_name = getattr(self.config, 'pipeline_name', 'xgboost-model')
-                    current_date = getattr(self.config, 'current_date', '2025-07-07')
-                    primary_output_path = f"s3://{bucket}/{pipeline_name}/training_output/{current_date}/model"
+                    # Generate destination using pipeline_s3_loc like tabular preprocessing
+                    primary_output_path = f"{self.config.pipeline_s3_loc}/xgboost_training/{logical_name}"
+                    logger.info(f"Using generated destination for '{logical_name}': {primary_output_path}")
                 break
                 
         # If no model output found in spec, generate default output path
         if primary_output_path is None:
-            bucket = getattr(self.config, 'bucket', 'default-bucket')
-            pipeline_name = getattr(self.config, 'pipeline_name', 'xgboost-model')
-            current_date = getattr(self.config, 'current_date', '2025-07-07')
-            primary_output_path = f"s3://{bucket}/{pipeline_name}/training_output/{current_date}/model"
+            # Generate default path using pipeline_s3_loc
+            primary_output_path = f"{self.config.pipeline_s3_loc}/xgboost_training/model"
+            logger.warning(f"No model output found in specification. Using default path: {primary_output_path}")
             
         return primary_output_path
 
@@ -434,6 +493,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             logger.warning(f"Invalid {description} URI format: {uri}")
         
         return valid
+    
     def create_step(self, **kwargs) -> TrainingStep:
         """
         Creates a SageMaker TrainingStep for the pipeline.
@@ -482,14 +542,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         if input_path is not None:
             inputs["input_path"] = input_path
             
-        # Ensure we have hyperparameters - either generate them or use provided ones
-        if "hyperparameters_s3_uri" not in inputs:
-            # Generate hyperparameters file
-            hyperparameters_s3_uri = self._prepare_hyperparameters_file()
-            inputs["hyperparameters_s3_uri"] = hyperparameters_s3_uri
-            logger.info(f"Generated hyperparameters at: {hyperparameters_s3_uri}")
-            
         # Get training inputs using specification-driven method
+        # Note: _get_inputs now handles generating hyperparameters internally
         training_inputs = self._get_inputs(inputs)
         
         # Make sure we have the inputs we need

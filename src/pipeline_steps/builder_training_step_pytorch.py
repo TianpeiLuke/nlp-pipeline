@@ -253,11 +253,28 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             framework_profile_params=FrameworkProfile(local_path="/opt/ml/output/profiler/")
         )
         
+    def _create_data_channel_from_source(self, base_path):
+        """
+        Create a data channel input from a base path.
+        
+        For PyTorch, we create a single 'data' channel (unlike XGBoost which needs separate train/val/test channels)
+        since the PyTorch script expects train/val/test subdirectories within one main directory.
+        
+        Args:
+            base_path: Base S3 path containing train/val/test subdirectories
+            
+        Returns:
+            Dictionary of channel name to TrainingInput
+        """
+        return {"data": TrainingInput(s3_data=base_path)}
+    
     def _get_inputs(self, inputs: Dict[str, Any]) -> Dict[str, TrainingInput]:
         """
         Get inputs for the step using specification and contract.
         
         This method creates TrainingInput objects for each dependency defined in the specification.
+        Unlike XGBoost training, PyTorch training receives hyperparameters directly via the estimator constructor,
+        so we only need to handle the data inputs here.
         
         Args:
             inputs: Input data sources keyed by logical name
@@ -275,11 +292,16 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             raise ValueError("Script contract is required for input mapping")
             
         training_inputs = {}
+        matched_inputs = set()  # Track which inputs we've handled
         
         # Process each dependency in the specification
         for _, dependency_spec in self.spec.dependencies.items():
             logical_name = dependency_spec.logical_name
             
+            # Skip if already handled
+            if logical_name in matched_inputs:
+                continue
+                
             # Skip if optional and not provided
             if not dependency_spec.required and logical_name not in inputs:
                 continue
@@ -295,21 +317,15 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             else:
                 raise ValueError(f"No container path found for input: {logical_name}")
                 
-            # Handle different input types based on logical name
+            # Handle input_path (the only dependency we should have after removing config)
             if logical_name == "input_path":
-                # Training data - single channel for PyTorch (contains train/val/test subdirs)
                 base_path = inputs[logical_name]
                 
-                # Create a single data channel
-                training_inputs["data"] = TrainingInput(s3_data=base_path)
-                logger.info(f"Created data channel from input_path: {base_path}")
-                
-            elif logical_name == "config":
-                # Configuration file - single file
-                config_uri = inputs[logical_name]
-                
-                training_inputs["config"] = TrainingInput(s3_data=config_uri)
-                logger.info(f"Created config channel from config: {config_uri}")
+                # Create data channel using helper method
+                data_channel = self._create_data_channel_from_source(base_path)
+                training_inputs.update(data_channel)
+                logger.info(f"Created data channel from {logical_name}: {base_path}")
+                matched_inputs.add(logical_name)
                 
         return training_inputs
 
@@ -353,21 +369,19 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
                 if logical_name in outputs:
                     primary_output_path = outputs[logical_name]
                 else:
-                    # Generate default output path using base config
-                    bucket = getattr(self.config, 'bucket', 'default-bucket')
-                    pipeline_name = getattr(self.config, 'pipeline_name', 'pytorch-model')
-                    current_date = getattr(self.config, 'current_date', '2025-07-07')
-                    primary_output_path = f"s3://{bucket}/{pipeline_name}/training_output/{current_date}/model"
+                    # Generate destination using pipeline_s3_loc like tabular preprocessing
+                    primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/{logical_name}"
+                    logger.info(f"Using generated destination for '{logical_name}': {primary_output_path}")
                 break
                 
         # If no model output found in spec, generate default output path
         if primary_output_path is None:
-            bucket = getattr(self.config, 'bucket', 'default-bucket')
-            pipeline_name = getattr(self.config, 'pipeline_name', 'pytorch-model')
-            current_date = getattr(self.config, 'current_date', '2025-07-07')
-            primary_output_path = f"s3://{bucket}/{pipeline_name}/training_output/{current_date}/model"
+            # Generate default path using pipeline_s3_loc
+            primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/model"
+            logger.warning(f"No model output found in specification. Using default path: {primary_output_path}")
             
         return primary_output_path
+    
     def create_step(self, **kwargs) -> TrainingStep:
         """
         Creates a SageMaker TrainingStep for the pipeline.

@@ -114,10 +114,36 @@ class TabularPreprocessingConfig(ProcessingStepConfigBase):
         
     def get_script_path(self) -> str:
         """
-        Get script path from contract.
+        Get script path with priority order:
+        1. Use processing_entry_point if provided
+        2. Fall back to script_contract.entry_point if available
+        
+        Always combines with effective source directory.
         
         Returns:
-            Script path
+            Script path or None if no entry point can be determined
         """
-        # Use the entry_point from the contract
-        return self.script_contract.entry_point
+        # Determine which entry point to use
+        entry_point = None
+        
+        # First priority: Use processing_entry_point if provided
+        if self.processing_entry_point:
+            entry_point = self.processing_entry_point
+        # Second priority: Use contract entry point
+        elif hasattr(self, 'script_contract') and self.script_contract and hasattr(self.script_contract, 'entry_point'):
+            entry_point = self.script_contract.entry_point
+        else:
+            return None
+        
+        # Get the effective source directory
+        effective_source_dir = self.get_effective_source_dir()
+        if not effective_source_dir:
+            return entry_point  # No source dir, just return entry point
+        
+        # Combine source dir with entry point
+        if effective_source_dir.startswith('s3://'):
+            full_path = f"{effective_source_dir.rstrip('/')}/{entry_point}"
+        else:
+            full_path = str(Path(effective_source_dir) / entry_point)
+        
+        return full_path

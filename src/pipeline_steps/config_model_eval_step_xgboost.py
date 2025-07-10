@@ -1,8 +1,19 @@
 from pydantic import Field, model_validator
-from typing import Optional, Dict
+from typing import Optional, Dict, TYPE_CHECKING
+from pathlib import Path
+import logging
 
 from .config_processing_step_base import ProcessingStepConfigBase
 from .hyperparameters_xgboost import XGBoostModelHyperparameters
+
+# Import the script contract
+from ..pipeline_script_contracts.model_evaluation_contract import MODEL_EVALUATION_CONTRACT
+
+# Import for type hints only
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract
+
+logger = logging.getLogger(__name__)
 
 
 class XGBoostModelEvalConfig(ProcessingStepConfigBase):
@@ -11,25 +22,8 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     Inherits from ProcessingStepConfigBase.
     """
     processing_entry_point: str = Field(
-        default="model_evaluation_xgboost.py",
+        default="model_evaluation_xgb.py",
         description="Entry point script for model evaluation."
-    )
-
-    # Input/output names for evaluation with defaults
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model_input": "ModelInput",        # KEY: logical name, VALUE: script input name
-            "eval_data_input": "EvaluationData" # KEY: logical name, VALUE: script input name
-        },
-        description="Mapping of logical input names (keys) to script input names (values)."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "eval_output": "EvaluationResults",    # KEY: logical name, VALUE: output descriptor
-            "metrics_output": "EvaluationMetrics"  # KEY: logical name, VALUE: output descriptor
-        },
-        description="Mapping of logical output names (keys) to output descriptors (values)."
     )
 
     job_type: str = Field(
@@ -59,6 +53,7 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
     @model_validator(mode='after')
     def validate_eval_config(self) -> 'XGBoostModelEvalConfig':
         """Additional validation specific to evaluation configuration"""
+        # Basic validation
         if not self.processing_entry_point:
             raise ValueError("evaluation step requires a processing_entry_point")
             
@@ -69,26 +64,67 @@ class XGBoostModelEvalConfig(ProcessingStepConfigBase):
         if not isinstance(self.hyperparameters, XGBoostModelHyperparameters):
             raise ValueError("hyperparameters must be an instance of XGBoostModelHyperparameters")
         
+        # Validate required fields from script contract
+        contract = self.get_script_contract()
+        
+        # Check required environment variables from contract
+        if not self.hyperparameters.id_name:
+            raise ValueError("hyperparameters.id_name must be provided (required by model evaluation contract)")
+            
+        if not self.hyperparameters.label_name:
+            raise ValueError("hyperparameters.label_name must be provided (required by model evaluation contract)")
+            
         return self
 
-
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'XGBoostModelEvalConfig':
-        """Ensure default input and output names are set if not provided."""
-        if self.input_names is None or len(self.input_names) == 0:
-            self.input_names = {
-                "model_input": "ModelInput",        # KEY: logical name, VALUE: script input name
-                "eval_data_input": "EvaluationData" # KEY: logical name, VALUE: script input name
-            }
+    def get_environment_variables(self) -> Dict[str, str]:
+        """
+        Get environment variables for the model evaluation script.
         
-        if self.output_names is None or len(self.output_names) == 0:
-            self.output_names = {
-                "eval_output": "EvaluationResults",    # KEY: logical name, VALUE: output descriptor
-                "metrics_output": "EvaluationMetrics"  # KEY: logical name, VALUE: output descriptor
-            }
+        Returns:
+            Dict[str, str]: Dictionary mapping environment variable names to values
+        """
+        env_vars = {
+            "ID_FIELD": self.hyperparameters.id_name,
+            "LABEL_FIELD": self.hyperparameters.label_name
+        }
         
-        return self
-
-
+        # Add any other environment variables needed
+        if hasattr(self.hyperparameters, 'eval_metric_list') and self.hyperparameters.eval_metric_list:
+            env_vars["EVAL_METRICS"] = ",".join(self.hyperparameters.eval_metric_list)
+        
+        return env_vars
+        
+    def get_script_contract(self) -> 'ScriptContract':
+        """
+        Get script contract for this configuration.
+        
+        Returns:
+            The model evaluation script contract
+        """
+        return MODEL_EVALUATION_CONTRACT
+        
     def get_script_path(self) -> str:
-        return super().get_script_path() or self.processing_entry_point
+        """
+        Get script path for XGBoost model evaluation.
+        
+        SPECIAL CASE: Unlike other step configs, XGBoostModelEvalStepBuilder provides 
+        processing_source_dir and processing_entry_point directly to the processor.run() 
+        method separately. Therefore, this method should return only the entry point name 
+        without combining with source_dir.
+        
+        Returns:
+            Script entry point name (without source_dir)
+        """
+        # Determine which entry point to use
+        entry_point = None
+        
+        # First priority: Use processing_entry_point if provided
+        if self.processing_entry_point:
+            entry_point = self.processing_entry_point
+        # Second priority: Use contract entry point
+        elif hasattr(self, 'script_contract') and self.script_contract and hasattr(self.script_contract, 'entry_point'):
+            entry_point = self.script_contract.entry_point
+        
+        # Return just the entry point name without combining with source directory
+        # This is important for XGBoostModelEvalStepBuilder which handles paths differently
+        return entry_point
