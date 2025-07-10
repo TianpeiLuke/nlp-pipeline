@@ -1,15 +1,16 @@
 # Implementation Plan: Specification-Driven XGBoost End-to-End Pipeline
 
-**Document Version**: 4.0  
-**Last Updated**: July 8, 2025  
+**Document Version**: 5.0  
+**Last Updated**: July 9, 2025  
 **Status**: IMPLEMENTATION IN PROGRESS - Major components completed  
-**Completion**: 90% - Core architecture implemented, final integration in progress
+**Completion**: 95% - Core architecture implemented, final integration in progress
 
 ## Document History
 - **v1.0** (Initial): Original 10-step pipeline analysis, 70% complete, 8-week timeline
 - **v2.0**: Updated for simplified 9-step pipeline, 89% complete, 2-3 week timeline
 - **v3.0**: Job type variant gap SOLVED, 100% complete for specifications
-- **v4.0** (Current): Implementation in progress, 90% complete overall, most components delivered
+- **v4.0**: Implementation in progress, 90% complete overall, most components delivered
+- **v5.0** (Current): Infrastructure improvements, 95% complete, fixed enum hashability, created job type-specific specifications
 
 ## Related Documents
 
@@ -21,6 +22,11 @@
 - [Script Specification Alignment Plan](./2025-07-04_script_specification_alignment_plan.md) - Plan for aligning scripts with specifications
 - [Alignment Validation Implementation Plan](./2025-07-05_alignment_validation_implementation_plan.md) - Plan for validating alignment
 - [Corrected Alignment Architecture Plan](./2025-07-05_corrected_alignment_architecture_plan.md) - Architectural improvements for alignment
+
+### Pipeline Template Modernization
+- [Abstract Pipeline Template Design](./2025-07-09_abstract_pipeline_template_design.md) - Design for abstract pipeline template base class
+- [Simplify Pipeline Builder Template](./2025-07-09_simplify_pipeline_builder_template.md) - Plan for simplifying pipeline builder template
+- [Pipeline Template Modernization Plan](./2025-07-09_pipeline_template_modernization_plan.md) - Comprehensive pipeline template modernization
 
 ### Infrastructure Improvements
 - [Remove Global Singletons](./2025-07-08_remove_global_singletons.md) - Migrating from global to local objects for registry manager, dependency resolver, and semantic matcher
@@ -47,16 +53,19 @@ This document outlines the comprehensive plan to implement a specification-drive
 
 1. **Core Infrastructure**:
    - ✅ **Step Specifications**: All step specifications defined and tested
+   - ✅ **Job Type-Specific Specifications**: Created dedicated specs for all job types (training, calibration, validation, testing)
    - ✅ **Script Contracts**: All script contracts defined and validated
    - ✅ **Dependency Resolution**: UnifiedDependencyResolver fully implemented
    - ✅ **Registry Management**: SpecificationRegistry and context isolation complete
+   - ✅ **Enum Hashability**: Fixed DependencyType and NodeType enums for dictionary key usage
 
 2. **Processing Steps**:
-   - ✅ **CradleDataLoadingStepBuilder**: Fully specification-driven implementation
+   - ✅ **CradleDataLoadingStepBuilder**: Fully specification-driven implementation with job type support
    - ✅ **TabularPreprocessingStepBuilder**: Fully specification-driven implementation
    - ✅ **CurrencyConversionStepBuilder**: Fully specification-driven implementation
    - ✅ **ModelEvaluationStepBuilder**: Fully specification-driven implementation
    - ✅ **All Processing Step Configs**: Updated to use script contracts
+   - ✅ **Job Type Specifications**: Created specific specifications for data loading job types
 
 3. **Training Steps**:
    - ✅ **XGBoostTrainingStepBuilder**: Fully specification-driven implementation
@@ -77,6 +86,8 @@ This document outlines the comprehensive plan to implement a specification-drive
    - 🔄 **Documentation Updates**: Updating developer documentation
 
 2. **Infrastructure Improvements**:
+   - ✅ **Core Infrastructure Improvements**: Fixed enum hashability issues in DependencyType and NodeType
+   - ✅ **Pipeline Template Modernization**: Created AbstractPipelineTemplate for consistent template implementation
    - 🔄 **Global-to-Local Migration**: Moving from global singletons to dependency-injected instances for registry manager, dependency resolver, and semantic matcher
    - 🔄 **Thread Safety**: Ensuring pipeline components are thread-safe for parallel execution
 
@@ -210,19 +221,62 @@ def create_step(self, **kwargs) -> Step:
 
 ### Job Type Variant Handling (Solved)
 
-The job type variant issue has been solved using environment variable-based contract enforcement as described in [Job Type Variant Solution](./2025-07-04_job_type_variant_solution.md):
+The job type variant issue has been solved using two complementary approaches:
 
-1. **Dynamic Specifications**:
-   - Step specifications are selected based on job type
-   - CurrencyConversionStepBuilder demonstrates this approach
+1. **Job Type-Specific Specifications** (NEW):
+   - Created dedicated specifications for each job type:
+     - `data_loading_training_spec.py` - Training data specification
+     - `data_loading_calibration_spec.py` - Calibration data specification
+     - `data_loading_validation_spec.py` - Validation data specification
+     - `data_loading_testing_spec.py` - Testing data specification
+   - Each specification contains properly defined outputs with appropriate semantic keywords
+   - CradleDataLoadingStepBuilder now dynamically selects the correct specification based on job type
 
-2. **Contract Validation**:
+2. **Environment Variable-Based Contract Enforcement**:
    - Script contracts validate required environment variables at runtime
    - Scripts check job type and adjust behavior accordingly
-
-3. **Step Builder Integration**:
    - Builders set appropriate environment variables
    - Contract paths are respected based on job type
+
+The combination of these approaches provides a robust solution for handling job type variants while maintaining specification-driven architecture.
+
+### Recent Infrastructure Improvements
+
+Recent infrastructure improvements have significantly enhanced the stability and flexibility of the pipeline system:
+
+#### 1. Enum Hashability Fix
+
+As documented in [Remove Global Singletons](./2025-07-08_remove_global_singletons.md), the DependencyType and NodeType enums in base_specifications.py were causing errors when used as dictionary keys:
+
+```
+TypeError: unhashable type: 'DependencyType'
+```
+
+This was fixed by adding proper `__hash__` methods to both enum classes:
+
+```python
+def __hash__(self):
+    """Ensure hashability is maintained when used as dictionary keys."""
+    return hash(self.value)
+```
+
+The root cause was that Python automatically makes classes unhashable if they override `__eq__` without also defining `__hash__`. This fix ensures that:
+- DependencyType can be properly used as dictionary keys in compatibility matrices
+- Hash values are consistent with the equality behavior (objects that compare equal have the same hash)
+- Both enums follow the same pattern for maintainability
+
+#### 2. Job Type-Specific Specifications
+
+Created dedicated specifications for all data loading job types:
+- `data_loading_calibration_spec.py`
+- `data_loading_validation_spec.py` 
+- `data_loading_testing_spec.py`
+
+This prevents errors like `'str' object has no attribute 'logical_name'` that were occurring due to improperly structured specifications.
+
+#### 3. Abstract Pipeline Template
+
+Implemented `AbstractPipelineTemplate` class to provide a consistent foundation for all pipeline templates. This reduces code duplication across templates and enforces a standard approach to pipeline generation.
 
 ### Dependency Injection Approach
 
@@ -275,11 +329,13 @@ With the significant progress already made, the implementation timeline has been
 - [ ] Update developer guide with new approach
 - [ ] Create migration guide for updating existing builders
 
-#### 7.3 Global-to-Local Migration (Added)
-- [ ] Update pipeline builders to use dependency injection
-- [ ] Remove global singleton references
-- [ ] Add factory functions for object creation
+#### 7.3 Infrastructure Improvements (Added)
+- [x] Fix DependencyType and NodeType enum hashability (July 9)
+- [x] Create job type-specific specifications for data loading steps (July 9)
+- [x] Implement AbstractPipelineTemplate base class (July 9)
+- [ ] Complete global-to-local migration for all components
 - [ ] Implement context managers for testing
+- [ ] Add thread-local storage for parallel execution
 
 ## Success Metrics
 
@@ -310,8 +366,13 @@ With the significant progress already made, the implementation timeline has been
 
 ### Testing Isolation (Added)
 - **Goal**: Full test isolation without global state
-- **Current**: Global-to-local migration in progress
-- **Status**: 🔄 IN PROGRESS
+- **Current**: Core infrastructure updates complete, migration in progress
+- **Status**: 🔄 IN PROGRESS (70%)
+
+### Template Consistency (Added)
+- **Goal**: Unified template approach for all pipeline types
+- **Current**: AbstractPipelineTemplate implemented
+- **Status**: ✅ ACHIEVED
 
 ## Conclusion
 

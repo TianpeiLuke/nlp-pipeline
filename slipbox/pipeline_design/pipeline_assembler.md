@@ -1,12 +1,12 @@
-# Pipeline Builder Template
+# Pipeline Assembler
 
-The `PipelineBuilderTemplate` serves as a low-level pipeline assembler that translates a declarative pipeline structure into a SageMaker Pipeline. It takes a directed acyclic graph (DAG), configurations, and step builder classes as inputs and handles the complex task of instantiating steps, managing dependencies, and connecting components.
+The `PipelineAssembler` serves as a low-level pipeline assembler that translates a declarative pipeline structure into a SageMaker Pipeline. It takes a directed acyclic graph (DAG), configurations, and step builder classes as inputs and handles the complex task of instantiating steps, managing dependencies, and connecting components.
 
 ## Purpose
 
-The pipeline builder template addresses several challenges in pipeline construction:
+The pipeline assembler addresses several challenges in pipeline construction:
 
-1. **Complexity Reduction**: Simplifies pipeline creation with a template-based approach
+1. **Complexity Reduction**: Simplifies pipeline creation with a component-based approach
 2. **Separation of Concerns**: Cleanly separates pipeline structure (DAG) from implementation details
 3. **Dependency Management**: Handles step dependencies using specification-based dependency resolution
 4. **Consistent Assembly**: Ensures consistent pipeline assembly across different pipeline types
@@ -14,7 +14,7 @@ The pipeline builder template addresses several challenges in pipeline construct
 ## Class Structure
 
 ```python
-class PipelineBuilderTemplate:
+class PipelineAssembler:
     def __init__(
         self,
         dag: PipelineDAG,
@@ -27,7 +27,7 @@ class PipelineBuilderTemplate:
         registry_manager: Optional[RegistryManager] = None,
         dependency_resolver: Optional[UnifiedDependencyResolver] = None
     ):
-        """Initialize the pipeline builder template."""
+        """Initialize the pipeline assembler."""
         pass
         
     def _initialize_step_builders(self) -> None:
@@ -56,8 +56,8 @@ class PipelineBuilderTemplate:
                              config_map: Dict[str, BasePipelineConfig],
                              step_builder_map: Dict[str, Type[StepBuilderBase]],
                              context_name: Optional[str] = None,
-                             **kwargs) -> "PipelineBuilderTemplate":
-        """Create pipeline builder with managed components."""
+                             **kwargs) -> "PipelineAssembler":
+        """Create pipeline assembler with managed components."""
         pass
 ```
 
@@ -65,7 +65,7 @@ class PipelineBuilderTemplate:
 
 ### 1. Constructor Parameters
 
-The template requires several key parameters:
+The assembler requires several key parameters:
 
 - **dag**: The pipeline structure as a directed acyclic graph
 - **config_map**: Maps step names to their configurations
@@ -77,7 +77,7 @@ These parameters provide everything needed to instantiate and connect pipeline s
 
 ### 2. Step Builder Initialization
 
-The template initializes step builders for all steps in the DAG:
+The assembler initializes step builders for all steps in the DAG:
 
 ```python
 def _initialize_step_builders(self) -> None:
@@ -102,7 +102,7 @@ This creates a step builder for each node in the DAG, passing the appropriate co
 
 ### 3. Dependency Propagation
 
-The template uses the dependency resolver to connect steps:
+The assembler uses the dependency resolver to connect steps:
 
 ```python
 def _propagate_messages(self) -> None:
@@ -131,7 +131,7 @@ This uses the specification-based dependency resolver to intelligently match ste
 
 ### 4. Output Generation
 
-The template generates standard output paths based on specifications:
+The assembler generates standard output paths based on specifications:
 
 ```python
 def _generate_outputs(self, step_name: str) -> Dict[str, Any]:
@@ -151,7 +151,7 @@ This creates a dictionary of output paths based on the step's specification, ens
 
 ### 5. Step Instantiation
 
-The template instantiates steps with appropriate inputs:
+The assembler instantiates steps with appropriate inputs:
 
 ```python
 def _instantiate_step(self, step_name: str) -> Step:
@@ -191,7 +191,7 @@ This extracts inputs from dependencies, generates outputs, and uses the step bui
 
 ### 6. Pipeline Generation
 
-The template builds the pipeline by following these steps:
+The assembler builds the pipeline by following these steps:
 
 ```python
 def generate_pipeline(self, pipeline_name: str) -> Pipeline:
@@ -220,17 +220,17 @@ def generate_pipeline(self, pipeline_name: str) -> Pipeline:
 
 This follows a clear sequence of steps to build the pipeline, ensuring that steps are instantiated in the correct order.
 
-## Relationship to AbstractPipelineTemplate
+## Relationship to PipelineTemplateBase
 
-The `PipelineBuilderTemplate` operates at a lower level than `AbstractPipelineTemplate`:
+The `PipelineAssembler` operates at a lower level than `PipelineTemplateBase`:
 
-1. `PipelineBuilderTemplate` is responsible for:
+1. `PipelineAssembler` is responsible for:
    - Assembling the pipeline from the DAG, config_map, and step_builder_map
    - Handling the low-level details of step instantiation
    - Connecting steps according to the DAG
    - Using specifications for dependency resolution
 
-2. `AbstractPipelineTemplate` is responsible for:
+2. `PipelineTemplateBase` is responsible for:
    - Loading configurations from file
    - Creating the DAG, config_map, and step_builder_map
    - Managing dependency components
@@ -239,12 +239,12 @@ The `PipelineBuilderTemplate` operates at a lower level than `AbstractPipelineTe
 The relationship can be visualized as:
 
 ```
-AbstractPipelineTemplate (High-level template)
+PipelineTemplateBase (High-level template)
 ├── Loads configurations from file
 ├── Creates DAG, config_map, step_builder_map
 ├── Manages dependency components
-└── Uses PipelineBuilderTemplate for pipeline assembly
-    ├── PipelineBuilderTemplate (Low-level assembler)
+└── Uses PipelineAssembler for pipeline assembly
+    ├── PipelineAssembler (Low-level assembler)
     ├── Instantiates steps based on the DAG
     ├── Connects steps according to the DAG
     └── Generates the final pipeline
@@ -252,12 +252,12 @@ AbstractPipelineTemplate (High-level template)
 
 ## Implementation Pattern
 
-To use `PipelineBuilderTemplate` directly:
+To use `PipelineAssembler` directly:
 
 1. Create a PipelineDAG
 2. Create a config_map
 3. Create a step_builder_map
-4. Create a PipelineBuilderTemplate
+4. Create a PipelineAssembler
 5. Call generate_pipeline
 
 Example:
@@ -285,8 +285,8 @@ step_builder_map = {
     "Training": TrainingStepBuilder,
 }
 
-# Create pipeline builder template
-template = PipelineBuilderTemplate(
+# Create pipeline assembler
+assembler = PipelineAssembler(
     dag=dag,
     config_map=config_map,
     step_builder_map=step_builder_map,
@@ -295,10 +295,10 @@ template = PipelineBuilderTemplate(
 )
 
 # Generate pipeline
-pipeline = template.generate_pipeline("my-pipeline")
+pipeline = assembler.generate_pipeline("my-pipeline")
 ```
 
-However, in most cases, you would use `AbstractPipelineTemplate` which provides a higher-level interface that creates the DAG, config_map, and step_builder_map for you.
+However, in most cases, you would use `PipelineTemplateBase` which provides a higher-level interface that creates the DAG, config_map, and step_builder_map for you.
 
 ## Best Practices
 
@@ -319,14 +319,14 @@ However, in most cases, you would use `AbstractPipelineTemplate` which provides 
    - Pass registry_manager and dependency_resolver explicitly
 
 5. **Error Handling**:
-   - Validate inputs before creating the template
+   - Validate inputs before creating the assembler
    - Handle errors gracefully during pipeline generation
 
-By following these best practices, you can create reliable, maintainable, and efficient pipelines using the `PipelineBuilderTemplate`.
+By following these best practices, you can create reliable, maintainable, and efficient pipelines using the `PipelineAssembler`.
 
 ## Factory Methods
 
-The template includes a factory method for component creation:
+The assembler includes a factory method for component creation:
 
 ```python
 @classmethod
@@ -335,7 +335,7 @@ def create_with_components(cls,
                          config_map: Dict[str, BasePipelineConfig],
                          step_builder_map: Dict[str, Type[StepBuilderBase]],
                          context_name: Optional[str] = None,
-                         **kwargs) -> "PipelineBuilderTemplate":
+                         **kwargs) -> "PipelineAssembler":
     components = create_pipeline_components(context_name)
     return cls(
         dag=dag,
@@ -347,4 +347,4 @@ def create_with_components(cls,
     )
 ```
 
-This method creates a template with properly configured components, making it easier to create templates with isolated dependency components.
+This method creates an assembler with properly configured components, making it easier to create templates with isolated dependency components.

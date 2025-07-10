@@ -701,6 +701,14 @@ Today we completed significant updates to the pipeline dependency system:
    - Fixed the issue where the calibration data loading step was failing with: "'str' object has no attribute 'logical_name'"
    - This improves spec-based pipeline dependency management for data loading steps
 
+6. **Enum Hashability Fix**:
+   - Added `__hash__` method to `DependencyType` enum in `base_specifications.py`
+   - Added `__hash__` method to `NodeType` enum for consistency
+   - Fixed the error: `TypeError: unhashable type: 'DependencyType'` that was occurring in the dependency resolver
+   - The error happened because Python makes classes that override `__eq__` without `__hash__` unhashable
+   - This ensures that DependencyType can be properly used as dictionary keys in the compatibility matrix
+   - The fix maintains consistent hash values based on the enum value, which preserves dictionary lookup behavior
+
 ### Batch Transform Step Modernization
 
 Earlier, we completed significant updates to the batch transform step builder:

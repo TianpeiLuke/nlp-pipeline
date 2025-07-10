@@ -1,11 +1,11 @@
 # Pipeline Template Modernization Plan
 
 **Date:** July 9, 2025  
-**Status:** 📝 PLANNING  
+**Status:** 🔄 IN PROGRESS  
 **Priority:** 🔥 HIGH - Required for improved pipeline architecture  
 **Related Documents:**
 - [2025-07-08_remove_global_singletons.md](./2025-07-08_remove_global_singletons.md)
-- [2025-07-09_simplify_pipeline_builder_template.md](./2025-07-09_simplify_pipeline_builder_template.md)
+- [2025-07-09_simplify_pipeline_assembler.md](./2025-07-09_simplify_pipeline_assembler.md)
 - [2025-07-08_dependency_resolution_alias_support_plan.md](./2025-07-08_dependency_resolution_alias_support_plan.md)
 - [2025-07-07_specification_driven_step_builder_plan.md](./2025-07-07_specification_driven_step_builder_plan.md)
 
@@ -123,13 +123,13 @@ Add methods using context managers for scoped component lifecycle:
 def build_with_context(cls, config_path, **kwargs):
     """Build pipeline with scoped dependency resolution context."""
     with dependency_resolution_context(clear_on_exit=True) as components:
-        builder = cls(
+        template = cls(
             config_path=config_path,
             registry_manager=components["registry_manager"],
             dependency_resolver=components["resolver"],
             **kwargs
         )
-        return builder.generate_pipeline()
+        return template.generate_pipeline()
 ```
 
 ### 4. Thread-Safety Implementation
@@ -141,13 +141,13 @@ Add thread-safe pipeline generation using thread-local storage:
 def build_in_thread(cls, config_path, **kwargs):
     """Build pipeline using thread-local component instances."""
     components = get_thread_components()
-    builder = cls(
+    template = cls(
         config_path=config_path,
         registry_manager=components["registry_manager"],
         dependency_resolver=components["resolver"],
         **kwargs
     )
-    return builder.generate_pipeline()
+    return template.generate_pipeline()
 ```
 
 ### 5. Specification-Driven Approach
@@ -162,14 +162,14 @@ def _get_property_paths(self, step_name, step_instance):
     return {}
 ```
 
-### 6. PipelineBuilderTemplate Factory Method
+### 6. PipelineAssembler Factory Method
 
-Use the create_with_components factory method from PipelineBuilderTemplate:
+Use the create_with_components factory method from PipelineAssembler:
 
 ```python
-def _create_template(self, dag, config_map, step_builder_map):
-    """Create a pipeline builder template with components."""
-    return PipelineBuilderTemplate.create_with_components(
+def _create_assembler(self, dag, config_map, step_builder_map):
+    """Create a pipeline assembler with components."""
+    return PipelineAssembler.create_with_components(
         dag=dag,
         config_map=config_map,
         step_builder_map=step_builder_map,
@@ -185,29 +185,29 @@ def _create_template(self, dag, config_map, step_builder_map):
 
 ### Phase 1: Update Base Template Infrastructure (Week 1)
 
-#### 1.1 Create Abstract Base Template Class
-- Create an abstract base class for pipeline templates
-- Define common interface and methods
-- Implement component lifecycle management
+#### 1.1 Create Base Template Class
+- ✅ Create PipelineTemplateBase class for pipeline templates
+- ✅ Define common interface and methods
+- ✅ Implement component lifecycle management
 
 #### 1.2 Implement Factory Methods
-- Add factory methods for template creation
-- Implement context manager support
-- Add thread-safe component access
+- ✅ Add factory methods for template creation
+- ✅ Implement context manager support
+- ✅ Add thread-safe component access
 
 #### 1.3 Design Template Documentation
-- Create documentation template
-- Define best practices
-- Create examples of proper component usage
+- ✅ Create documentation template
+- ✅ Define best practices
+- ✅ Create examples of proper component usage
 
 ### Phase 2: Update Individual Templates (Week 2)
 
 #### 2.1 Update XGBoost Train-Evaluate E2E Template
-- Update imports to include factory module
-- Modify constructor to accept components
-- Update generate_pipeline to use components
-- Add factory methods
-- Add comprehensive documentation
+- ✅ Update imports to include factory module
+- ✅ Modify constructor to accept components
+- ✅ Update generate_pipeline to use components
+- ✅ Add factory methods
+- ✅ Add comprehensive documentation
 
 #### 2.2 Update XGBoost End-to-End Template
 - Apply same pattern as 2.1
@@ -321,7 +321,7 @@ def generate_pipeline(self):
     config_map = self._create_config_map()
     step_builder_map = self._create_step_builder_map()
     
-    template = PipelineBuilderTemplate(
+    assembler = PipelineAssembler(
         dag=dag,
         config_map=config_map,
         step_builder_map=step_builder_map,
@@ -333,7 +333,7 @@ def generate_pipeline(self):
         dependency_resolver=self._dependency_resolver
     )
     
-    pipeline = template.generate_pipeline(self.base_config.pipeline_name)
+    pipeline = assembler.generate_pipeline(self.base_config.pipeline_name)
     return pipeline
 ```
 
@@ -366,27 +366,42 @@ def generate_pipeline(self):
 
 ## Timeline and Dependencies
 
-| Phase | Task | Weeks | Dependencies |
-|-------|------|-------|-------------|
-| 1.1 | Create Abstract Base Template Class | 0.5 | None |
-| 1.2 | Implement Factory Methods | 0.5 | 1.1 |
-| 1.3 | Design Template Documentation | 0.5 | None |
+| Phase | Task | Status | Weeks | Dependencies |
+|-------|------|--------|-------|-------------|
+| 1.1 | Create PipelineTemplateBase Class | ✅ COMPLETED | 0.5 | None |
+| 1.2 | Implement Factory Methods | ✅ COMPLETED | 0.5 | 1.1 |
+| 1.3 | Design Template Documentation | ✅ COMPLETED | 0.5 | None |
 | 2.1 | Update XGBoost Train-Evaluate E2E Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
-| 2.2 | Update XGBoost End-to-End Template | 0.5 | 1.1, 1.2 |
-| 2.3 | Update XGBoost DataLoad-Preprocess Template | 0.5 | 1.1, 1.2 |
-| 2.4 | Update PyTorch End-to-End Template | 0.5 | 1.1, 1.2 |
-| 2.5 | Update PyTorch Model Registration Template | 0.5 | 1.1, 1.2 |
-| 3.1 | Create Comprehensive Reference Template | 1.0 | 2.1-2.5 |
-| 3.2 | Write Tutorial Documentation | 0.5 | 3.1 |
-| 3.3 | Add Unit Tests | 0.5 | 3.1 |
-| 4.1 | Update Notebook Examples | 0.5 | 3.1 |
-| 4.2 | Update CLI Examples | 0.5 | 3.1 |
-| 4.3 | Final Documentation and Cleanup | 0.5 | All |
+| 2.2 | Update XGBoost End-to-End Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
+| 2.3 | Update XGBoost DataLoad-Preprocess Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
+| 2.4 | Update PyTorch End-to-End Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
+| 2.5 | Update PyTorch Model Registration Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
+| 3.1 | Create Comprehensive Reference Template | 📝 PLANNED | 1.0 | 2.1-2.5 |
+| 3.2 | Write Tutorial Documentation | 📝 PLANNED | 0.5 | 3.1 |
+| 3.3 | Add Unit Tests | 📝 PLANNED | 0.5 | 3.1 |
+| 4.1 | Update Notebook Examples | 📝 PLANNED | 0.5 | 3.1 |
+| 4.2 | Update CLI Examples | 📝 PLANNED | 0.5 | 3.1 |
+| 4.3 | Final Documentation and Cleanup | 📝 PLANNED | 0.5 | All |
 
 Total estimated time: 7.5 weeks of developer effort, likely spanning 4-5 calendar weeks with parallel work.
 
 ## Conclusion
 
-By modernizing our pipeline templates, we will create a more maintainable, testable, and flexible framework for creating SageMaker pipelines. The new templates will leverage the latest design patterns and infrastructure improvements, making it easier for developers to create robust pipelines while following best practices.
+By modernizing our pipeline templates, we have created a more maintainable, testable, and flexible framework for creating SageMaker pipelines. The new PipelineTemplateBase and PipelineAssembler classes leverage the latest design patterns and infrastructure improvements, making it easier for developers to create robust pipelines while following best practices.
 
-This plan builds on our previous work to remove global singletons and implement specification-driven step builders, continuing our journey toward a more modern, maintainable pipeline architecture.
+The modernization continues to build on our previous work to remove global singletons and implement specification-driven step builders, advancing our journey toward a more modern, maintainable pipeline architecture.
+
+### Completed Milestones
+
+- ✅ Renamed AbstractPipelineTemplate to PipelineTemplateBase for clearer naming
+- ✅ Renamed PipelineBuilderTemplate to PipelineAssembler to better reflect its assembly role
+- ✅ Created comprehensive documentation for both classes
+- ✅ Implemented factory methods for template and assembler creation
+- ✅ Added context managers for proper component lifecycle management
+- ✅ Updated XGBoost Train-Evaluate E2E Template to use the new classes
+
+### Next Steps
+
+- Complete updates to remaining pipeline templates
+- Create comprehensive reference examples
+- Finalize documentation and examples

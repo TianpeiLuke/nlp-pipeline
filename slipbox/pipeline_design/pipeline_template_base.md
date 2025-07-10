@@ -1,10 +1,10 @@
-# Abstract Pipeline Template
+# Pipeline Template Base
 
-The `AbstractPipelineTemplate` provides a standardized foundation for all pipeline templates in the system. It defines a consistent structure, manages dependency components properly, and enforces best practices across different pipeline implementations.
+The `PipelineTemplateBase` provides a standardized foundation for all pipeline templates in the system. It defines a consistent structure, manages dependency components properly, and enforces best practices across different pipeline implementations.
 
 ## Purpose
 
-The abstract pipeline template solves several challenges:
+The pipeline template base solves several challenges:
 
 1. **Code Duplication**: Eliminates redundant boilerplate across pipeline templates
 2. **Component Lifecycle**: Provides consistent component creation and management
@@ -14,7 +14,7 @@ The abstract pipeline template solves several challenges:
 ## Class Structure
 
 ```python
-class AbstractPipelineTemplate(ABC):
+class PipelineTemplateBase(ABC):
     def __init__(self,
                  config_path: str,
                  sagemaker_session: Optional[PipelineSession] = None,
@@ -99,8 +99,8 @@ def generate_pipeline(self) -> Pipeline:
     config_map = self._create_config_map()
     step_builder_map = self._create_step_builder_map()
     
-    # Create the template
-    template = PipelineBuilderTemplate(
+    # Create the assembler
+    assembler = PipelineAssembler(
         dag=dag,
         config_map=config_map,
         step_builder_map=step_builder_map,
@@ -110,7 +110,7 @@ def generate_pipeline(self) -> Pipeline:
     )
     
     # Generate the pipeline
-    pipeline = template.generate_pipeline(pipeline_name)
+    pipeline = assembler.generate_pipeline(pipeline_name)
     
     return pipeline
 ```
@@ -135,17 +135,17 @@ def create_with_components(cls, config_path: str, context_name: Optional[str] = 
 
 These factory methods make it easier to create templates with properly configured components.
 
-## Relationship to PipelineBuilderTemplate
+## Relationship to PipelineAssembler
 
-The `AbstractPipelineTemplate` operates at a higher level than `PipelineBuilderTemplate`:
+The `PipelineTemplateBase` operates at a higher level than `PipelineAssembler`:
 
-1. `AbstractPipelineTemplate` is responsible for:
+1. `PipelineTemplateBase` is responsible for:
    - Loading configurations from file
    - Creating the DAG, config_map, and step_builder_map
    - Managing dependency components
    - Providing a standard structure for templates
 
-2. `PipelineBuilderTemplate` is responsible for:
+2. `PipelineAssembler` is responsible for:
    - Assembling the pipeline from the DAG, config_map, and step_builder_map
    - Handling the low-level details of step instantiation
    - Connecting steps according to the DAG
@@ -153,12 +153,12 @@ The `AbstractPipelineTemplate` operates at a higher level than `PipelineBuilderT
 The relationship can be visualized as:
 
 ```
-AbstractPipelineTemplate (High-level template)
+PipelineTemplateBase (High-level template)
 ├── Loads configurations from file
 ├── Creates DAG, config_map, step_builder_map
 ├── Manages dependency components
-└── Uses PipelineBuilderTemplate for pipeline assembly
-    ├── PipelineBuilderTemplate (Low-level assembler)
+└── Uses PipelineAssembler for pipeline assembly
+    ├── PipelineAssembler (Low-level assembler)
     ├── Instantiates steps based on the DAG
     ├── Connects steps according to the DAG
     └── Generates the final pipeline
@@ -166,9 +166,9 @@ AbstractPipelineTemplate (High-level template)
 
 ## Implementation Pattern
 
-To implement a pipeline template using `AbstractPipelineTemplate`:
+To implement a pipeline template using `PipelineTemplateBase`:
 
-1. Inherit from `AbstractPipelineTemplate`
+1. Inherit from `PipelineTemplateBase`
 2. Define the `CONFIG_CLASSES` class variable
 3. Implement the required abstract methods
 4. Override any other methods as needed
@@ -176,7 +176,7 @@ To implement a pipeline template using `AbstractPipelineTemplate`:
 Example:
 
 ```python
-class ExamplePipelineTemplate(AbstractPipelineTemplate):
+class ExamplePipelineTemplate(PipelineTemplateBase):
     CONFIG_CLASSES = {
         'BasePipelineConfig': BasePipelineConfig,
         'ProcessingConfig': ProcessingConfig,
