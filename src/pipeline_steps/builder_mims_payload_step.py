@@ -329,13 +329,10 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # Get step name from spec or construct one
         step_name = getattr(self.spec, 'step_type', None) or "PayloadGeneration"
         
-        # Get script path from config or contract
+        # Get full script path from config or contract
         script_path = self.config.get_script_path()
         if not script_path and self.contract:
             script_path = self.contract.entry_point
-        
-        # Get source directory from config
-        source_dir = self.config.processing_source_dir or self.config.source_dir
         
         # Create step
         step = ProcessingStep(
@@ -344,7 +341,6 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             inputs=proc_inputs,
             outputs=proc_outputs,
             code=script_path,
-            source_dir=source_dir,
             job_arguments=job_args,
             depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)

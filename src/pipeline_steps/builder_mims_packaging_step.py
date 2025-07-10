@@ -314,8 +314,10 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         # Get step name from spec or construct one
         step_name = getattr(self.spec, 'step_type', None) or "ModelPackaging"
         
-        # Get full script path from config
+        # Get full script path from config or contract
         script_path = self.config.get_script_path()
+        if not script_path and self.contract:
+            script_path = self.contract.entry_point
         
         # Create step
         step = ProcessingStep(
