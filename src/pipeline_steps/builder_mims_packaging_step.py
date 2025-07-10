@@ -120,9 +120,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"ModelPackaging-{self.config.job_type.capitalize()}"
-            ),
+            base_job_name=self._sanitize_name_for_sagemaker("ModelPackaging"),
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -266,10 +264,9 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             A list of strings representing the command-line arguments.
         """
-        # Always provide at least a job_type argument
-        job_type = getattr(self.config, 'job_type', "standard")
-        logger.info(f"Using default job_type argument: {job_type}")
-        return ["--job_type", job_type]
+        # Use standard packaging arguments
+        logger.info("Using standard packaging arguments")
+        return ["--mode", "standard"]
         
     def create_step(self, **kwargs) -> ProcessingStep:
         """
@@ -315,11 +312,10 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         job_args = self._get_job_arguments()
 
         # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or f"ModelPackaging-{self.config.job_type.capitalize()}"
+        step_name = getattr(self.spec, 'step_type', None) or "ModelPackaging"
         
-        # Get script paths from config
-        script_path = self.config.processing_entry_point
-        source_dir = self.config.processing_source_dir
+        # Get full script path from config
+        script_path = self.config.get_script_path()
         
         # Create step
         step = ProcessingStep(
@@ -328,7 +324,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             inputs=proc_inputs,
             outputs=proc_outputs,
             code=script_path,
-            source_dir=source_dir,
             job_arguments=job_args,
             depends_on=dependencies,
             cache_config=self._get_cache_config(enable_caching)
