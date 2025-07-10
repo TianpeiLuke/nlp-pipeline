@@ -78,12 +78,6 @@ STEP_NAMES = {
         "spec_type": "XGBoostModelEval",
         "description": "XGBoost model evaluation step"
     },
-    "XGBoostModelEvaluation": {  # Alternative name found in specs
-        "config_class": "XGBoostModelEvalConfig",
-        "builder_step_name": "XGBoostModelEvaluationStep",
-        "spec_type": "XGBoostModelEvaluation",
-        "description": "XGBoost model evaluation step (alternative name)"
-    },
     "PytorchModelEval": {
         "config_class": "PytorchModelEvalConfig", 
         "builder_step_name": "PytorchModelEvaluationStep",
@@ -103,12 +97,6 @@ STEP_NAMES = {
         "builder_step_name": "RegistrationStep",
         "spec_type": "Registration",
         "description": "Model registration step"
-    },
-    "ModelRegistration": {  # Alternative name found in specs
-        "config_class": "ModelRegistrationConfig",
-        "builder_step_name": "RegistrationStep",
-        "spec_type": "ModelRegistration",
-        "description": "Model registration step (alternative name)"
     },
     "Payload": {
         "config_class": "PayloadConfig",

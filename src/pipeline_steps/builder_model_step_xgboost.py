@@ -26,6 +26,8 @@ class XGBoostModelStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the model step.
@@ -36,6 +38,8 @@ class XGBoostModelStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Model.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         if not isinstance(config, XGBoostModelStepConfig):
             raise ValueError(
@@ -51,7 +55,9 @@ class XGBoostModelStepBuilder(StepBuilderBase):
             spec=XGBOOST_MODEL_SPEC,  # Add specification
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: XGBoostModelStepConfig = config
 

@@ -1,14 +1,14 @@
 """
-Cradle Data Loading Step Specification for Calibration Job Type.
+Cradle Data Loading Calibration Step Specification.
 
 This module defines the declarative specification for Cradle data loading steps
-specifically for calibration jobs, including their dependencies and outputs.
+specifically for calibration data, including their dependencies and outputs.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 from ..pipeline_registry.step_names import get_spec_step_type
 
-# Cradle Data Loading Step Specification for Calibration
+# Cradle Data Loading Calibration Step Specification
 DATA_LOADING_CALIBRATION_SPEC = StepSpecification(
     step_type=get_spec_step_type("CradleDataLoading") + "_Calibration",
     node_type=NodeType.SOURCE,
@@ -22,21 +22,24 @@ DATA_LOADING_CALIBRATION_SPEC = StepSpecification(
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['DATA'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Main data output from Cradle data loading"
+            description="Calibration data output from Cradle data loading",
+            semantic_keywords=["calibration", "eval", "data", "input", "raw", "dataset", "model_evaluation", "source"]
         ),
         OutputSpec(
             logical_name="METADATA",
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['METADATA'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Metadata output from Cradle data loading"
+            description="Calibration metadata output from Cradle data loading",
+            semantic_keywords=["calibration", "eval", "metadata", "schema", "info", "description", "model_evaluation"]
         ),
         OutputSpec(
             logical_name="SIGNATURE",
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['SIGNATURE'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Signature output from Cradle data loading"
+            description="Calibration signature output from Cradle data loading",
+            semantic_keywords=["calibration", "eval", "signature", "validation", "checksum", "model_evaluation"]
         )
     ]
 )

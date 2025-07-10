@@ -9,6 +9,8 @@ from sagemaker.model import Model
 from .config_model_step_pytorch import PyTorchModelStepConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_step_specs.pytorch_model_spec import PYTORCH_MODEL_SPEC
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,8 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the model step.
@@ -36,6 +40,8 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Model.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         if not isinstance(config, PyTorchModelStepConfig):
             raise ValueError(
@@ -51,7 +57,9 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             spec=PYTORCH_MODEL_SPEC,  # Add specification
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: PyTorchModelStepConfig = config
 

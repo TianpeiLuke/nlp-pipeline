@@ -19,15 +19,7 @@ class BatchTransformStepConfig(BasePipelineConfig):
         description="One of 'training','testing','validation','calibration' to indicate which slice to transform"
     )
 
-    # 2) Input / output S3 URIs
-    batch_input_location: str = Field(
-        ...,
-        description="S3 URI prefix for the input data (e.g. 's3://my-bucket/test/')"
-    )
-    batch_output_location: str = Field(
-        ...,
-        description="S3 URI prefix for the transform outputs (e.g. 's3://my-bucket/test-scores/')"
-    )
+    # Note: Input/output locations are now defined in step specs and provided through dependencies
 
     # 3) Compute sizing
     transform_instance_type: str = Field(
@@ -73,21 +65,7 @@ class BatchTransformStepConfig(BasePipelineConfig):
         description="Whether to join on the 'Input' or 'Output' stream"
     )
 
-    # 7) Input/output names for batch transform
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "model_name": "The name of the SageMaker model (string or Properties)"
-        },
-        description="Mapping of input channel names to their descriptions."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "transform_output": "S3 location of the batch transform output",
-            "batch_transform_job_name": "Name of the batch transform job"
-        },
-        description="Mapping of output channel names to their descriptions."
-    )
+    # Note: input_names and output_names have been removed in favor of script contracts
 
     class Config(BasePipelineConfig.Config):
         """inherit all your BasePipelineConfig config settings"""
@@ -100,11 +78,7 @@ class BatchTransformStepConfig(BasePipelineConfig):
             raise ValueError(f"job_type must be one of {allowed}, got '{v}'")
         return v
 
-    @field_validator("batch_input_location", "batch_output_location")
-    def _validate_s3_uri(cls, v: str) -> str:
-        if not v.startswith("s3://"):
-            raise ValueError(f"must be a valid S3 URI, got '{v}'")
-        return v
+    # Note: S3 URI validator removed as batch_input_location and batch_output_location were removed
 
     @field_validator("transform_instance_type")
     def _validate_instance_type(cls, v: str) -> str:
@@ -122,18 +96,4 @@ class BatchTransformStepConfig(BasePipelineConfig):
             raise ValueError("when join_source='Input', assemble_with must equal split_type")
         return self
 
-    @model_validator(mode='after')
-    def set_default_names(self) -> 'BatchTransformStepConfig':
-        """Ensure default input and output names are set if not provided."""
-        if not self.input_names:
-            self.input_names = {
-                "model_name": "The name of the SageMaker model (string or Properties)"
-            }
-        
-        if not self.output_names:
-            self.output_names = {
-                "transform_output": "S3 location of the batch transform output",
-                "batch_transform_job_name": "Name of the batch transform job"
-            }
-        
-        return self
+    # Note: set_default_names validator has been removed along with input_names and output_names

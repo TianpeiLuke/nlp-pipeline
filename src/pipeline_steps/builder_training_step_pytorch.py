@@ -10,6 +10,8 @@ from sagemaker.workflow.functions import Join
 from .config_training_step_pytorch import PyTorchTrainingConfig
 from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 # Import PyTorch training specification
 try:
@@ -35,6 +37,8 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the training step.
@@ -45,6 +49,8 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Training Job.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
                          
         Raises:
             ValueError: If specification is not available or config is invalid
@@ -65,7 +71,9 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             spec=PYTORCH_TRAINING_SPEC,  # Add specification
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: PyTorchTrainingConfig = config
 

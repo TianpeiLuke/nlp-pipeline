@@ -58,15 +58,7 @@ class ProcessingStepConfigBase(BasePipelineConfig):
         description="Version of the scikit-learn framework to use in SageMaker Processing. Format: '<sklearn-version>-<build-number>'"
     )
 
-    # Optional Input/Output settings - to be defined by derived classes
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {},
-        description="Optional dictionary mapping input names to their descriptions. Should be defined in derived classes."
-    )
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {},
-        description="Optional dictionary mapping output names to their descriptions. Should be defined in derived classes."
-    )
+    # Note: input_names and output_names have been removed in favor of script contracts
 
     class Config(BasePipelineConfig.Config):
         pass

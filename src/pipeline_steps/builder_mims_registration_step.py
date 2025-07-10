@@ -13,6 +13,8 @@ from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_re
 
 from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 # Import the registration specification
 try:
@@ -46,6 +48,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the model registration step.
@@ -56,6 +60,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Processing Job.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         if not isinstance(config, ModelRegistrationConfig):
             raise ValueError(
@@ -70,7 +76,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: ModelRegistrationConfig = config
         

@@ -1,14 +1,14 @@
 """
-Cradle Data Loading Step Specification for Validation Job Type.
+Cradle Data Loading Validation Step Specification.
 
 This module defines the declarative specification for Cradle data loading steps
-specifically for validation jobs, including their dependencies and outputs.
+specifically for validation data, including their dependencies and outputs.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
 from ..pipeline_registry.step_names import get_spec_step_type
 
-# Cradle Data Loading Step Specification for Validation
+# Cradle Data Loading Validation Step Specification
 DATA_LOADING_VALIDATION_SPEC = StepSpecification(
     step_type=get_spec_step_type("CradleDataLoading") + "_Validation",
     node_type=NodeType.SOURCE,
@@ -22,21 +22,24 @@ DATA_LOADING_VALIDATION_SPEC = StepSpecification(
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['DATA'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Main data output from Cradle data loading"
+            description="Validation data output from Cradle data loading",
+            semantic_keywords=["validation", "val", "data", "input", "raw", "dataset", "model_validation", "source"]
         ),
         OutputSpec(
             logical_name="METADATA",
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['METADATA'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Metadata output from Cradle data loading"
+            description="Validation metadata output from Cradle data loading",
+            semantic_keywords=["validation", "val", "metadata", "schema", "info", "description", "model_validation"]
         ),
         OutputSpec(
             logical_name="SIGNATURE",
             output_type=DependencyType.PROCESSING_OUTPUT,
             property_path="properties.ProcessingOutputConfig.Outputs['SIGNATURE'].S3Output.S3Uri",
             data_type="S3Uri",
-            description="Signature output from Cradle data loading"
+            description="Validation signature output from Cradle data loading",
+            semantic_keywords=["validation", "val", "signature", "validation", "checksum", "model_validation"]
         )
     ]
 )

@@ -25,18 +25,12 @@ PYTORCH_MODEL_SPEC = StepSpecification(
     ],
     outputs=[
         OutputSpec(
-            logical_name="model",
+            logical_name="model_name",
             output_type=DependencyType.CUSTOM_PROPERTY,
             property_path="properties.ModelName",
             data_type="String",
-            description="SageMaker model name"
-        ),
-        OutputSpec(
-            logical_name="ModelName",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.ModelName",
-            data_type="String",
-            description="SageMaker model name (alias for model)"
+            description="SageMaker model name",
+            aliases=["model", "ModelName"]
         )
     ]
 )

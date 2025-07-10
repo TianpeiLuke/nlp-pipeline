@@ -12,6 +12,9 @@ from sagemaker.workflow.steps import CacheConfig
 # Import dependency resolver (with error handling for backward compatibility)
 try:
     from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+    from ..pipeline_deps.registry_manager import RegistryManager
+    from ..pipeline_deps.semantic_matcher import SemanticMatcher
+    from ..pipeline_deps.factory import create_dependency_resolver, create_pipeline_components
     from ..pipeline_deps.base_specifications import PropertyReference
     DEPENDENCY_RESOLVER_AVAILABLE = True
 except ImportError:
@@ -144,16 +147,29 @@ class StepBuilderBase(ABC):
         "enable_caching": "Whether to enable caching for this step (default: True)"
     }
     
+    # Standard output properties for training steps
+    TRAINING_OUTPUT_PROPERTIES = {
+        "training_job_name": "Name of the training job",
+        "model_data": "S3 path to the model artifacts",
+        "model_data_url": "S3 URL to the model artifacts"
+    }
+    
+    # Standard output properties for model steps
+    MODEL_OUTPUT_PROPERTIES = {
+        "model_artifacts_path": "S3 path to model artifacts",
+        "model": "SageMaker model object"
+    }
+    
 
     def __init__(
         self,
         config: BasePipelineConfig,
-        spec: Optional[StepSpecification] = None,
+        spec: Optional[StepSpecification] = None,  # New parameter
         sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
-        registry_manager=None,
-        dependency_resolver=None,
+        registry_manager: Optional[RegistryManager] = None,
+        dependency_resolver: Optional[UnifiedDependencyResolver] = None
     ):
         """
         Initialize base step builder.
@@ -164,16 +180,16 @@ class StepBuilderBase(ABC):
             sagemaker_session: SageMaker session
             role: IAM role
             notebook_root: Root directory of notebook
-            registry_manager: Optional RegistryManager instance
-            dependency_resolver: Optional UnifiedDependencyResolver instance
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         self.config = config
-        self.spec = spec
+        self.spec = spec  # Store the specification
         self.session = sagemaker_session
         self.role = role
         self.notebook_root = notebook_root or Path.cwd()
-        self.registry_manager = registry_manager
-        self.dependency_resolver = dependency_resolver
+        self._registry_manager = registry_manager
+        self._dependency_resolver = dependency_resolver
         
         # Get contract from specification if available, or directly from config
         self.contract = getattr(spec, 'script_contract', None) if spec else None
@@ -443,6 +459,54 @@ class StepBuilderBase(ABC):
         pass
         
         
+    def _get_context_name(self) -> str:
+        """
+        Get the context name to use for registry operations.
+        
+        Returns:
+            Context name based on pipeline name or default
+        """
+        if hasattr(self.config, 'pipeline_name') and self.config.pipeline_name:
+            return self.config.pipeline_name
+        return "default"
+        
+    def _get_registry_manager(self) -> RegistryManager:
+        """
+        Get or create a registry manager.
+        
+        Returns:
+            Registry manager instance
+        """
+        if not hasattr(self, '_registry_manager') or self._registry_manager is None:
+            self._registry_manager = RegistryManager()
+            self.log_debug("Created new registry manager")
+        return self._registry_manager
+        
+    def _get_registry(self):
+        """
+        Get the appropriate registry for this step.
+        
+        Returns:
+            Registry instance for the current context
+        """
+        registry_manager = self._get_registry_manager()
+        context_name = self._get_context_name()
+        return registry_manager.get_registry(context_name)
+        
+    def _get_dependency_resolver(self) -> UnifiedDependencyResolver:
+        """
+        Get or create a dependency resolver.
+        
+        Returns:
+            Dependency resolver instance
+        """
+        if not hasattr(self, '_dependency_resolver') or self._dependency_resolver is None:
+            registry = self._get_registry()
+            semantic_matcher = SemanticMatcher()
+            self._dependency_resolver = create_dependency_resolver(registry, semantic_matcher)
+            self.log_debug(f"Created new dependency resolver for context '{self._get_context_name()}'")
+        return self._dependency_resolver
+
     def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
         """
         Extract inputs from dependency steps using the UnifiedDependencyResolver.
@@ -469,7 +533,8 @@ class StepBuilderBase(ABC):
         # Get step name
         step_name = self.__class__.__name__.replace("Builder", "Step")
         
-        resolver = self.dependency_resolver or self._get_dependency_resolver()
+        # Use the injected resolver or create one
+        resolver = self._get_dependency_resolver()
         resolver.register_specification(step_name, self.spec)
         
         # Register dependencies and enhance them with metadata
@@ -585,22 +650,6 @@ class StepBuilderBase(ABC):
             except Exception as e:
                 logger.debug(f"Error creating minimal specification for {dep_name}: {e}")
     
-    @abstractmethod
-    def _get_registry_manager(self):
-        """Get or create a registry manager."""
-        if not hasattr(self, '_registry_manager') or self._registry_manager is None:
-            from ..pipeline_deps.registry_manager import RegistryManager
-            self._registry_manager = RegistryManager()
-        return self._registry_manager
-
-    def _get_dependency_resolver(self):
-        """Get or create a dependency resolver."""
-        if not hasattr(self, '_dependency_resolver') or self._dependency_resolver is None:
-            from ..pipeline_deps.factory import create_dependency_resolver
-            registry = self._get_registry().get_registry(self._get_context_name())
-            self._dependency_resolver = create_dependency_resolver(registry)
-        return self._dependency_resolver
-
     @abstractmethod
     def create_step(self, **kwargs) -> Step:
         """

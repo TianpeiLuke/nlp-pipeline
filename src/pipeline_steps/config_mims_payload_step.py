@@ -13,7 +13,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .config_mims_registration_step import ModelRegistrationConfig, VariableType
+from .config_processing_step_base import ProcessingStepConfigBase
+from .config_mims_registration_step import VariableType
 
 # Import the script contract
 from ..pipeline_script_contracts.mims_payload_contract import MIMS_PAYLOAD_CONTRACT
@@ -23,8 +24,53 @@ if TYPE_CHECKING:
     from ..pipeline_script_contracts.base_script_contract import ScriptContract
 
 
-class PayloadConfig(ModelRegistrationConfig):
+class PayloadConfig(ProcessingStepConfigBase):
     """Configuration for payload generation and testing."""
+    
+    # Model framework and registration fields (previously inherited from ModelRegistrationConfig)
+    framework: str = Field(
+        default="xgboost",
+        description="ML framework used for the model"
+    )
+    # Note: We use processing_instance_type_large and processing_instance_type_small from ProcessingStepConfigBase
+    # Note: We use processing_entry_point from ProcessingStepConfigBase
+    model_owner: str = Field(
+        default="team id",
+        description="Team ID of model owner"
+    )
+    model_registration_domain: str = Field(
+        default="BuyerSellerMessaging",
+        description="Domain for model registration"
+    )
+    model_registration_objective: Optional[str] = Field(
+        default=None,
+        description="Objective of model registration"
+    )
+    
+    # Content and response types
+    source_model_inference_content_types: List[str] = Field(
+        default=["text/csv"],
+        description="Content type for model inference input. Must be exactly ['text/csv'] or ['application/json']"
+    )
+    source_model_inference_response_types: List[str] = Field(
+        default=["application/json"],
+        description="Response type for model inference output. Must be exactly ['text/csv'] or ['application/json']"
+    )
+
+    # Variable lists for input and output
+    source_model_inference_output_variable_list: Dict[str, VariableType] = Field(
+        default={
+            'legacy-score': VariableType.NUMERIC
+        },
+        description="Dictionary of output variables and their types (NUMERIC or TEXT)"
+    )
+    
+    source_model_inference_input_variable_list: Union[Dict[str, Union[VariableType, str]], List[List[str]]] = Field(
+        default_factory=dict,
+        description="Input variables and their types. Can be either:\n"
+                   "1. Dictionary: {'var1': 'NUMERIC', 'var2': 'TEXT'}\n"
+                   "2. List of pairs: [['var1', 'NUMERIC'], ['var2', 'TEXT']]"
+    )
     
     # Performance metrics
     expected_tps: int = Field(
@@ -67,19 +113,7 @@ class PayloadConfig(ModelRegistrationConfig):
         description="Optional dictionary of special TEXT fields and their template values"
     )
     
-    # Script path configuration (optional)
-    payload_source_dir: Optional[str] = Field(
-        default=None, 
-        description="Source directory for payload scripts. Falls back to base source_dir if not provided."
-    )
-    payload_script_path: Optional[str] = Field(
-        default=None,
-        description="Optional path to a custom payload generation script (relative to notebook_root or S3 URI)"
-    )
-    payload_script_arguments: Optional[List[str]] = Field(
-        default=None,
-        description="Optional arguments for the custom payload generation script"
-    )
+    # Note: We use processing_script_arguments from ProcessingStepConfigBase instead of payload_script_arguments
 
     class Config:
         arbitrary_types_allowed = True
@@ -94,10 +128,6 @@ class PayloadConfig(ModelRegistrationConfig):
     @classmethod
     def _preprocess_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """Preprocess input values"""
-        # Handle Path to string conversion
-        if 'payload_script_path' in values and isinstance(values['payload_script_path'], Path):
-            values['payload_script_path'] = str(values['payload_script_path'])
-        
         # Handle variable type conversion if needed
         if 'source_model_inference_input_variable_list' in values:
             input_vars = values['source_model_inference_input_variable_list']
@@ -142,7 +172,7 @@ class PayloadConfig(ModelRegistrationConfig):
         
     @model_validator(mode='after')
     def validate_registration_configs(self) -> 'PayloadConfig':
-        """Override the parent validator to use payload_source_dir if available"""
+        """Override the parent validator to validate registration-specific fields"""
         # Validate model registration objective
         if not self.model_registration_objective:
             raise ValueError("model_registration_objective must be provided")
@@ -150,9 +180,9 @@ class PayloadConfig(ModelRegistrationConfig):
         # Use the effective source directory instead of just source_dir
         effective_source_dir = self.get_effective_source_dir()
         if effective_source_dir and not effective_source_dir.startswith('s3://'):
-            entry_point_path = Path(effective_source_dir) / self.inference_entry_point
+            entry_point_path = Path(effective_source_dir) / self.processing_entry_point
             if not entry_point_path.exists():
-                raise ValueError(f"Inference entry point script not found: {entry_point_path}")
+                raise ValueError(f"Processing entry point script not found: {entry_point_path}")
         
         return self
         
@@ -420,7 +450,7 @@ class PayloadConfig(ModelRegistrationConfig):
             
     def get_effective_source_dir(self) -> Optional[str]:
         """Get the effective source directory"""
-        return self.payload_source_dir or self.source_dir
+        return self.processing_source_dir or self.source_dir
         
     def get_script_path(self) -> Optional[str]:
         """
@@ -434,8 +464,8 @@ class PayloadConfig(ModelRegistrationConfig):
         if contract and contract.entry_point:
             return contract.entry_point
             
-        # Fall back to inference entry point if necessary
-        if self.inference_entry_point is None:
+        # Fall back to processing entry point 
+        if self.processing_entry_point is None:
             return None
             
         effective_source_dir = self.get_effective_source_dir()
@@ -443,9 +473,9 @@ class PayloadConfig(ModelRegistrationConfig):
             return None
             
         if effective_source_dir.startswith('s3://'):
-            return f"{effective_source_dir.rstrip('/')}/{self.inference_entry_point}"
+            return f"{effective_source_dir.rstrip('/')}/{self.processing_entry_point}"
         
-        return str(Path(effective_source_dir) / self.inference_entry_point)
+        return str(Path(effective_source_dir) / self.processing_entry_point)
         
     def get_script_contract(self) -> 'ScriptContract':
         """
@@ -459,7 +489,5 @@ class PayloadConfig(ModelRegistrationConfig):
     def model_dump(self, **kwargs) -> Dict[str, Any]:
         """Custom serialization"""
         data = super().model_dump(**kwargs)
-        # Convert Path to string if needed
-        if 'payload_script_path' in data and isinstance(data['payload_script_path'], Path):
-            data['payload_script_path'] = str(data['payload_script_path'])
+        # No special handling needed since we're using standard fields from ProcessingStepConfigBase
         return data

@@ -9,6 +9,8 @@ from sagemaker.sklearn import SKLearnProcessor
 
 from .config_currency_conversion_step import CurrencyConversionConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 # Import specifications based on job type
 try:
@@ -38,6 +40,8 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initialize with specification based on job type.
@@ -47,6 +51,8 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
             sagemaker_session: SageMaker session
             role: IAM role
             notebook_root: Root directory of notebook
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
             
         Raises:
             ValueError: If no specification is available for the job type
@@ -84,7 +90,9 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
         logger.info(f"Using specification for {job_type}")
         
         super().__init__(config=config, spec=spec, sagemaker_session=sagemaker_session,
-                         role=role, notebook_root=notebook_root)
+                         role=role, notebook_root=notebook_root,
+                         registry_manager=registry_manager,
+                         dependency_resolver=dependency_resolver)
         self.config: CurrencyConversionConfig = config
 
     def validate_configuration(self) -> None:

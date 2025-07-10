@@ -19,7 +19,7 @@ def _get_mims_registration_contract():
 
 # Model Registration Step Specification
 REGISTRATION_SPEC = StepSpecification(
-    step_type=get_spec_step_type("ModelRegistration"),
+    step_type=get_spec_step_type("Registration"),
     node_type=NodeType.SINK,
     script_contract=_get_mims_registration_contract(),  # Add reference to the script contract
     dependencies=[

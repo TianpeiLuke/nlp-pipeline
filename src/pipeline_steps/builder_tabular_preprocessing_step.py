@@ -38,6 +38,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initialize with specification based on job type.
@@ -47,6 +49,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             sagemaker_session: SageMaker session
             role: IAM role
             notebook_root: Root directory of notebook
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
             
         Raises:
             ValueError: If no specification is available for the job type
@@ -84,7 +88,9 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         logger.info(f"Using specification for {job_type}")
         
         super().__init__(config=config, spec=spec, sagemaker_session=sagemaker_session,
-                         role=role, notebook_root=notebook_root)
+                         role=role, notebook_root=notebook_root,
+                         registry_manager=registry_manager,
+                         dependency_resolver=dependency_resolver)
         self.config: TabularPreprocessingConfig = config
 
     def validate_configuration(self) -> None:

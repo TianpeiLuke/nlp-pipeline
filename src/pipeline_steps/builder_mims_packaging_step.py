@@ -8,6 +8,8 @@ from sagemaker.sklearn import SKLearnProcessor
 
 from .config_mims_packaging_step import PackageStepConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 # Import the packaging specification
 try:
@@ -34,6 +36,8 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the MIMS packaging step.
@@ -44,6 +48,8 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Processing Job.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         if not isinstance(config, PackageStepConfig):
             raise ValueError(
@@ -58,7 +64,9 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: PackageStepConfig = config
 

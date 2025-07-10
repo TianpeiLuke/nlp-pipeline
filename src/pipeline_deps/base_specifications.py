@@ -33,11 +33,13 @@ class DependencyType(Enum):
     
     def __eq__(self, other):
         """Compare enum instances by value."""
-        if isinstance(other, str):
-            return self.value == other
         if isinstance(other, DependencyType):
             return self.value == other.value
         return super().__eq__(other)
+        
+    def __hash__(self):
+        """Ensure hashability is maintained when used as dictionary keys."""
+        return hash(self.value)
 
 
 class NodeType(Enum):
@@ -49,11 +51,13 @@ class NodeType(Enum):
     
     def __eq__(self, other):
         """Compare enum instances by value."""
-        if isinstance(other, str):
-            return self.value == other
         if isinstance(other, NodeType):
             return self.value == other.value
         return super().__eq__(other)
+        
+    def __hash__(self):
+        """Ensure hashability is maintained when used as dictionary keys."""
+        return hash(self.value)
 
 
 class DependencySpec(BaseModel):
@@ -128,39 +132,19 @@ class DependencySpec(BaseModel):
     
     @field_validator('dependency_type')
     @classmethod
-    def validate_dependency_type(cls, v) -> str:
+    def validate_dependency_type(cls, v) -> DependencyType:
         """Validate dependency type is a valid enum value."""
-        valid_values = [e.value for e in DependencyType]
-        
-        # If it's already a string, check if it's valid
         if isinstance(v, str):
-            if v in valid_values:
-                return v
-            else:
-                raise ValueError(f"dependency_type must be one of: {valid_values}, got: {v}")
-        
-        # If it's an enum instance, just return its string value
-        elif isinstance(v, DependencyType):
-            return v.value
-        
-        # If it has a value attribute (enum-like), try to use that
-        elif hasattr(v, 'value'):
-            value = v.value
-            if value in valid_values:
-                return value
-            else:
-                raise ValueError(f"dependency_type value must be one of: {valid_values}, got: {value}")
-        
-        # Last resort: try to convert to string and check
-        else:
             try:
-                str_value = str(v)
-                if str_value in valid_values:
-                    return str_value
-                else:
-                    raise ValueError(f"dependency_type must be one of: {valid_values}, got: {str_value}")
-            except:
-                raise ValueError(f"Cannot convert {type(v).__name__} to a valid DependencyType value")
+                return DependencyType(v)
+            except ValueError:
+                valid_values = [e.value for e in DependencyType]
+                raise ValueError(f"dependency_type must be one of: {valid_values}")
+        elif isinstance(v, DependencyType):
+            # With use_enum_values=True, we should return the enum value
+            return v
+        else:
+            raise ValueError("dependency_type must be a DependencyType enum or valid string value")
     
     @field_validator('compatible_sources')
     @classmethod
@@ -248,39 +232,19 @@ class OutputSpec(BaseModel):
     
     @field_validator('output_type')
     @classmethod
-    def validate_output_type(cls, v) -> str:
+    def validate_output_type(cls, v) -> DependencyType:
         """Validate output type is a valid enum value."""
-        valid_values = [e.value for e in DependencyType]
-        
-        # If it's already a string, check if it's valid
         if isinstance(v, str):
-            if v in valid_values:
-                return v
-            else:
-                raise ValueError(f"output_type must be one of: {valid_values}, got: {v}")
-        
-        # If it's an enum instance, just return its string value
-        elif isinstance(v, DependencyType):
-            return v.value
-        
-        # If it has a value attribute (enum-like), try to use that
-        elif hasattr(v, 'value'):
-            value = v.value
-            if value in valid_values:
-                return value
-            else:
-                raise ValueError(f"output_type value must be one of: {valid_values}, got: {value}")
-        
-        # Last resort: try to convert to string and check
-        else:
             try:
-                str_value = str(v)
-                if str_value in valid_values:
-                    return str_value
-                else:
-                    raise ValueError(f"output_type must be one of: {valid_values}, got: {str_value}")
-            except:
-                raise ValueError(f"Cannot convert {type(v).__name__} to a valid DependencyType value")
+                return DependencyType(v)
+            except ValueError:
+                valid_values = [e.value for e in DependencyType]
+                raise ValueError(f"output_type must be one of: {valid_values}")
+        elif isinstance(v, DependencyType):
+            # With use_enum_values=True, we should return the enum value
+            return v
+        else:
+            raise ValueError("output_type must be a DependencyType enum or valid string value")
     
     @field_validator('aliases')
     @classmethod
@@ -374,7 +338,7 @@ class StepSpecification(BaseModel):
     model_config = ConfigDict(
         validate_assignment=True,
         arbitrary_types_allowed=True,
-        use_enum_values=True,  # Store enum values as strings for consistency
+        use_enum_values=False,  # Store enum instances, not values
         json_schema_extra={
             "examples": [
                 {
@@ -496,39 +460,25 @@ class StepSpecification(BaseModel):
     
     @field_validator('node_type', mode='before')
     @classmethod
-    def validate_node_type(cls, v) -> str:
+    def validate_node_type(cls, v) -> NodeType:
         """Validate node type is a valid enum value."""
-        valid_values = [e.value for e in NodeType]
-        
-        # If it's already a string, check if it's valid
         if isinstance(v, str):
-            if v in valid_values:
-                return v
-            else:
-                raise ValueError(f"node_type must be one of: {valid_values}, got: {v}")
-        
-        # If it's an enum instance, just return its string value
-        elif isinstance(v, NodeType):
-            return v.value
-        
-        # If it has a value attribute (enum-like), try to use that
-        elif hasattr(v, 'value'):
-            value = v.value
-            if value in valid_values:
-                return value
-            else:
-                raise ValueError(f"node_type value must be one of: {valid_values}, got: {value}")
-        
-        # Last resort: try to convert to string and check
-        else:
             try:
-                str_value = str(v)
-                if str_value in valid_values:
-                    return str_value
-                else:
-                    raise ValueError(f"node_type must be one of: {valid_values}, got: {str_value}")
+                return NodeType(v)
+            except ValueError:
+                valid_values = [e.value for e in NodeType]
+                raise ValueError(f"node_type must be one of: {valid_values}, got: {v}")
+        elif isinstance(v, NodeType):
+            # Return the enum instance
+            return v
+        else:
+            # Handle other cases more gracefully
+            try:
+                if hasattr(v, 'value') and v.value in [e.value for e in NodeType]:
+                    return NodeType(v.value)  # Convert enum-like object to NodeType
+                return NodeType(str(v))  # Try to convert to string and then to NodeType
             except:
-                raise ValueError(f"Cannot convert {type(v).__name__} to a valid NodeType value")
+                raise ValueError(f"node_type must be a NodeType enum or valid string value, got: {type(v).__name__}")
     
     @model_validator(mode='after')
     def validate_node_type_constraints(self) -> 'StepSpecification':
@@ -726,16 +676,19 @@ class StepSpecification(BaseModel):
     def model_validate(cls, obj, **kwargs):
         """Custom model_validate to handle enum conversion."""
         if isinstance(obj, dict) and 'node_type' in obj:
-            # Ensure node_type is a string value
+            # Convert string node_type to enum instance
             if isinstance(obj['node_type'], str):
-                # Already a string, no need to convert
-                pass
-            elif hasattr(obj['node_type'], 'value'):
-                # Convert enum instance to string value
                 try:
                     obj = obj.copy()  # Create a copy to avoid modifying the original
-                    obj['node_type'] = obj['node_type'].value
-                except (ValueError, AttributeError):
+                    obj['node_type'] = NodeType(obj['node_type'])
+                except ValueError:
+                    pass  # Let the validator handle the error
+            elif hasattr(obj['node_type'], 'value'):
+                # Handle case where node_type is already an enum instance
+                try:
+                    obj = obj.copy()
+                    obj['node_type'] = NodeType(obj['node_type'].value)
+                except ValueError:
                     pass  # Let the validator handle the error
         return super().model_validate(obj, **kwargs)
 

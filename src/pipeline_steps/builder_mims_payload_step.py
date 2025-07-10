@@ -8,6 +8,8 @@ from sagemaker.sklearn import SKLearnProcessor
 
 from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 # Import the payload specification
 try:
@@ -34,6 +36,8 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the MIMS payload step.
@@ -44,6 +48,8 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Processing Job.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         if not isinstance(config, PayloadConfig):
             raise ValueError(
@@ -58,7 +64,9 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: PayloadConfig = config
 
@@ -85,12 +93,10 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         
         # Validate other required attributes
         required_attrs = [
-            'processing_instance_count', 
-            'processing_volume_size',
-            'processing_instance_type_large',
-            'processing_instance_type_small',
             'pipeline_name',
-            'source_model_inference_content_types'
+            'source_model_inference_content_types',
+            'processing_instance_count', 
+            'processing_volume_size'
         ]
         
         for attr in required_attrs:
@@ -108,7 +114,8 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Returns:
             An instance of sagemaker.sklearn.SKLearnProcessor.
         """
-        # Get the appropriate instance type based on use_large_processing_instance
+        # Use processing_instance_type_large when use_large_processing_instance is True
+        # Otherwise use processing_instance_type_small
         instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
         
         # Get framework version
@@ -120,9 +127,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"PayloadGeneration-{self.config.job_type.capitalize()}"
-            ),
+            base_job_name=self._sanitize_name_for_sagemaker("PayloadGeneration"),
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -271,14 +276,12 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             A list of strings representing the command-line arguments.
         """
         # If there are custom script arguments in the config, use those
-        if hasattr(self.config, 'payload_script_arguments') and self.config.payload_script_arguments:
-            return self.config.payload_script_arguments
+        if hasattr(self.config, 'processing_script_arguments') and self.config.processing_script_arguments:
+            return self.config.processing_script_arguments
             
-        # Always provide at least a job_type argument (even if we don't need it)
-        # This ensures we don't return an empty list
-        job_type = getattr(self.config, 'job_type', "standard")
-        logger.info(f"Using default job_type argument: {job_type}")
-        return ["--job_type", job_type]
+        # Return a standard argument to ensure we don't return an empty list
+        logger.info("Using default arguments for payload generation")
+        return ["--mode", "standard"]
         
     def create_step(self, **kwargs) -> ProcessingStep:
         """
@@ -324,7 +327,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         job_args = self._get_job_arguments()
 
         # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or f"PayloadGeneration-{self.config.job_type.capitalize()}"
+        step_name = getattr(self.spec, 'step_type', None) or "PayloadGeneration"
         
         # Get script path from config or contract
         script_path = self.config.get_script_path()
@@ -332,7 +335,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             script_path = self.contract.entry_point
         
         # Get source directory from config
-        source_dir = getattr(self.config, 'payload_source_dir', None) or self.config.source_dir
+        source_dir = self.config.processing_source_dir or self.config.source_dir
         
         # Create step
         step = ProcessingStep(

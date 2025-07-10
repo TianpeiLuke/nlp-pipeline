@@ -8,6 +8,8 @@ from datetime import datetime
 
 from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.steps import CacheConfig
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 
 # Import CradleDataLoadingStep
 from secure_ai_sandbox_workflow_python_sdk.cradle_data_loading.cradle_data_loading_step import (
@@ -84,6 +86,8 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
         """
         Initializes the builder with a specific configuration for the data loading step.
@@ -94,6 +98,8 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             role: The IAM role ARN to be used by the SageMaker Processing Job.
             notebook_root: The root directory of the notebook environment, used for resolving
                          local paths if necessary.
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
         """
         if not isinstance(config, CradleDataLoadConfig):
             raise ValueError(
@@ -107,21 +113,19 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             if job_type == "training":
                 from ..pipeline_step_specs.data_loading_training_spec import DATA_LOADING_TRAINING_SPEC
                 spec = DATA_LOADING_TRAINING_SPEC
+                logger.info(f"Using training-specific DATA_LOADING_TRAINING_SPEC")
             elif job_type == "validation":
-                # If you have a validation spec, import and use it
-                # from ..pipeline_step_specs.data_loading_validation_spec import DATA_LOADING_VALIDATION_SPEC
-                # spec = DATA_LOADING_VALIDATION_SPEC
-                pass
+                from ..pipeline_step_specs.data_loading_validation_spec import DATA_LOADING_VALIDATION_SPEC
+                spec = DATA_LOADING_VALIDATION_SPEC
+                logger.info(f"Using validation-specific DATA_LOADING_VALIDATION_SPEC")
             elif job_type == "testing":
-                # If you have a testing spec, import and use it
-                # from ..pipeline_step_specs.data_loading_testing_spec import DATA_LOADING_TESTING_SPEC
-                # spec = DATA_LOADING_TESTING_SPEC
-                pass
+                from ..pipeline_step_specs.data_loading_testing_spec import DATA_LOADING_TESTING_SPEC
+                spec = DATA_LOADING_TESTING_SPEC
+                logger.info(f"Using testing-specific DATA_LOADING_TESTING_SPEC")
             elif job_type == "calibration":
-                # If you have a calibration spec, import and use it
-                # from ..pipeline_step_specs.data_loading_calibration_spec import DATA_LOADING_CALIBRATION_SPEC
-                # spec = DATA_LOADING_CALIBRATION_SPEC
-                pass
+                from ..pipeline_step_specs.data_loading_calibration_spec import DATA_LOADING_CALIBRATION_SPEC
+                spec = DATA_LOADING_CALIBRATION_SPEC
+                logger.info(f"Using calibration-specific DATA_LOADING_CALIBRATION_SPEC")
             
             # If no specific type-based spec is found, try to use the generic one
             if spec is None:
@@ -137,7 +141,9 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
-            notebook_root=notebook_root
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
         )
         self.config: CradleDataLoadConfig = config
         

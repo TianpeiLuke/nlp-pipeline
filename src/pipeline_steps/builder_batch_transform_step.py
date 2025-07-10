@@ -1,6 +1,7 @@
-from typing import Optional, List, Union, Dict, Any, Set
+from typing import Optional, List, Union, Dict, Any
 from pathlib import Path
 import logging
+import importlib
 
 from sagemaker.transformer import Transformer
 from sagemaker.workflow.steps import TransformStep, Step
@@ -10,12 +11,28 @@ from sagemaker.workflow.pipeline_context import PipelineSession
 
 from .config_batch_transform_step import BatchTransformStepConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_deps.registry_manager import RegistryManager
+from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+
+# Import specifications based on job type
+try:
+    from ..pipeline_step_specs.batch_transform_training_spec import BATCH_TRANSFORM_TRAINING_SPEC
+    from ..pipeline_step_specs.batch_transform_calibration_spec import BATCH_TRANSFORM_CALIBRATION_SPEC
+    from ..pipeline_step_specs.batch_transform_validation_spec import BATCH_TRANSFORM_VALIDATION_SPEC
+    from ..pipeline_step_specs.batch_transform_testing_spec import BATCH_TRANSFORM_TESTING_SPEC
+    SPECS_AVAILABLE = True
+except ImportError:
+    BATCH_TRANSFORM_TRAINING_SPEC = BATCH_TRANSFORM_CALIBRATION_SPEC = BATCH_TRANSFORM_VALIDATION_SPEC = BATCH_TRANSFORM_TESTING_SPEC = None
+    SPECS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 class BatchTransformStepBuilder(StepBuilderBase):
     """
     Builder for creating a SageMaker Batch Transform step in a workflow.
+    
+    This implementation uses the specification-driven approach where dependencies, outputs,
+    and behavior are defined by step specifications.
     """
 
     def __init__(
@@ -23,100 +40,195 @@ class BatchTransformStepBuilder(StepBuilderBase):
         config: BatchTransformStepConfig,
         sagemaker_session: Optional[PipelineSession] = None,
         role: Optional[str] = None,
-        notebook_root: Optional[Path] = None
+        notebook_root: Optional[Path] = None,
+        registry_manager: Optional["RegistryManager"] = None,
+        dependency_resolver: Optional["UnifiedDependencyResolver"] = None
     ):
+        """
+        Initialize with specification based on job type.
+        
+        Args:
+            config: Configuration for the step
+            sagemaker_session: SageMaker session
+            role: IAM role
+            notebook_root: Root directory of notebook
+            registry_manager: Optional registry manager for dependency injection
+            dependency_resolver: Optional dependency resolver for dependency injection
+            
+        Raises:
+            ValueError: If the configuration is invalid
+        """
         if not isinstance(config, BatchTransformStepConfig):
             raise ValueError(
                 "BatchTransformStepBuilder requires a BatchTransformStepConfig instance."
             )
-        super().__init__(config=config, sagemaker_session=sagemaker_session, role=role, notebook_root=notebook_root)
+        
+        # Get the appropriate spec based on job type
+        spec = None
+        if not hasattr(config, 'job_type'):
+            raise ValueError("config.job_type must be specified")
+            
+        job_type = config.job_type.lower()
+        
+        # Get specification based on job type
+        if job_type == "training" and SPECS_AVAILABLE and BATCH_TRANSFORM_TRAINING_SPEC is not None:
+            spec = BATCH_TRANSFORM_TRAINING_SPEC
+        elif job_type == "calibration" and SPECS_AVAILABLE and BATCH_TRANSFORM_CALIBRATION_SPEC is not None:
+            spec = BATCH_TRANSFORM_CALIBRATION_SPEC
+        elif job_type == "validation" and SPECS_AVAILABLE and BATCH_TRANSFORM_VALIDATION_SPEC is not None:
+            spec = BATCH_TRANSFORM_VALIDATION_SPEC
+        elif job_type == "testing" and SPECS_AVAILABLE and BATCH_TRANSFORM_TESTING_SPEC is not None:
+            spec = BATCH_TRANSFORM_TESTING_SPEC
+        else:
+            # Try dynamic import
+            try:
+                module_path = f"..pipeline_step_specs.batch_transform_{job_type}_spec"
+                module = importlib.import_module(module_path, package=__package__)
+                spec_var_name = f"BATCH_TRANSFORM_{job_type.upper()}_SPEC"
+                if hasattr(module, spec_var_name):
+                    spec = getattr(module, spec_var_name)
+            except (ImportError, AttributeError) as e:
+                logger.warning(f"Could not import specification for job type: {job_type}, error: {e}")
+        
+        # Even if we don't have a spec, continue without one
+        if spec:
+            logger.info(f"Using specification for batch transform {job_type}")
+        else:
+            logger.info(f"No specification found for batch transform job type: {job_type}, continuing with default behavior")
+            
+        super().__init__(
+            config=config, 
+            spec=spec,
+            sagemaker_session=sagemaker_session, 
+            role=role, 
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
+        )
         self.config: BatchTransformStepConfig = config
 
     def validate_configuration(self) -> None:
         """
         Validate that all required transform settings are provided.
         """
-        # batch_input_location and batch_output_location already validated by Pydantic
-        # transform_instance_type and count likewise
+        # Validate job type
         if self.config.job_type not in {"training", "testing", "validation", "calibration"}:
             raise ValueError(f"Unsupported job_type: {self.config.job_type}")
+        
+        # Validate other required fields
+        required_attrs = [
+            'transform_instance_type', 'transform_instance_count'
+        ]
+        
+        for attr in required_attrs:
+            if not hasattr(self.config, attr) or getattr(self.config, attr) is None:
+                raise ValueError(f"Missing required attribute: {attr}")
+                
         logger.info(f"BatchTransformStepBuilder configuration for '{self.config.job_type}' validated.")
 
-    def _create_transformer(self, model_name: Union[str, Properties]) -> Transformer:
+    def _create_transformer(self, model_name: Union[str, Properties], output_path: Optional[str] = None) -> Transformer:
         """
-        Instantiate the SageMaker Transformer object.
+        Create the SageMaker Transformer object.
+        
+        Args:
+            model_name: Name of the model to transform with
+            output_path: Optional output path for transform job results
+            
+        Returns:
+            Configured Transformer object
         """
         return Transformer(
             model_name=model_name,
             instance_type=self.config.transform_instance_type,
             instance_count=self.config.transform_instance_count,
-            output_path=self.config.batch_output_location,
+            output_path=output_path,  # Will be determined by SageMaker if None
             accept=self.config.accept,
             assemble_with=self.config.assemble_with,
             sagemaker_session=self.session,
         )
 
-    def get_input_requirements(self) -> Dict[str, str]:
+    def _get_inputs(self, inputs: Dict[str, Any]) -> tuple[TransformInput, Union[str, Properties]]:
         """
-        Get the input requirements for this step builder.
+        Create transform input using specification and provided inputs.
         
-        Returns:
-            Dictionary mapping input parameter names to descriptions
-        """
-        # Get base input requirements and add additional ones
-        input_reqs = super().get_input_requirements()
-        input_reqs["dependencies"] = self.COMMON_PROPERTIES["dependencies"]
-        input_reqs["model_name"] = "Name of the SageMaker model to use for batch transform"
-        input_reqs["enable_caching"] = self.COMMON_PROPERTIES["enable_caching"]
-        return input_reqs
-    
-    def get_output_properties(self) -> Dict[str, str]:
-        """
-        Get the output properties this step provides.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        # Define the output properties for batch transform
-        output_props = {
-            "transform_output": "S3 location of the batch transform output"
-        }
-        # Add any output names from config if they exist and are not None
-        if hasattr(self.config, "output_names") and self.config.output_names is not None:
-            output_props.update({k: v for k, v in self.config.output_names.items()})
-        return output_props
-        
-    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
-                                prev_step: Step) -> Set[str]:
-        """
-        Match custom properties specific to BatchTransform step.
-        
-        This method looks for:
-        1. model_name from a ModelStep
+        This method creates a TransformInput object based on the configuration
+        and input dependencies.
         
         Args:
-            inputs: Dictionary to add matched inputs to
-            input_requirements: Dictionary of input requirements
-            prev_step: The dependency step
+            inputs: Input data sources keyed by logical name
             
         Returns:
-            Set of input names that were successfully matched
+            TransformInput object
+            
+        Raises:
+            ValueError: If required inputs are missing
         """
-        matched_inputs = set()
+        # Process model_name input
+        model_name = None
+        if 'model_name' in inputs:
+            model_name = inputs['model_name']
+            logger.info(f"Using model_name from dependencies: {model_name}")
         
-        # Look for model_name from a ModelStep
-        if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ModelName"):
-            try:
-                model_name = prev_step.properties.ModelName
-                if "model_name" in input_requirements:
-                    inputs["model_name"] = model_name
-                    matched_inputs.add("model_name")
-                    logger.info(f"Found model_name from ModelStep: {getattr(prev_step, 'name', str(prev_step))}")
-            except AttributeError as e:
-                logger.warning(f"Could not extract model_name from step: {e}")
-                
-        return matched_inputs
-    
+        if not model_name:
+            raise ValueError("model_name is required but not provided in inputs")
+            
+        # Process data input (must come from dependencies)
+        input_data = None
+        
+        # Check for processed_data or input_data in the inputs
+        if 'processed_data' in inputs:
+            input_data = inputs['processed_data']
+            logger.info(f"Using processed_data from dependencies: {input_data}")
+        elif 'input_data' in inputs:  # backward compatibility
+            input_data = inputs['input_data']
+            logger.info(f"Using input_data from dependencies: {input_data}")
+        
+        if not input_data:
+            raise ValueError("Input data source (processed_data) is required but not provided in inputs")
+            
+        # Create the transform input
+        transform_input = TransformInput(
+            data=input_data,
+            content_type=self.config.content_type,
+            split_type=self.config.split_type,
+            join_source=self.config.join_source,
+            input_filter=self.config.input_filter,
+            output_filter=self.config.output_filter,
+        )
+        
+        return transform_input, model_name
+        
+    def _get_outputs(self, outputs: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Process outputs based on specification.
+        
+        For batch transform, this simply returns a dictionary of output information
+        for reference, as the TransformStep doesn't take explicit output destinations.
+        
+        Args:
+            outputs: Output destinations keyed by logical name
+            
+        Returns:
+            Dictionary of output information
+        """
+        # No explicit outputs need to be configured for TransformStep
+        # Just log the outputs that will be available
+        result = {}
+        
+        # If we have a specification, include output information
+        if self.spec:
+            for output_spec in self.spec.outputs.values():
+                logical_name = output_spec.logical_name
+                if logical_name in outputs:
+                    # If explicit output path provided
+                    result[logical_name] = outputs[logical_name]
+                else:
+                    # Default transform output path will be determined by SageMaker
+                    result[logical_name] = f"Will be available at: {output_spec.property_path}"
+        
+        logger.info(f"Transform step will produce outputs: {list(result.keys())}")
+        return result
+
     def create_step(self, **kwargs) -> TransformStep:
         """
         Create a TransformStep for a batch transform.
@@ -124,6 +236,8 @@ class BatchTransformStepBuilder(StepBuilderBase):
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
                 - model_name: The name of the SageMaker model (string or Properties) (required)
+                - inputs: Input data sources keyed by logical name
+                - outputs: Output destinations keyed by logical name
                 - dependencies: Optional list of Pipeline Step dependencies
                 - enable_caching: Whether to enable caching for this step (default: True)
 
@@ -131,30 +245,38 @@ class BatchTransformStepBuilder(StepBuilderBase):
             TransformStep: configured batch transform step.
         """
         # Extract parameters
-        model_name = self._extract_param(kwargs, 'model_name')
-        dependencies = self._extract_param(kwargs, 'dependencies')
-        enable_caching = self._extract_param(kwargs, 'enable_caching', True)
+        inputs_raw = kwargs.get('inputs', {})
+        outputs = kwargs.get('outputs', {})
+        dependencies = kwargs.get('dependencies', [])
+        enable_caching = kwargs.get('enable_caching', True)
         
-        # Validate required parameters
-        if not model_name:
-            raise ValueError("model_name must be provided")
-
+        # Handle inputs
+        inputs = {}
+        
+        # If dependencies are provided, extract inputs from them
+        if dependencies:
+            try:
+                extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+                inputs.update(extracted_inputs)
+            except Exception as e:
+                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                
+        # Add explicitly provided inputs (overriding any extracted ones)
+        inputs.update(inputs_raw)
+        
+        # Get transformer inputs and model name
+        transform_input, model_name = self._get_inputs(inputs)
+        
+        # Process outputs (mostly for logging in batch transform case)
+        self._get_outputs(outputs)
+        
         # Build the transformer
         transformer = self._create_transformer(model_name)
 
-        # Configure the transform job inputs
-        transform_input = TransformInput(
-            data=self.config.batch_input_location,
-            content_type=self.config.content_type,
-            split_type=self.config.split_type,
-            join_source=self.config.join_source,
-            input_filter=self.config.input_filter,
-            output_filter=self.config.output_filter,
-        )
-
-        # Name the step using registry or fallback
-        step_name = f"{self._get_step_name('BatchTransform')}-{self.config.job_type.capitalize()}"
-
+        # Get step name from spec or construct one
+        step_name = getattr(self.spec, 'step_type', None) or f"BatchTransform-{self.config.job_type.capitalize()}"
+        
+        # Create the transform step
         transform_step = TransformStep(
             name=step_name,
             transformer=transformer,
@@ -162,6 +284,10 @@ class BatchTransformStepBuilder(StepBuilderBase):
             depends_on=dependencies or [],
             cache_config=self._get_cache_config(enable_caching) if enable_caching else None
         )
-
+        
+        # Attach specification to the step for future reference
+        if hasattr(self, 'spec') and self.spec:
+            setattr(transform_step, '_spec', self.spec)
+            
         logger.info(f"Created TransformStep with name: {step_name}")
         return transform_step

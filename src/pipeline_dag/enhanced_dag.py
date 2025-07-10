@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 import logging
 from .base_dag import PipelineDAG
 from .edge_types import DependencyEdge, EdgeCollection, EdgeType
-from src.pipeline_deps import (
+from ..pipeline_deps import (
     StepSpecification, UnifiedDependencyResolver, PropertyReference,
     DependencyResolutionError, SpecificationRegistry
 )

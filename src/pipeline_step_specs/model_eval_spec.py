@@ -19,7 +19,7 @@ def _get_model_evaluation_contract():
 
 # XGBoost Model Evaluation Step Specification
 MODEL_EVAL_SPEC = StepSpecification(
-    step_type=get_spec_step_type("XGBoostModelEvaluation"),
+    step_type=get_spec_step_type("XGBoostModelEval"),
     node_type=NodeType.INTERNAL,
     script_contract=_get_model_evaluation_contract(),
     dependencies=[
