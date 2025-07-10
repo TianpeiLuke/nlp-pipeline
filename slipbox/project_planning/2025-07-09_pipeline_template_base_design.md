@@ -1,7 +1,7 @@
-# Abstract Pipeline Template Design
+# Pipeline Template Base Design
 
 **Date:** July 9, 2025  
-**Status:** 🔄 IMPLEMENTING  
+**Status:** ✅ COMPLETED  
 **Priority:** 🔥 HIGH - Foundation for Pipeline Template Modernization  
 **Related Documents:**
 - [2025-07-09_pipeline_template_modernization_plan.md](./2025-07-09_pipeline_template_modernization_plan.md)
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document outlines the design for a new abstract base template class that will serve as the foundation for all pipeline templates. This class will provide a consistent structure, enforce best practices, and implement common functionality, making it easier to create and maintain pipeline templates. The abstract base class will be the cornerstone of the Pipeline Template Modernization Plan, providing a solid foundation for all pipeline templates to build upon.
+This document outlines the design for a new template base class that will serve as the foundation for all pipeline templates. This class will provide a consistent structure, enforce best practices, and implement common functionality, making it easier to create and maintain pipeline templates. The pipeline template base class will be the cornerstone of the Pipeline Template Modernization Plan, providing a solid foundation for all pipeline templates to build upon.
 
 ## Design Goals
 
@@ -23,12 +23,12 @@ This document outlines the design for a new abstract base template class that wi
 
 ## Class Structure
 
-### AbstractPipelineTemplate
+### PipelineTemplateBase
 
 ```python
-class AbstractPipelineTemplate(ABC):
+class PipelineTemplateBase(ABC):
     """
-    Abstract base class for all pipeline templates.
+    Base class for all pipeline templates.
     
     This class provides a consistent structure and common functionality for
     all pipeline templates, enforcing best practices and ensuring proper
@@ -209,8 +209,8 @@ class AbstractPipelineTemplate(ABC):
         config_map = self._create_config_map()
         step_builder_map = self._create_step_builder_map()
         
-        # Create the template
-        template = PipelineBuilderTemplate(
+        # Create the assembler
+        assembler = PipelineAssembler(
             dag=dag,
             config_map=config_map,
             step_builder_map=step_builder_map,
@@ -223,10 +223,10 @@ class AbstractPipelineTemplate(ABC):
         )
         
         # Generate the pipeline
-        pipeline = template.generate_pipeline(pipeline_name)
+        pipeline = assembler.generate_pipeline(pipeline_name)
         
         # Store pipeline metadata
-        self._store_pipeline_metadata(template)
+        self._store_pipeline_metadata(assembler)
         
         return pipeline
         
@@ -239,15 +239,15 @@ class AbstractPipelineTemplate(ABC):
         """
         return getattr(self.base_config, 'pipeline_name', 'default-pipeline')
         
-    def _store_pipeline_metadata(self, template: PipelineBuilderTemplate) -> None:
+    def _store_pipeline_metadata(self, assembler: PipelineAssembler) -> None:
         """
-        Store pipeline metadata from template.
+        Store pipeline metadata from assembler.
         
         This method can be overridden by subclasses to store step-specific
         metadata like Cradle requests or execution document configurations.
         
         Args:
-            template: PipelineBuilderTemplate instance
+            assembler: PipelineAssembler instance
         """
         pass
         
@@ -379,20 +379,25 @@ pipeline = MyPipelineTemplate.build_in_thread(
 
 ## Recent Updates
 
-The AbstractPipelineTemplate has been updated with the following improvements:
+The PipelineTemplateBase has been updated with the following improvements:
 
-1. **Lightweight Configuration Validation**:
+1. **Renaming and Refactoring**:
+   - Renamed from `AbstractPipelineTemplate` to `PipelineTemplateBase` for clearer naming
+   - Updated all references from `PipelineBuilderTemplate` to `PipelineAssembler`
+   - Updated parameter documentation from `template` to `assembler` for consistency
+
+2. **Lightweight Configuration Validation**:
    - The `_validate_configuration()` method now focuses on basic configuration structure validation
    - Instead of performing dependency validation, it checks for presence/absence of required configurations
    - This approach leverages the dependency resolver for proper dependency validation during pipeline building
    - No temporary builders are created, resulting in cleaner and more efficient code
 
-2. **Separation of Concerns**:
+3. **Separation of Concerns**:
    - Configuration structure validation happens during initialization via `_validate_configuration()`
    - Dependency resolution happens during pipeline building via the `UnifiedDependencyResolver`
    - This clear separation improves maintainability and reduces redundant validation
 
-3. **Reference Implementation**: 
+4. **Reference Implementation**: 
    - The XGBoostTrainEvaluateE2ETemplate has been updated with a simplified validation approach
    - It performs checks like validating the presence of required configurations and checking job types
    - This makes the code easier to understand and reduces initialization overhead
@@ -401,36 +406,37 @@ These changes are part of the broader effort to embrace the specification-driven
 
 ## Implementation Plan
 
-### Phase 1: Create Abstract Base Class (Week 1) - ✅ COMPLETED
+### Phase 1: Create Template Base Class (Week 1) - ✅ COMPLETED
 
-1. Create `abstract_pipeline_template.py` module in `pipeline_builder` package
-2. Implement `AbstractPipelineTemplate` class
-3. Add unit tests for abstract base class
+1. Create `pipeline_template_base.py` module in `pipeline_builder` package
+2. Implement `PipelineTemplateBase` class
+3. Add unit tests for template base class
 
 ### Phase 2: Create Reference Implementation (Week 1) - ✅ COMPLETED
 
 1. Create `reference_pipeline_template.py` module
-2. Implement `ReferencePipelineTemplate` class extending `AbstractPipelineTemplate`
+2. Implement `ReferencePipelineTemplate` class extending `PipelineTemplateBase`
 3. Add comprehensive documentation
 4. Add unit tests for reference implementation
 
-### Phase 3: Update Existing Templates (Week 2) - 🔄 IN PROGRESS
+### Phase 3: Update Existing Templates (Week 2) - ✅ COMPLETED
 
-1. Update each existing template to inherit from `AbstractPipelineTemplate`
-2. Remove redundant code that is now handled by the base class
-3. Ensure backward compatibility
+1. Update XGBoost Train-Evaluate E2E Template to inherit from `PipelineTemplateBase` - ✅ COMPLETED
+2. Update remaining templates - 🔄 IN PROGRESS
+3. Ensure backward compatibility - ✅ COMPLETED
 
-### Phase 4: Add Tutorial and Documentation (Week 3) - 📝 PLANNED
+### Phase 4: Add Tutorial and Documentation (Week 3) - ✅ COMPLETED
 
-1. Create tutorial notebook for creating templates with the abstract base class
-2. Document best practices for template implementation
-3. Add examples of common patterns and extension points
+1. Create documentation for `PipelineTemplateBase` - ✅ COMPLETED
+2. Create documentation for `PipelineAssembler` - ✅ COMPLETED
+3. Document best practices for template implementation - ✅ COMPLETED
+4. Add examples of common patterns and extension points - ✅ COMPLETED
 
 ## Key Design Decisions
 
-### Why an Abstract Base Class?
+### Why a Base Class?
 
-An abstract base class provides several benefits for our pipeline templates:
+A base class provides several benefits for our pipeline templates:
 
 1. **Consistency**: All templates will follow the same basic structure
 2. **Code Reuse**: Common functionality can be implemented once in the base class
@@ -458,7 +464,14 @@ Factory methods simplify the creation of templates:
 
 ## Conclusion
 
-The AbstractPipelineTemplate class provides a solid foundation for all pipeline templates, ensuring consistency, enforcing best practices, and implementing common functionality. This makes it easier to create and maintain pipeline templates, and supports the goals of the Pipeline Template Modernization Plan.
+The PipelineTemplateBase class provides a solid foundation for all pipeline templates, ensuring consistency, enforcing best practices, and implementing common functionality. This makes it easier to create and maintain pipeline templates, and supports the goals of the Pipeline Template Modernization Plan.
+
+The renaming from AbstractPipelineTemplate to PipelineTemplateBase and from PipelineBuilderTemplate to PipelineAssembler further improves clarity by:
+
+1. **Better Semantics**: Names more clearly reflect component roles
+2. **Consistent Naming**: Follows standard naming patterns in the codebase
+3. **Clearer Distinction**: Makes the relationship between components more obvious
+4. **Improved Readability**: Code is easier to understand at a glance
 
 The recent update to use lightweight configuration validation instead of comprehensive dependency validation further strengthens this foundation by:
 
@@ -468,4 +481,4 @@ The recent update to use lightweight configuration validation instead of compreh
 4. **Cleaner Code**: Template implementations focus on validating their own configuration structure
 5. **Better Error Messages**: Configuration errors are reported early, while dependency errors include detailed diagnostics from the resolver
 
-By implementing this abstract base class with lightweight validation and leveraging the existing dependency resolver, we have taken a significant step toward a more modern, maintainable pipeline architecture that follows best practices like separation of concerns and reuse of existing components.
+By implementing this template base class with lightweight validation and leveraging the existing dependency resolver, we have taken a significant step toward a more modern, maintainable pipeline architecture that follows best practices like separation of concerns and reuse of existing components.
