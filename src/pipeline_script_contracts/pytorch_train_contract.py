@@ -10,8 +10,9 @@ from .training_script_contract import TrainingScriptContract
 PYTORCH_TRAIN_CONTRACT = TrainingScriptContract(
     entry_point="train.py",
     expected_input_paths={
-        "input_path": "/opt/ml/input/data",
-        "config": "/opt/ml/input/config/hyperparameters.json"
+        "input_path": "/opt/ml/input/data"
+        # Note: "/opt/ml/input/config/hyperparameters.json" is automatically provided by SageMaker
+        # when hyperparameters are passed to the PyTorch estimator, so not included as an expected input path
     },
     expected_output_paths={
         "model_output": "/opt/ml/model",

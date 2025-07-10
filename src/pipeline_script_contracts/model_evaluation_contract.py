@@ -11,7 +11,7 @@ MODEL_EVALUATION_CONTRACT = ScriptContract(
     entry_point="model_evaluation_xgb.py",
     expected_input_paths={
         "model_input": "/opt/ml/processing/input/model",
-        "eval_data_input": "/opt/ml/processing/input/eval_data"
+        "processed_data": "/opt/ml/processing/input/eval_data"
     },
     expected_output_paths={
         "eval_output": "/opt/ml/processing/output/eval",
