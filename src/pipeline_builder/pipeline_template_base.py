@@ -1,7 +1,7 @@
 """
-Abstract base class for pipeline templates.
+Base class for pipeline templates.
 
-This module provides an abstract base class for all pipeline templates,
+This module provides a base class for all pipeline templates,
 ensuring consistent structure, proper component lifecycle management,
 and best practices across different pipeline templates.
 """
@@ -22,16 +22,16 @@ from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
 from ..pipeline_deps.semantic_matcher import SemanticMatcher
 from ..pipeline_deps.factory import create_pipeline_components, dependency_resolution_context, get_thread_components
 
-from .pipeline_builder_template import PipelineBuilderTemplate
+from .pipeline_assembler import PipelineAssembler
 from ..pipeline_dag.base_dag import PipelineDAG
 from ..pipeline_steps.utils import load_configs
 
 logger = logging.getLogger(__name__)
 
 
-class AbstractPipelineTemplate(ABC):
+class PipelineTemplateBase(ABC):
     """
-    Abstract base class for all pipeline templates.
+    Base class for all pipeline templates.
     
     This class provides a consistent structure and common functionality for
     all pipeline templates, enforcing best practices and ensuring proper
@@ -41,7 +41,7 @@ class AbstractPipelineTemplate(ABC):
     1. Load configurations from file
     2. Initialize component dependencies (registry_manager, dependency_resolver)
     3. Create the DAG, config_map, and step_builder_map
-    4. Use PipelineBuilderTemplate to assemble the pipeline
+    4. Use PipelineAssembler to assemble the pipeline
     
     This provides a standardized approach for creating pipeline templates,
     reducing code duplication and enforcing best practices.
@@ -237,7 +237,7 @@ class AbstractPipelineTemplate(ABC):
         
         This method coordinates the pipeline generation process:
         1. Create the DAG, config_map, and step_builder_map
-        2. Create the PipelineBuilderTemplate
+        2. Create the PipelineAssembler
         3. Generate the pipeline
         4. Store pipeline metadata
         
@@ -252,8 +252,8 @@ class AbstractPipelineTemplate(ABC):
         config_map = self._create_config_map()
         step_builder_map = self._create_step_builder_map()
         
-        # Create the template
-        template = PipelineBuilderTemplate(
+        # Create the assembler
+        template = PipelineAssembler(
             dag=dag,
             config_map=config_map,
             step_builder_map=step_builder_map,
@@ -282,7 +282,7 @@ class AbstractPipelineTemplate(ABC):
         """
         return getattr(self.base_config, 'pipeline_name', 'default-pipeline')
         
-    def _store_pipeline_metadata(self, template: PipelineBuilderTemplate) -> None:
+    def _store_pipeline_metadata(self, template: PipelineAssembler) -> None:
         """
         Store pipeline metadata from template.
         
@@ -290,7 +290,7 @@ class AbstractPipelineTemplate(ABC):
         metadata like Cradle requests or execution document configurations.
         
         Args:
-            template: PipelineBuilderTemplate instance
+            template: PipelineAssembler instance
         """
         # Store Cradle data loading requests if available
         if hasattr(template, 'cradle_loading_requests'):

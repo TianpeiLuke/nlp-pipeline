@@ -1,8 +1,8 @@
 """
-Pipeline builder template leveraging the specification-based dependency resolution system.
+Pipeline assembler that builds pipelines from a DAG structure and step builders.
 
-This implementation simplifies the code by properly utilizing the specification-based 
-dependency resolution system, step builders, and other existing infrastructure.
+This assembler leverages the specification-based dependency resolution system
+to intelligently connect steps and build complete SageMaker pipelines.
 """
 
 from typing import Dict, List, Any, Optional, Type, Set, Tuple
@@ -29,15 +29,15 @@ from ..pipeline_dag.base_dag import PipelineDAG
 logger = logging.getLogger(__name__)
 
 
-class PipelineBuilderTemplate:
+class PipelineAssembler:
     """
-    Generic pipeline builder using a DAG and step builders with specification-based dependency resolution.
+    Assembles pipeline steps using a DAG and step builders with specification-based dependency resolution.
     
-    This class implements a template-based approach to building SageMaker Pipelines,
+    This class implements a component-based approach to building SageMaker Pipelines,
     leveraging the specification-based dependency resolution system to simplify
     the code and improve maintainability.
     
-    The template follows these steps to build a pipeline:
+    The assembler follows these steps to build a pipeline:
     1. Initialize step builders for all steps in the DAG
     2. Determine the build order using topological sort
     3. Propagate messages between steps using the dependency resolver
@@ -62,7 +62,7 @@ class PipelineBuilderTemplate:
         dependency_resolver: Optional[UnifiedDependencyResolver] = None
     ):
         """
-        Initialize the pipeline builder template.
+        Initialize the pipeline assembler.
         
         Args:
             dag: PipelineDAG instance defining the pipeline structure
@@ -334,11 +334,11 @@ class PipelineBuilderTemplate:
                              config_map: Dict[str, BasePipelineConfig],
                              step_builder_map: Dict[str, Type[StepBuilderBase]],
                              context_name: Optional[str] = None,
-                             **kwargs) -> "PipelineBuilderTemplate":
+                             **kwargs) -> "PipelineAssembler":
         """
-        Create pipeline builder with managed components.
+        Create pipeline assembler with managed components.
         
-        This factory method creates a pipeline builder with properly configured
+        This factory method creates a pipeline assembler with properly configured
         dependency components from the factory module.
         
         Args:
@@ -349,7 +349,7 @@ class PipelineBuilderTemplate:
             **kwargs: Additional arguments to pass to the constructor
             
         Returns:
-            Configured PipelineBuilderTemplate instance
+            Configured PipelineAssembler instance
         """
         components = create_pipeline_components(context_name)
         return cls(

@@ -23,11 +23,11 @@ from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.image_uris import retrieve
 
-# Import abstract base template
-from .abstract_pipeline_template import AbstractPipelineTemplate
+# Import base template
+from .pipeline_template_base import PipelineTemplateBase
 
 # Import dependencies for DAG and step builders
-from .pipeline_builder_template import PipelineBuilderTemplate
+from .pipeline_assembler import PipelineAssembler
 from ..pipeline_dag.base_dag import PipelineDAG
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
@@ -75,7 +75,7 @@ OUTPUT_TYPE_METADATA = "METADATA"
 OUTPUT_TYPE_SIGNATURE = "SIGNATURE"
 
 
-class XGBoostTrainEvaluateE2ETemplate(AbstractPipelineTemplate):
+class XGBoostTrainEvaluateE2ETemplate(PipelineTemplateBase):
     """
     Template-based builder for XGBoost Train-Evaluate E2E pipeline.
     
@@ -276,7 +276,7 @@ class XGBoostTrainEvaluateE2ETemplate(AbstractPipelineTemplate):
         """
         # Find needed configs
         registration_cfg = next((cfg for _, cfg in self.configs.items() 
-                               if isinstance(cfg, ModelRegistrationConfig)), None)
+                               if isinstance(cfg, ModelRegistrationConfig) and not isinstance(cfg, PayloadConfig)), None)
         payload_cfg = next((cfg for _, cfg in self.configs.items() 
                            if isinstance(cfg, PayloadConfig)), None)
         package_cfg = next((cfg for _, cfg in self.configs.items() 
@@ -351,7 +351,7 @@ class XGBoostTrainEvaluateE2ETemplate(AbstractPipelineTemplate):
         
         return dag
     
-    def _store_pipeline_metadata(self, template: PipelineBuilderTemplate) -> None:
+    def _store_pipeline_metadata(self, assembler: PipelineAssembler) -> None:
         """
         Store pipeline metadata from template.
         
@@ -359,16 +359,16 @@ class XGBoostTrainEvaluateE2ETemplate(AbstractPipelineTemplate):
         step configurations for use in filling execution documents.
         
         Args:
-            template: PipelineBuilderTemplate instance
+            assembler: PipelineAssembler instance
         """
         # Store Cradle data loading requests
-        if hasattr(template, 'cradle_loading_requests'):
-            self.pipeline_metadata['cradle_loading_requests'] = template.cradle_loading_requests
+        if hasattr(assembler, 'cradle_loading_requests'):
+            self.pipeline_metadata['cradle_loading_requests'] = assembler.cradle_loading_requests
             
         # Find registration steps
         try:
             registration_steps = []
-            for step_name, step_instance in template.step_instances.items():
+            for step_name, step_instance in assembler.step_instances.items():
                 if "registration" in step_name.lower() or "modelregistration" in str(type(step_instance)).lower():
                     registration_steps.append(step_instance)
                     logger.info(f"Found registration step: {step_name}")
@@ -379,7 +379,7 @@ class XGBoostTrainEvaluateE2ETemplate(AbstractPipelineTemplate):
             
             # Try to retrieve the image URI for registration configs
             registration_cfg = next((cfg for _, cfg in self.configs.items() 
-                                   if isinstance(cfg, ModelRegistrationConfig)), None)
+                                   if isinstance(cfg, ModelRegistrationConfig) and not isinstance(cfg, PayloadConfig)), None)
             if not registration_cfg:
                 logger.warning("No ModelRegistrationConfig found, skipping execution doc config")
                 return
@@ -457,7 +457,8 @@ class XGBoostTrainEvaluateE2ETemplate(AbstractPipelineTemplate):
 
         # Find registration config
         registration_cfg = next(
-            (cfg for _, cfg in self.configs.items() if isinstance(cfg, ModelRegistrationConfig)), 
+            (cfg for _, cfg in self.configs.items() 
+             if isinstance(cfg, ModelRegistrationConfig) and not isinstance(cfg, PayloadConfig)), 
             None
         )
         
