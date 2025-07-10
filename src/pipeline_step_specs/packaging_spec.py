@@ -31,11 +31,11 @@ PACKAGING_SPEC = StepSpecification(
         DependencySpec(
             logical_name="inference_scripts_input",
             dependency_type=DependencyType.CUSTOM_PROPERTY,
-            required=True,
+            required=False,
             compatible_sources=["ProcessingStep", "ScriptStep"],
             semantic_keywords=["inference", "scripts", "code", "InferenceScripts"],
-            data_type="S3Uri",
-            description="Inference scripts and code for model deployment"
+            data_type="String",
+            description="Inference scripts and code for model deployment (can be local directory path or S3 URI)"
         )
     ],
     outputs=[

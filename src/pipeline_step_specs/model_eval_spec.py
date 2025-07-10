@@ -33,7 +33,7 @@ MODEL_EVAL_SPEC = StepSpecification(
             description="Trained model artifacts to be evaluated (includes hyperparameters.json)"
         ),
         DependencySpec(
-            logical_name="eval_data_input",
+            logical_name="processed_data",
             dependency_type=DependencyType.PROCESSING_OUTPUT,
             required=True,
             compatible_sources=["TabularPreprocessing", "ProcessingStep", "DataLoad"],

@@ -27,16 +27,9 @@ PYTORCH_TRAINING_SPEC = StepSpecification(
             semantic_keywords=["data", "input", "training", "dataset", "processed", "train", "pytorch"],
             data_type="S3Uri",
             description="Training dataset S3 location with train/val/test subdirectories"
-        ),
-        DependencySpec(
-            logical_name="config",
-            dependency_type=DependencyType.HYPERPARAMETERS,
-            required=True,
-            compatible_sources=["HyperparameterPrep", "ProcessingStep"],
-            semantic_keywords=["config", "params", "hyperparameters", "settings"],
-            data_type="S3Uri",
-            description="Hyperparameters configuration file"
         )
+        # Note: Removed "config" dependency as PyTorch estimator accepts hyperparameters directly
+        # and doesn't need an external hyperparameters file - this is handled internally
     ],
     outputs=[
         OutputSpec(
@@ -53,29 +46,6 @@ PYTORCH_TRAINING_SPEC = StepSpecification(
             property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
             data_type="S3Uri",
             description="Training evaluation results and predictions"
-        ),
-        OutputSpec(
-            logical_name="checkpoints",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.CheckpointConfig.S3Uri",
-            data_type="S3Uri",
-            description="Training checkpoints for resuming"
-        ),
-        OutputSpec(
-            logical_name="training_job_name",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingJobName",
-            data_type="String",
-            description="SageMaker training job name",
-            aliases=["TrainingJobName"]
-        ),
-        OutputSpec(
-            logical_name="metrics_output",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingMetrics",
-            data_type="String",
-            description="Training metrics from the job",
-            aliases=["TrainingMetrics"]
         )
     ]
 )

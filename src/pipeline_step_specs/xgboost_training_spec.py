@@ -53,22 +53,6 @@ XGBOOST_TRAINING_SPEC = StepSpecification(
             property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
             data_type="S3Uri",
             description="Model evaluation results and predictions (val.tar.gz, test.tar.gz)"
-        ),
-        OutputSpec(
-            logical_name="training_job_name",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingJobName",
-            data_type="String",
-            description="SageMaker training job name",
-            aliases=["TrainingJobName"]
-        ),
-        OutputSpec(
-            logical_name="metrics_output",
-            output_type=DependencyType.CUSTOM_PROPERTY,
-            property_path="properties.TrainingMetrics",
-            data_type="String",
-            description="Training metrics from the job",
-            aliases=["TrainingMetrics"]
         )
     ]
 )
