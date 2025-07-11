@@ -402,6 +402,15 @@ The PipelineTemplateBase has been updated with the following improvements:
    - It performs checks like validating the presence of required configurations and checking job types
    - This makes the code easier to understand and reduces initialization overhead
 
+5. **Enhanced Property Reference Handling**:
+   - Removed reliance on the outdated `property_reference_wrapper.py` module
+   - Integrated with the enhanced `PropertyReference` class in `base_specifications.py`
+   - Simplified step builder implementations by removing redundant `handle_property_reference` calls
+   - Fixed errors like `'dict' object has no attribute 'decode'` that occurred during pipeline execution
+   - PipelineAssembler now correctly handles property references during pipeline assembly
+   - All property references are properly passed to SageMaker's native property reference system
+   - This enables cleaner, more maintainable templates without special case handling for property references
+
 These changes are part of the broader effort to embrace the specification-driven approach across the entire pipeline system.
 
 ## Implementation Plan

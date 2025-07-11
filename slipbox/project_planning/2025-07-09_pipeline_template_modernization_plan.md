@@ -399,6 +399,12 @@ The modernization continues to build on our previous work to remove global singl
 - ✅ Implemented factory methods for template and assembler creation
 - ✅ Added context managers for proper component lifecycle management
 - ✅ Updated XGBoost Train-Evaluate E2E Template to use the new classes
+- ✅ Enhanced property reference handling:
+  - Removed redundant `property_reference_wrapper.py` module
+  - Consolidated documentation in a single comprehensive file
+  - Removed `handle_property_reference` method from step builders
+  - Updated step builders to use consistent property reference approach
+  - Fixed `'dict' object has no attribute 'decode'` error during pipeline execution
 
 ### Next Steps
 

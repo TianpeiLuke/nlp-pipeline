@@ -311,7 +311,7 @@ This refactoring has resulted in significant code size reduction:
 
 ## Benefits
 
-These changes align with the goals outlined in [Dependency Resolution Explained](../pipeline_design/dependency_resolution_explained.md) and support the alias functionality described in [Dependency Resolution Alias Support](./2025-07-08_dependency_resolution_alias_support_plan.md).
+These changes align with the goals outlined in [Dependency Resolution Explained](../pipeline_design/dependency_resolution_explained.md) and support the alias functionality described in [Dependency Resolution Alias Support](./2025-07-08_dependency_resolution_alias_support_plan.md). They also integrate with the enhanced property reference handling approach described in [Enhanced Property Reference](../pipeline_design/enhanced_property_reference.md).
 
 1. **Maintainability**:
    - Smaller, more focused methods

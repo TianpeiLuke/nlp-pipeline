@@ -651,7 +651,29 @@ Total estimated time: 9 weeks of developer effort, likely spanning 4-5 calendar 
 - Provide detailed examples and guidance
 - Create comprehensive tests for each changed component
 
-## Progress Summary as of July 9, 2025
+## Special Path Handling for Model Evaluation
+
+The recent improvements to script path resolution revealed inconsistencies in how different step types handle path resolution. Specifically, we identified and fixed a special case with the XGBoost Model Evaluation step:
+
+1. **Path Resolution Issue**:
+   - The `XGBoostModelEvalStepBuilder` expects to receive the entry point name and source directory separately
+   - However, the `get_script_path()` method was combining these into a single path
+   - This inconsistency caused errors when the pipeline was executed
+
+2. **Implementation Solution**:
+   - Modified `get_script_path()` in `XGBoostModelEvalConfig` to return only the entry point name without combining with source directory
+   - Updated the builder code to explicitly document this special case
+   - Created comprehensive documentation in `model_evaluation_path_handling.md` to explain the design decision
+
+3. **Key Benefits**:
+   - Fixed pipeline execution errors without requiring changes to multiple components
+   - Preserved backward compatibility with existing code
+   - Added clear documentation to prevent future confusion
+   - Implemented the least invasive solution to minimize risk
+
+This change demonstrates our commitment to maintaining backward compatibility while addressing technical debt. The solution follows the principle of least surprise and provides a clear path forward for future path handling standardization.
+
+## Progress Summary as of July 10, 2025
 
 ### Pipeline Dependencies Modernization
 
@@ -709,103 +731,76 @@ Today we completed significant updates to the pipeline dependency system:
    - This ensures that DependencyType can be properly used as dictionary keys in the compatibility matrix
    - The fix maintains consistent hash values based on the enum value, which preserves dictionary lookup behavior
 
-### Batch Transform Step Modernization
+7. **MIMS Packaging Step Fixes**:
+   - Fixed error in `builder_mims_packaging_step.py` that was referencing non-existent `job_type` attribute
+   - Removed references to `job_type` in `_create_processor` method, replacing with static "ModelPackaging" name
+   - Updated `_get_job_arguments` method to use "--mode standard" instead of job_type-based arguments
+   - Removed references to `job_type` in `create_step` method for step name generation
+   - This fixes the error: `AttributeError: 'PackageStepConfig' object has no attribute 'job_type'`
+   - Improved consistency by using static naming which is more appropriate for packaging steps that don't have job types
 
-Earlier, we completed significant updates to the batch transform step builder:
+8. **ProcessingStep Parameter Fix**:
+   - Fixed error in `builder_mims_packaging_step.py` and `builder_mims_payload_step.py` where ProcessingStep was being created with invalid parameter
+   - Removed `source_dir` parameter from ProcessingStep constructor call in create_step() for both step builders
+   - Updated script path handling to use `config.get_script_path()` which returns the full path
+   - Added fallback to use contract's entry_point when config.get_script_path() returns None
+   - Completely removed the unnecessary `source_dir` variable reference in both files
+   - This fixes the error: `ValueError: Failed to build step model_packaging: ProcessingStep.__init__() got an unexpected keyword argument 'source_dir'`
+   - ProcessingStep only accepts the `code` parameter for script path, not separate source_dir and entry_point parameters
+   - Improved code reuse by implementing the same script path resolution logic in both step builders
 
-1. **Specification-Driven Implementation**: 
-   - Created comprehensive specifications for all four job types (training, testing, validation, calibration)
-   - Aligned input/output dependency names with corresponding specifications from model and preprocessing steps
-   - Implemented proper dependency resolution using UnifiedDependencyResolver
+9. **MIMS Registration Step Integration Fix**:
+   - Fixed error in `builder_mims_registration_step.py` where the MIMS SDK validation was failing on property objects
+   - Removed explicit StringLikeWrapper usage from the MIMS registration step builder
+   - Modified the _get_inputs method to work directly with source inputs without wrapping them
+   - Added comprehensive documentation in `slipbox/v2/pipeline_design/mims_registration_integration.md` explaining the proxy pattern design
+   - Improved logging to document how inputs are being handled
+   - This fixes the errors: `AttributeError: 'dict' object has no attribute 'startswith'` and `AttributeError: 'dict' object has no attribute 'expr'`
+   - Eliminated error-prone code paths related to property reference manipulation
+   - The updated approach now relies on automatic property reference handling in the base class
+   - Property references are preserved intact for SageMaker's runtime resolution while satisfying the MIMS SDK validation requirements
+   - This change simplifies step builder code and makes it more maintainable by removing special-case handling
 
-2. **Configuration Simplification**:
-   - Removed redundant `batch_input_location` and `batch_output_location` from configuration
-   - Removed corresponding validator methods
-   - Added comments explaining that these are now handled through specifications and dependencies
+10. **Cradle Data Loading Property Reference Fix**:
+   - Solved error in Cradle Data Loading step that caused: `AttributeError: 'dict' object has no attribute 'decode'`
+   - Created a specialized `CradleOnlyTemplate` pipeline template that applies the StringLikeWrapper to PIPELINE_EXECUTION_TEMP_DIR
+   - Used monkey patching approach to temporarily replace constants during pipeline assembly without modifying third-party code
+   - Implemented proper cleanup in finally block to restore original values even if exceptions occur
+   - Created detailed documentation in `slipbox/v2/pipeline_design/cradle_data_loading_property_reference_fix.md`
+   - This approach complements the StringLikeWrapper used in MIMS registration and the handle_property_reference method in other step builders
+   - The solution demonstrates a non-invasive approach to fixing property reference handling issues in third-party components
 
-3. **Standardized Step Builder Interface**:
-   - Implemented `_get_inputs` and `_get_outputs` methods following established patterns
-   - Added proper error handling for missing dependencies
-   - Created clear separation between configuration and dependency resolution
-   - Used the dependency-injection pattern consistently for registry and resolver
+11. **Property Reference Wrapper Enhancement**:
+   - Enhanced the `StringLikeWrapper` class to fully handle all URL parsing operations
+   - Added implementation of the `decode()` method to address `AttributeError: 'dict' object has no attribute 'decode'`
+   - Extended wrapper application to cover more constants and directly wrap property references in the pipeline assembler
+   - Added comprehensive logging to assist with debugging property reference handling
+   - Created detailed design document `slipbox/v2/pipeline_design/property_reference_wrapper_enhancement.md`
+   - Solved recurring validation issues with SageMaker property references that appear in multiple template types
+   - Implemented standardized wrapping approach that automatically handles property references during pipeline assembly
+   - This enhancement ensures that property references consistently pass validation while preserving their runtime behavior
 
-4. **Enhanced Dependency Resolution**:
-   - Updated model spec outputs to use aliases instead of redundant output specs
-   - Modified batch transform step to explicitly depend on processed_data from preprocessing steps
-   - Required input data to come from dependencies rather than configuration
-   - Enhanced error messages when dependencies are missing
+12. **MIMS Registration Step Modernization**:
+   - Updated the approach to property reference handling in the MIMS Registration step
+   - Removed explicit StringLikeWrapper usage from the MIMS registration step builder
+   - Modified the _get_inputs method to work directly with source inputs without wrapping them
+   - Added comprehensive documentation in `slipbox/v2/pipeline_design/mims_registration_integration.md` explaining the proxy pattern design
+   - The step now relies on the automatic property reference handling in the base class
+   - This design centralizes property reference handling and makes the step builder more maintainable
+   - Property references are preserved intact for SageMaker's runtime resolution
+   - Simplified step builder code by eliminating special-case handling for property references
+   - This change completes the modernization of all MIMS-related steps to use the unified property reference approach
 
-These changes ensure that BatchTransform steps now fully participate in the dependency resolution system, making the pipeline more maintainable, robust, and consistent.
-
-## Project Implementation Progress
-
-The initial phases of the project to remove global singletons have been successfully implemented:
-
-1. **Core Component Refactoring**: ✅ COMPLETED
-   - All three key components (SemanticMatcher, RegistryManager, and UnifiedDependencyResolver) have been successfully refactored to remove global singleton instances.
-   - The code now follows proper dependency injection patterns with clear separation of concerns.
-
-2. **Dependency Injection Framework**: ✅ COMPLETED
-   - Factory module has been implemented, providing centralized component creation and proper wiring.
-   - Context management and thread-local storage have been implemented.
-   - StepBuilder base class has been updated to use the new dependency injection approach.
-
-3. **Pipeline Builder Implementation**: 🔄 IN PROGRESS
-   - ✅ **Phase 3.1**: Update Pipeline Builder Classes to use dependency injection
-     - ✅ Modified constructors to accept component parameters
-     - ✅ Implemented factory methods using component factory
-     - ✅ Updated step builder creation methods to pass components
-     - ✅ PipelineBuilderTemplate updated with dependency injection support
-
-   - ✅ **Phase 3.2**: Update Step Builder implementations (COMPLETED)
-     - ✅ PipelineBuilderTemplate updated with specification-based dependency resolution
-     - ✅ Simplified _propagate_messages method to leverage UnifiedDependencyResolver
-     - ✅ Implemented _generate_outputs using step specifications
-     - ✅ Simplified _instantiate_step to delegate to step builders
-     - ✅ Removed redundant methods (_collect_step_io_requirements, _safely_extract_from_properties_list, _resolve_property_path, _diagnose_step_connections, _add_config_inputs, _validate_inputs)
-     - ✅ Removed redundant variables (step_input_requirements, step_output_properties, _property_match_attempts)
-     - ✅ Integrated validation directly into __init__ for cleaner initialization flow
-     - ✅ Updated all step builders with dependency injection support:
-       - ✅ `builder_training_step_pytorch.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_training_step_xgboost.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_model_step_pytorch.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_model_step_xgboost.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_model_eval_step_xgboost.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_tabular_preprocessing_step.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_batch_transform_step.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-         - Updated to use specification-based approach like TabularPreprocessingStepBuilder
-         - Implemented _get_inputs and _get_outputs methods for consistent interface
-         - Removed hard-coded dependencies on batch_input_location and batch_output_location
-         - Made dependency on processed_data from TabularPreprocessing explicit
-       - ✅ `builder_data_load_step_cradle.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_currency_conversion_step.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_mims_packaging_step.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_mims_registration_step.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-       - ✅ `builder_mims_payload_step.py`: Added RegistryManager and UnifiedDependencyResolver parameters
-
-   - 🔄 **Phase 3.3**: Update Pipeline Examples (IN PROGRESS)
-     - ✅ Created comprehensive modernization plan: [2025-07-09_pipeline_template_modernization_plan.md](./2025-07-09_pipeline_template_modernization_plan.md)
-     - ✅ Designed abstract base template: [2025-07-09_abstract_pipeline_template_design.md](./2025-07-09_abstract_pipeline_template_design.md)
-     - ✅ Implemented AbstractPipelineTemplate class: `src/v2/pipeline_builder/abstract_pipeline_template.py`
-     - ✅ Refactored XGBoost Train-Evaluate E2E Template to use AbstractPipelineTemplate
-     - ✅ Fixed step naming inconsistencies by using the centralized step names registry
-     - ✅ Removed duplicate entries in the step naming registry for consistency
-     - ✅ Updated specs to use canonical step names from the registry
-     - ✅ Implemented lightweight configuration validation in AbstractPipelineTemplate
-     - 🔄 Implementation in progress for remaining templates:
-       - Demonstrate proper component creation using factory
-       - Show context manager usage for scoped components
-       - Provide thread-safety examples with thread-local storage
-       - Add best practices documentation
-     - Target files: `pipeline_examples/**/*.py` and remaining `src/v2/pipeline_builder/*.py`
-
-   - **Phase 4**: Create and update test framework
-     - Implement IsolatedTestCase base class
-     - Create test helpers for component management
-     - Update existing tests to use dependency injection
-
-## Conclusion
-
-Removing global singleton objects from the pipeline dependencies system is progressing well. The core foundation for testability, debugging, and concurrent execution has been established. The refactoring has successfully removed all global state from the dependency resolution system, and the factory pattern implementation provides a clean way to create and manage components.
-
-The early implementation results are promising, with a clear path forward for the remaining work. The dependency injection approach is already providing better separation of concerns and more explicit dependency relationships. We're on track to deliver a more maintainable, testable, and reliable codebase as planned.
+13. **Property Reference Handling Cleanup**:
+   - Removed the redundant `property_reference_wrapper.py` module from `src/v2/pipeline_builder`
+   - The module contained a `StringLikeWrapper` class and methods for monkey-patching constants, which have been superseded by our enhanced `PropertyReference` class
+   - Deleted redundant documentation files:
+     - `slipbox/v2/pipeline_design/property_reference_handling.md`
+     - `slipbox/v2/pipeline_design/property_reference_wrapper_enhancement.md` 
+     - `slipbox/v2/pipeline_design/property_reference_handling_cleanup.md`
+     - `slipbox/v2/pipeline_design/cradle_data_loading_property_reference_fix.md`
+   - Consolidated all property reference documentation in `slipbox/v2/pipeline_design/enhanced_property_reference.md`
+   - Verified no remaining references to the removed module or its classes
+   - Verified that `pipeline_assembler.py` correctly uses the enhanced `PropertyReference` class
+   - This cleanup simplifies our codebase by eliminating multiple competing solutions to the same problem
+   - Standardized on a single approach to property reference handling through the robust `PropertyReference` class

@@ -278,6 +278,24 @@ This prevents errors like `'str' object has no attribute 'logical_name'` that we
 
 Implemented `AbstractPipelineTemplate` class to provide a consistent foundation for all pipeline templates. This reduces code duplication across templates and enforces a standard approach to pipeline generation.
 
+#### 4. Property Reference Handling Cleanup
+
+Consolidated property reference handling mechanisms and removed redundant code:
+
+- Removed the redundant `property_reference_wrapper.py` module from `src/v2/pipeline_builder`
+- Deleted multiple redundant documentation files in favor of a single comprehensive document
+- Consolidated all property reference documentation in `slipbox/v2/pipeline_design/enhanced_property_reference.md`
+- Removed the `handle_property_reference` method from `StepBuilderBase` 
+- Updated all step builders to use inputs directly, letting the PipelineAssembler handle property references
+- Enhanced the `PropertyReference` class with robust `to_runtime_property()` method for correct property path navigation
+
+These changes address the root cause of the `'dict' object has no attribute 'decode'` error that occurred during pipeline execution by ensuring proper use of SageMaker's native property reference system. The solution:
+
+- Simplifies the codebase by eliminating multiple competing solutions
+- Standardizes on a single approach to property reference handling
+- Improves maintainability by centralizing property reference logic
+- Ensures correct behavior during pipeline validation and execution
+
 ### Dependency Injection Approach
 
 Following the [Remove Global Singletons](./2025-07-08_remove_global_singletons.md) plan, the enhanced pipeline builder now uses dependency injection instead of global singletons:
@@ -333,6 +351,8 @@ With the significant progress already made, the implementation timeline has been
 - [x] Fix DependencyType and NodeType enum hashability (July 9)
 - [x] Create job type-specific specifications for data loading steps (July 9)
 - [x] Implement AbstractPipelineTemplate base class (July 9)
+- [x] Consolidate property reference handling approaches (July 10)
+- [x] Remove redundant property reference wrapper module (July 10)
 - [ ] Complete global-to-local migration for all components
 - [ ] Implement context managers for testing
 - [ ] Add thread-local storage for parallel execution
