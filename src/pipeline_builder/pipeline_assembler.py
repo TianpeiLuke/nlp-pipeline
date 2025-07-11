@@ -13,6 +13,7 @@ from sagemaker.workflow.pipeline_context import PipelineSession
 from pathlib import Path
 import logging
 import time
+import traceback
 from collections import defaultdict
 
 from ..pipeline_steps.config_base import BasePipelineConfig
@@ -20,7 +21,7 @@ from ..pipeline_steps.builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver, create_dependency_resolver
 from ..pipeline_deps.factory import create_pipeline_components
-from ..pipeline_deps.base_specifications import PropertyReference
+from ..pipeline_deps.base_specifications import PropertyReference, OutputSpec
 from ..pipeline_registry.step_names import CONFIG_STEP_REGISTRY
 
 from ..pipeline_dag.base_dag import PipelineDAG
@@ -294,11 +295,40 @@ class PipelineAssembler:
         if step_name in self.step_messages:
             for input_name, message in self.step_messages[step_name].items():
                 src_step = message['source_step']
+                src_output = message['source_output']
                 if src_step in self.step_instances:
-                    # Just store the reference to the step - let builder extract the value
-                    inputs[input_name] = {
-                        "Get": f"Steps.{src_step}.{message['source_output']}"
-                    }
+                    # Try to get the source step's builder to access its specifications
+                    src_builder = self.step_builders.get(src_step)
+                    output_spec = None
+                    
+                    # Try to find the output spec for this output name
+                    if src_builder and hasattr(src_builder, 'spec') and src_builder.spec:
+                        output_spec = src_builder.spec.get_output_by_name_or_alias(src_output)
+                    
+                    if output_spec:
+                        try:
+                            # Create a PropertyReference object
+                            prop_ref = PropertyReference(
+                                step_name=src_step,
+                                output_spec=output_spec
+                            )
+                            
+                            # Use the enhanced to_runtime_property method to get an actual SageMaker Properties object
+                            runtime_prop = prop_ref.to_runtime_property(self.step_instances)
+                            inputs[input_name] = runtime_prop
+                            
+                            logger.debug(f"Created runtime property reference for {step_name}.{input_name} -> {src_step}.{output_spec.property_path}")
+                        except Exception as e:
+                            # Log the error and fall back to a safe string
+                            logger.warning(f"Error creating runtime property reference: {str(e)}")
+                            s3_uri = f"s3://pipeline-reference/{src_step}/{src_output}"
+                            inputs[input_name] = s3_uri
+                            logger.warning(f"Using S3 URI fallback: {s3_uri}")
+                    else:
+                        # Create a safe string reference as a fallback
+                        s3_uri = f"s3://pipeline-reference/{src_step}/{src_output}"
+                        inputs[input_name] = s3_uri
+                        logger.warning(f"Could not find output spec for {src_step}.{src_output}, using S3 URI placeholder: {s3_uri}")
         
         # Generate outputs using the specification
         outputs = self._generate_outputs(step_name)

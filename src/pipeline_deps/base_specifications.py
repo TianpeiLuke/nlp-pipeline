@@ -5,10 +5,11 @@ This module provides the core classes for defining step dependencies and outputs
 in a declarative, type-safe manner using Pydantic V2 BaseModel.
 """
 
-from typing import Dict, List, Optional, Any, Set, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Set, Union, TYPE_CHECKING, Tuple
 from enum import Enum
 from abc import ABC, abstractmethod
 import logging
+import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
@@ -322,8 +323,121 @@ class PropertyReference(BaseModel):
         return v.strip()
     
     def to_sagemaker_property(self) -> Dict[str, str]:
-        """Convert to SageMaker Properties object at runtime."""
+        """Convert to SageMaker Properties dictionary format at pipeline definition time."""
         return {"Get": f"Steps.{self.step_name}.{self.output_spec.property_path}"}
+    
+    def to_runtime_property(self, step_instances: Dict[str, Any]) -> Any:
+        """
+        Create an actual SageMaker property reference using step instances.
+        
+        This method navigates the property path to create a proper SageMaker
+        Properties object that can be used at runtime.
+        
+        Args:
+            step_instances: Dictionary mapping step names to step instances
+            
+        Returns:
+            SageMaker Properties object for the referenced property
+            
+        Raises:
+            ValueError: If the step is not found or property path is invalid
+            AttributeError: If any part of the property path is invalid
+        """
+        if self.step_name not in step_instances:
+            raise ValueError(f"Step '{self.step_name}' not found in step instances. Available steps: {list(step_instances.keys())}")
+        
+        # Get the step instance
+        step_instance = step_instances[self.step_name]
+        
+        # Parse and navigate the property path
+        path_parts = self._parse_property_path(self.output_spec.property_path)
+        
+        # Start with properties object
+        current_obj = step_instance.properties
+        
+        # Navigate through each part of the path
+        for part in path_parts:
+            if isinstance(part, str):
+                # Regular attribute access
+                current_obj = getattr(current_obj, part)
+            elif isinstance(part, tuple) and len(part) == 2:
+                # Dictionary access with [key]
+                attr_name, key = part
+                if attr_name:  # If there's an attribute before the bracket
+                    current_obj = getattr(current_obj, attr_name)
+                # Handle the key access
+                if isinstance(key, str) and key.isdigit():  # Array index
+                    current_obj = current_obj[int(key)]
+                else:  # Dictionary key
+                    current_obj = current_obj[key]
+            else:
+                raise ValueError(f"Invalid path part: {part}")
+        
+        return current_obj
+    
+    def _parse_property_path(self, path: str) -> List[Union[str, Tuple[str, str]]]:
+        """
+        Parse a property path into a sequence of access operations.
+        
+        This method handles various property path formats, including:
+        - Regular attribute access: "properties.ProcessingOutputConfig"
+        - Dictionary access: "Outputs['DATA']"
+        - Combined access: "properties.ProcessingOutputConfig.Outputs['DATA']"
+        
+        Args:
+            path: Property path as a string
+            
+        Returns:
+            List of access operations, where each operation is either:
+            - A string for attribute access
+            - A tuple (attr_name, key) for dictionary access
+        """
+        # Remove "properties." prefix if present
+        if path.startswith("properties."):
+            path = path[11:]  # Remove "properties."
+        
+        result = []
+        
+        # Pattern to match dictionary access like: Outputs['DATA'] or Outputs["DATA"] or Outputs[0]
+        dict_pattern = re.compile(r'(\w+)(?:\[([\'"]?)([^\]]+)(?:[\'"]?)\])')
+        
+        # Split by dots first, but preserve quoted parts
+        parts = []
+        current = ""
+        in_brackets = False
+        
+        for char in path:
+            if char == '.' and not in_brackets:
+                if current:
+                    parts.append(current)
+                    current = ""
+            elif char == '[':
+                in_brackets = True
+                current += char
+            elif char == ']':
+                in_brackets = False
+                current += char
+            else:
+                current += char
+        
+        if current:
+            parts.append(current)
+        
+        # Process each part
+        for part in parts:
+            # Check if this part contains dictionary access
+            dict_match = dict_pattern.match(part)
+            if dict_match:
+                # Extract the attribute name and key
+                attr_name = dict_match.group(1)
+                key = dict_match.group(3)
+                # Add a tuple for dictionary access
+                result.append((attr_name, key))
+            else:
+                # Regular attribute access
+                result.append(part)
+        
+        return result
     
     def __str__(self) -> str:
         return f"{self.step_name}.{self.output_spec.logical_name}"
