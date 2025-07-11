@@ -1,16 +1,17 @@
 # Implementation Plan: Specification-Driven XGBoost End-to-End Pipeline
 
-**Document Version**: 5.0  
-**Last Updated**: July 9, 2025  
+**Document Version**: 5.1  
+**Last Updated**: July 10, 2025  
 **Status**: IMPLEMENTATION IN PROGRESS - Major components completed  
-**Completion**: 95% - Core architecture implemented, final integration in progress
+**Completion**: 97% - Core architecture implemented, template modernization complete, final integration in progress
 
 ## Document History
 - **v1.0** (Initial): Original 10-step pipeline analysis, 70% complete, 8-week timeline
 - **v2.0**: Updated for simplified 9-step pipeline, 89% complete, 2-3 week timeline
 - **v3.0**: Job type variant gap SOLVED, 100% complete for specifications
 - **v4.0**: Implementation in progress, 90% complete overall, most components delivered
-- **v5.0** (Current): Infrastructure improvements, 95% complete, fixed enum hashability, created job type-specific specifications
+- **v5.0**: Infrastructure improvements, 95% complete, fixed enum hashability, created job type-specific specifications
+- **v5.1** (Current): Template modernization complete, 97% complete, enhanced property reference handling
 
 ## Related Documents
 
@@ -58,6 +59,7 @@ This document outlines the comprehensive plan to implement a specification-drive
    - ✅ **Dependency Resolution**: UnifiedDependencyResolver fully implemented
    - ✅ **Registry Management**: SpecificationRegistry and context isolation complete
    - ✅ **Enum Hashability**: Fixed DependencyType and NodeType enums for dictionary key usage
+   - ✅ **Property Reference Structure**: Enhanced property reference data structure for better step communication
 
 2. **Processing Steps**:
    - ✅ **CradleDataLoadingStepBuilder**: Fully specification-driven implementation with job type support
@@ -78,6 +80,36 @@ This document outlines the comprehensive plan to implement a specification-drive
    - ✅ **ModelRegistrationStepBuilder**: Fully specification-driven implementation
    - ✅ **Model and Registration Configs**: Cleaned up to remove redundant fields
 
+5. **Pipeline Templates** (NEW):
+   - ✅ **PipelineTemplateBase**: Created base class for all pipeline templates
+     - Created standardized foundation for all pipeline templates
+     - Implemented configuration loading and validation framework
+     - Added component lifecycle management
+     - Created factory methods for component creation
+     - Added thread safety through context managers
+     - Implemented execution document support
+     - Created abstract methods for DAG creation, config mapping, and step builder mapping
+   - ✅ **PipelineAssembler**: Developed a low-level pipeline assembly component
+     - Implemented step instantiation and connection logic
+     - Added enhanced property reference handling
+     - Created dependency propagation mechanism
+     - Implemented proper SageMaker property reference generation
+     - Added error handling and fallbacks for reference resolution
+     - Created factory methods for component isolation
+   - ✅ **XGBoostEndToEndTemplate**: Refactored XGBoost end-to-end template to use class-based approach
+   - ✅ **PytorchEndToEndTemplate**: Refactored PyTorch end-to-end template to use class-based approach
+   - ✅ **DAG Structure Optimization**: Streamlined DAG connections in both templates
+   - ✅ **Redundant Steps Removal**: Eliminated redundant XGBoost model and PyTorch model creation steps
+   - ✅ **Configuration Validation**: Implemented robust configuration validation
+   - ✅ **Execution Document Support**: Added comprehensive support for execution documents
+
+6. **Property Reference Improvements** (NEW):
+   - ✅ **Enhanced Data Structure**: Implemented improved property reference objects
+   - ✅ **Reference Tracking**: Added property reference tracking for debugging
+   - ✅ **Message Passing Optimization**: Implemented efficient message passing between steps
+   - ✅ **Caching Mechanism**: Added caching of resolved values for performance
+   - ✅ **Error Handling**: Improved error messaging for resolution failures
+
 ### Components In Progress 🔄
 
 1. **Pipeline Integration**:
@@ -87,9 +119,10 @@ This document outlines the comprehensive plan to implement a specification-drive
 
 2. **Infrastructure Improvements**:
    - ✅ **Core Infrastructure Improvements**: Fixed enum hashability issues in DependencyType and NodeType
-   - ✅ **Pipeline Template Modernization**: Created AbstractPipelineTemplate for consistent template implementation
+   - ✅ **Pipeline Template Modernization**: Implemented PipelineTemplateBase for consistent template implementation
    - 🔄 **Global-to-Local Migration**: Moving from global singletons to dependency-injected instances for registry manager, dependency resolver, and semantic matcher
    - 🔄 **Thread Safety**: Ensuring pipeline components are thread-safe for parallel execution
+   - 🔄 **Reference Visualization**: Implementing tools for visualizing property references
 
 ### Benefits of Specification-Driven Architecture
 
@@ -113,12 +146,14 @@ The implementation of specification-driven steps has delivered substantial benef
    - All step builders use UnifiedDependencyResolver
    - Unified interface through `_get_inputs()` and `_get_outputs()`
    - Script contracts consistently define container paths
+   - Templates use consistent class-based approach
 
 4. **Enhanced Reliability**:
    - Automatic validation of required inputs
    - Specification-contract alignment verification
    - Clear error messages for missing dependencies
    - Improved traceability for debugging
+   - Robust property reference resolution
 
 ## Updated XGBoost Pipeline Components
 
@@ -244,6 +279,21 @@ The combination of these approaches provides a robust solution for handling job 
 
 Recent infrastructure improvements have significantly enhanced the stability and flexibility of the pipeline system:
 
+#### 0. Template Pipeline Modernization (NEW - July 10)
+
+As documented in [Pipeline Template Modernization Plan](./2025-07-09_pipeline_template_modernization_plan.md), all pipeline templates have been successfully refactored to use the `PipelineTemplateBase` approach:
+
+- Refactored `template_pipeline_xgboost_end_to_end.py` to use class-based approach with `XGBoostEndToEndTemplate`
+- Refactored `template_pipeline_pytorch_end_to_end.py` to use class-based approach with `PytorchEndToEndTemplate`
+- Removed redundant XGBoost model step (functionality handled by registration)
+- Removed redundant PyTorch model creation step (functionality handled by registration)
+- Streamlined DAG structure for both templates:
+  - Direct connections from training to packaging and payload testing
+  - Proper dependency chain for registration
+- Added robust configuration validation
+- Implemented enhanced property reference tracking
+- Added execution document support for all templates
+
 #### 1. Enum Hashability Fix
 
 As documented in [Remove Global Singletons](./2025-07-08_remove_global_singletons.md), the DependencyType and NodeType enums in base_specifications.py were causing errors when used as dictionary keys:
@@ -274,9 +324,9 @@ Created dedicated specifications for all data loading job types:
 
 This prevents errors like `'str' object has no attribute 'logical_name'` that were occurring due to improperly structured specifications.
 
-#### 3. Abstract Pipeline Template
+#### 3. Pipeline Template Base Class
 
-Implemented `AbstractPipelineTemplate` class to provide a consistent foundation for all pipeline templates. This reduces code duplication across templates and enforces a standard approach to pipeline generation.
+Implemented `PipelineTemplateBase` class to provide a consistent foundation for all pipeline templates. This reduces code duplication across templates and enforces a standard approach to pipeline generation.
 
 #### 4. Property Reference Handling Cleanup
 
@@ -288,6 +338,13 @@ Consolidated property reference handling mechanisms and removed redundant code:
 - Removed the `handle_property_reference` method from `StepBuilderBase` 
 - Updated all step builders to use inputs directly, letting the PipelineAssembler handle property references
 - Enhanced the `PropertyReference` class with robust `to_runtime_property()` method for correct property path navigation
+- Implemented improved property reference data structure for better step communication
+- Added property reference tracking functionality for debugging and visualization
+- Created message passing optimizations:
+  - Lazy resolution of property references
+  - Caching of resolved values for improved performance
+  - Enhanced contextual information storage with references
+  - Better error handling for resolution failures
 - Updated all template pipeline files in `src/v2/pipeline_builder/` to use the enhanced approach:
   - Core templates: xgboost_train_evaluate_e2e, xgboost_end_to_end, xgboost_dataload_preprocess, pytorch_end_to_end, pytorch_model_registration
   - Additional templates: xgboost_simple, xgboost_train_evaluate_no_registration, cradle_only
@@ -357,9 +414,12 @@ With the significant progress already made, the implementation timeline has been
 #### 7.3 Infrastructure Improvements (Added)
 - [x] Fix DependencyType and NodeType enum hashability (July 9)
 - [x] Create job type-specific specifications for data loading steps (July 9)
-- [x] Implement AbstractPipelineTemplate base class (July 9)
+- [x] Implement PipelineTemplateBase base class (July 9)
 - [x] Consolidate property reference handling approaches (July 10)
 - [x] Remove redundant property reference wrapper module (July 10)
+- [x] Refactor XGBoost end-to-end template to class-based approach (July 10)
+- [x] Refactor PyTorch end-to-end template to class-based approach (July 10)
+- [x] Implement property reference tracking and visualization (July 10)
 - [ ] Complete global-to-local migration for all components
 - [ ] Implement context managers for testing
 - [ ] Add thread-local storage for parallel execution
@@ -398,7 +458,12 @@ With the significant progress already made, the implementation timeline has been
 
 ### Template Consistency (Added)
 - **Goal**: Unified template approach for all pipeline types
-- **Current**: AbstractPipelineTemplate implemented
+- **Current**: PipelineTemplateBase implemented, all templates refactored
+- **Status**: ✅ ACHIEVED
+
+### Property Reference Handling (Added)
+- **Goal**: Unified approach to property references
+- **Current**: Enhanced data structure implemented, reference tracking added
 - **Status**: ✅ ACHIEVED
 
 ## Conclusion
@@ -407,10 +472,11 @@ The implementation of specification-driven XGBoost pipeline has made tremendous 
 
 1. **All Core Components Complete**: Step specifications, script contracts, dependency resolver, registry manager
 2. **All Step Types Modernized**: Processing, training, model, and registration steps
-3. **Architecture Unified**: Consistent patterns across all components
-4. **Code Significantly Reduced**: ~1400 lines of complex code eliminated
-5. **Enhanced Reliability**: Automatic validation and dependency resolution
-6. **Improved Testability**: Moving from global singletons to dependency injection
+3. **All Templates Refactored**: XGBoost and PyTorch templates using common base class
+4. **Architecture Unified**: Consistent patterns across all components
+5. **Code Significantly Reduced**: ~1400 lines of complex code eliminated
+6. **Enhanced Reliability**: Automatic validation and dependency resolution
+7. **Improved Testability**: Moving from global singletons to dependency injection
 
 The project is now in the final phase of testing, documentation, and infrastructure improvements. The overall approach has proven highly successful, with all key components delivered and working as expected. The specification-driven architecture has delivered on its promise of simplifying step builders, reducing code complexity, and improving maintainability.
 
