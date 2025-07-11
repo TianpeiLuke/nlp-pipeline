@@ -86,7 +86,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         self.contract = MIMS_REGISTRATION_CONTRACT if CONTRACT_AVAILABLE else None
         
         if self.spec and not self.contract:
-            logger.warning("Script contract not available - path resolution will use hardcoded values")
+            self.log_warning("Script contract not available - path resolution will use hardcoded values")
 
     def validate_configuration(self) -> None:
         """
@@ -96,7 +96,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating ModelRegistrationConfig...")
+        self.log_info("Validating ModelRegistrationConfig...")
         
         # Validate required attributes that are actually defined in the config
         required_attrs = [
@@ -124,84 +124,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 if dependency.required and logical_name not in self.contract.expected_input_paths:
                     raise ValueError(f"Required dependency '{logical_name}' in spec not found in contract expected_input_paths")
         
-        logger.info("ModelRegistrationConfig validation succeeded.")
+        self.log_info("ModelRegistrationConfig validation succeeded.")
 
-    # StringLikeWrapper class definition - moved outside method for reusability
-    class StringLikeWrapper:
-        """
-        A wrapper class that provides string-like behavior for non-string objects
-        during validation while preserving the original object for runtime property resolution.
-        
-        This handles both validation paths in the MIMS SDK:
-        1. String validation path - provides all needed string methods
-        2. Property validation path - provides necessary SageMaker property attributes
-        """
-        # The placeholder S3 URI to use for validation
-        PLACEHOLDER_S3_URI = "s3://placeholder-bucket/path/for/validation"
-        
-        def __init__(self, obj):
-            self._obj = obj
-            # For property validation, provide a mock expr attribute
-            # This handles the exception path when the string methods fail
-            self.expr = {"Get": "S3ModelArtifacts"}
-            
-        # --- String methods used by validation ---
-            
-        def __str__(self):
-            return self.PLACEHOLDER_S3_URI
-        
-        def __repr__(self):
-            return f"StringLikeWrapper({self.PLACEHOLDER_S3_URI})"
-            
-        def startswith(self, prefix):
-            return self.PLACEHOLDER_S3_URI.startswith(prefix)
-        
-        def replace(self, old, new):
-            """Handle the replace() method used in s3_utils.verify_s3_path"""
-            return self.PLACEHOLDER_S3_URI.replace(old, new)
-            
-        def split(self, delimiter):
-            """Handle string splitting used after replace() in validation"""
-            return self.PLACEHOLDER_S3_URI.split(delimiter)
-        
-        # --- Dictionary-like access for validation ---
-        
-        def __getitem__(self, key):
-            """
-            Support dictionary-style access, used in some validation paths.
-            Falls back to the real object if it supports item access.
-            """
-            if hasattr(self._obj, "__getitem__"):
-                try:
-                    return self._obj[key]
-                except (KeyError, TypeError):
-                    # If the key doesn't exist in the original object,
-                    # use our placeholder values
-                    pass
-            
-            # For validation paths that look for these specific keys
-            if key == "Get":
-                return "S3ModelArtifacts"
-            return f"placeholder_{key}"
-        
-        # --- Delegate all other attributes to the wrapped object ---
-        
-        def __getattr__(self, name):
-            """
-            Delegate attribute access to the wrapped object.
-            This ensures the original object's behavior is preserved at runtime.
-            """
-            try:
-                return getattr(self._obj, name)
-            except AttributeError as e:
-                logger.debug(f"Attribute {name} not found on wrapped object, error: {e}")
-                # Special handling for common string methods that might be used in validation
-                if name in dir(str):
-                    string_method = getattr(str(self), name)
-                    if callable(string_method):
-                        return lambda *args, **kwargs: string_method(*args, **kwargs)
-                    return string_method
-                raise
 
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
@@ -221,11 +145,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         """
         if not self.spec:
             # Fallback to legacy method if no specification available
-            logger.warning("Step specification not available - using legacy input resolution")
+            self.log_warning("Step specification not available - using legacy input resolution")
             return self._get_processing_inputs_legacy(inputs)
             
         if not self.contract:
-            logger.warning("Script contract not available - path resolution will use hardcoded values")
+            self.log_warning("Script contract not available - path resolution will use hardcoded values")
             
         # Create a new list to store the properly ordered ProcessingInput objects
         ordered_processing_inputs = []
@@ -244,10 +168,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         )
         model_source = inputs[model_logical_name]
         
-        # Apply wrapper for non-string sources
-        if not isinstance(model_source, str):
-            model_source = self.StringLikeWrapper(model_source)
-            logger.info(f"Applied string-like wrapper to non-string source for '{model_logical_name}'")
+        self.log_info("Using source for '%s' directly without wrapper", model_logical_name)
         
         # Add the model input first (order matters for MIMS SDK validation)
         ordered_processing_inputs.append(
@@ -269,10 +190,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             )
             payload_source = inputs[payload_logical_name]
             
-            # Apply wrapper for non-string sources
-            if not isinstance(payload_source, str):
-                payload_source = self.StringLikeWrapper(payload_source)
-                logger.info(f"Applied string-like wrapper to non-string source for '{payload_logical_name}'")
+            self.log_info("Using source for '%s' directly without wrapper", payload_logical_name)
             
             # Add the payload input second
             ordered_processing_inputs.append(
@@ -285,7 +203,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 )
             )
         
-        logger.info(f"Created {len(ordered_processing_inputs)} ProcessingInput objects in required order")
+        self.log_info("Created %d ProcessingInput objects in required order", len(ordered_processing_inputs))
         return ordered_processing_inputs
 
     def _get_outputs(self, outputs: Dict[str, Any]) -> None:
@@ -320,9 +238,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             raise ValueError(f"Required input '{model_logical_name}' not provided")
             
         model_source = inputs[model_logical_name]
-        if not isinstance(model_source, str):
-            model_source = self.StringLikeWrapper(model_source)
-            logger.info(f"Applied string-like wrapper to non-string source for '{model_logical_name}'")
+        self.log_info("Using source for '%s' directly without wrapper", model_logical_name)
         
         # Add model input as the first input (order matters)
         ordered_processing_inputs.append(
@@ -340,9 +256,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         for key in payload_keys:
             if key in inputs:
                 payload_source = inputs[key]
-                if not isinstance(payload_source, str):
-                    payload_source = self.StringLikeWrapper(payload_source)
-                    logger.info(f"Applied string-like wrapper to non-string source for '{key}'")
+                self.log_info("Using source for '%s' directly without wrapper", key)
                     
                 ordered_processing_inputs.append(
                     ProcessingInput(
@@ -355,7 +269,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 )
                 break
         
-        logger.info(f"Legacy method created {len(ordered_processing_inputs)} ProcessingInput objects in required order")
+        self.log_info("Legacy method created %d ProcessingInput objects in required order", len(ordered_processing_inputs))
         return ordered_processing_inputs
         
     
@@ -375,7 +289,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Returns:
             A configured MimsModelRegistrationProcessingStep instance
         """
-        logger.info("Creating MimsModelRegistrationProcessingStep...")
+        self.log_info("Creating MimsModelRegistrationProcessingStep...")
         
         # Extract core parameters
         dependencies = kwargs.get('dependencies', [])
@@ -386,9 +300,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if dependencies:
             try:
                 inputs = self.extract_inputs_from_dependencies(dependencies)
-                logger.info(f"Extracted inputs from dependencies: {list(inputs.keys())}")
+                self.log_info("Extracted inputs from dependencies: %s", list(inputs.keys()))
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
         
         # Allow manual input override/supplement
         inputs.update(kwargs.get('inputs', {}))
@@ -424,11 +338,11 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             if self.contract:
                 setattr(registration_step, '_contract', self.contract)
             
-            logger.info(f"Created MimsModelRegistrationProcessingStep: {registration_step.name}")
+            self.log_info("Created MimsModelRegistrationProcessingStep: %s", registration_step.name)
             return registration_step
             
         except Exception as e:
-            logger.error(f"Error creating MimsModelRegistrationProcessingStep: {e}")
+            self.log_error("Error creating MimsModelRegistrationProcessingStep: %s", e)
             raise ValueError(f"Failed to create MimsModelRegistrationProcessingStep: {e}") from e
 
     def _handle_legacy_parameters(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -458,6 +372,6 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         for legacy_key, standard_key in legacy_mappings.items():
             if legacy_key in kwargs and kwargs[legacy_key]:
                 legacy_inputs[standard_key] = kwargs[legacy_key]
-                logger.info(f"Mapped legacy parameter '{legacy_key}' to '{standard_key}'")
+                self.log_info("Mapped legacy parameter '%s' to '%s'", legacy_key, standard_key)
         
         return legacy_inputs

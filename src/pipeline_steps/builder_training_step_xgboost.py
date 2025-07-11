@@ -70,7 +70,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         if not SPEC_AVAILABLE or XGBOOST_TRAINING_SPEC is None:
             raise ValueError("XGBoost training specification not available")
             
-        logger.info("Using XGBoost training specification")
+        self.log_info("Using XGBoost training specification")
         
         super().__init__(
             config=config,
@@ -91,7 +91,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating XGBoostTrainingConfig...")
+        self.log_info("Validating XGBoostTrainingConfig...")
         
         # Validate required attributes
         required_attrs = [
@@ -108,9 +108,9 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 raise ValueError(f"XGBoostTrainingConfig missing required attribute: {attr}")
         
         # Input/output validation is now handled by specifications
-        logger.info("Configuration validation relies on step specifications")
+        self.log_info("Configuration validation relies on step specifications")
             
-        logger.info("XGBoostTrainingConfig validation succeeded.")
+        self.log_info("XGBoostTrainingConfig validation succeeded.")
 
     def _create_estimator(self, output_path=None) -> XGBoost:
         """
@@ -344,14 +344,14 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 else:
                     # Generate destination using pipeline_s3_loc like tabular preprocessing
                     primary_output_path = f"{self.config.pipeline_s3_loc}/xgboost_training/{logical_name}"
-                    logger.info(f"Using generated destination for '{logical_name}': {primary_output_path}")
+                    self.log_info("Using generated destination for '%s': %s", logical_name, primary_output_path)
                 break
                 
         # If no model output found in spec, generate default output path
         if primary_output_path is None:
             # Generate default path using pipeline_s3_loc
             primary_output_path = f"{self.config.pipeline_s3_loc}/xgboost_training/model"
-            logger.warning(f"No model output found in specification. Using default path: {primary_output_path}")
+            self.log_warning("No model output found in specification. Using default path: %s", primary_output_path)
             
         return primary_output_path
 
@@ -490,17 +490,17 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         # Handle Pipeline step references with Get key
         if isinstance(uri, dict) and 'Get' in uri:
             # For Get expressions, we also trust they'll resolve properly at execution time
-            logger.info(f"Found Pipeline step reference: {uri}")
+            self.log_info("Found Pipeline step reference: %s", uri)
             return True
         
         if not isinstance(uri, str):
-            logger.warning(f"Invalid {description} URI: type {type(uri).__name__}")
+            self.log_warning("Invalid %s URI: type %s", description, type(uri).__name__)
             return False
         
         # Use S3PathHandler for validation
         valid = S3PathHandler.is_valid(uri)
         if not valid:
-            logger.warning(f"Invalid {description} URI format: {uri}")
+            self.log_warning("Invalid %s URI format: %s", description, uri)
         
         return valid
     
@@ -529,7 +529,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         dependencies = kwargs.get('dependencies', [])
         enable_caching = kwargs.get('enable_caching', True)
         
-        logger.info("Creating XGBoost TrainingStep...")
+        self.log_info("Creating XGBoost TrainingStep...")
         
         # Get the step name
         step_name = self._get_step_name('XGBoostTraining')

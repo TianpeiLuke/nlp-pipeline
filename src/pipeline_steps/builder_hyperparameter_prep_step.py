@@ -1,10 +1,9 @@
-from typing import Dict, Optional, Any, List, Set
+from typing import Dict, Optional, Any, List
 from pathlib import Path
 import logging
 import json
 import tempfile
 import boto3
-import os
 import shutil
 from botocore.exceptions import ClientError
 
@@ -16,6 +15,14 @@ from sagemaker.workflow.steps import Step
 
 from .config_hyperparameter_prep_step import HyperparameterPrepConfig
 from .builder_step_base import StepBuilderBase
+
+# Try to import hyperparameter preparation specification, but don't fail if it doesn't exist
+try:
+    from ..pipeline_step_specs.hyperparameter_prep_spec import HYPERPARAMETER_PREP_SPEC
+    SPEC_AVAILABLE = True
+except ImportError:
+    HYPERPARAMETER_PREP_SPEC = None
+    SPEC_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +39,7 @@ class _DummyLambdaRef:
 class HyperparameterPrepStepBuilder(StepBuilderBase):
     """
     Builder for a Hyperparameter Preparation LambdaStep.
+    
     This class is responsible for configuring and creating a SageMaker LambdaStep
     that serializes hyperparameters to JSON and uploads them to S3.
     """
@@ -57,8 +65,13 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
             raise ValueError(
                 "HyperparameterPrepStepBuilder requires a HyperparameterPrepConfig instance."
             )
+        
+        # Use the hyperparameter preparation specification if available (likely not)
+        spec = HYPERPARAMETER_PREP_SPEC if SPEC_AVAILABLE else None
+        
         super().__init__(
             config=config,
+            spec=spec,
             sagemaker_session=sagemaker_session,
             role=role,
             notebook_root=notebook_root
@@ -73,55 +86,43 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating HyperparameterPrepConfig...")
+        self.log_info("Validating HyperparameterPrepConfig...")
         if not self.config.hyperparameters:
             raise ValueError("hyperparameters must be provided and non-empty")
         if not self.config.hyperparameters_s3_uri:
             raise ValueError("hyperparameters_s3_uri must be provided and non-empty")
         if "hyperparameters_s3_uri" not in (self.config.output_names or {}):
             raise ValueError("output_names must contain key 'hyperparameters_s3_uri'")
-        logger.info("HyperparameterPrepConfig validation succeeded.")
-        
-    def get_input_requirements(self) -> Dict[str, str]:
-        """
-        Get the input requirements for this step builder.
-        
-        Returns:
-            Dictionary mapping input parameter names to descriptions
-        """
-        # This step doesn't require any inputs from previous steps
-        input_reqs = {
-            "enable_caching": self.COMMON_PROPERTIES["enable_caching"]
-        }
-        return input_reqs
+        self.log_info("HyperparameterPrepConfig validation succeeded.")
     
-    def get_output_properties(self) -> Dict[str, str]:
+    def _get_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Get the output properties this step provides.
-        
-        Returns:
-            Dictionary mapping output property names to descriptions
-        """
-        # Simply return the output names from config, which should already include hyperparameters_s3_uri
-        return {k: v for k, v in (self.config.output_names or {}).items()}
-        
-    def _match_custom_properties(self, inputs: Dict[str, Any], input_requirements: Dict[str, str], 
-                                prev_step: Step) -> Set[str]:
-        """
-        Match custom properties specific to HyperparameterPrep step.
+        Get inputs for the step. In this case, there are no inputs from previous steps,
+        as the hyperparameters are directly provided in the configuration.
         
         Args:
-            inputs: Dictionary to add matched inputs to
-            input_requirements: Dictionary of input requirements
-            prev_step: The dependency step
+            inputs: A dictionary of inputs (unused in this step)
             
         Returns:
-            Set of input names that were successfully matched
+            A dictionary of inputs for the Lambda function
         """
-        matched_inputs = set()
+        # This step has no inputs from previous steps
+        return {}
+
+    def _get_outputs(self, outputs: Dict[str, Any]) -> List[LambdaOutput]:
+        """
+        Get outputs for the step.
         
-        # No custom properties to match for this step
-        return matched_inputs
+        Args:
+            outputs: Output configuration (unused in this step as outputs are predetermined)
+            
+        Returns:
+            A list of LambdaOutput objects
+        """
+        # The outputs are fixed for this step
+        return [
+            LambdaOutput(output_name="hyperparameters_s3_uri", output_type=LambdaOutputTypeEnum.String)
+        ]
     
     def _prepare_hyperparameters_file(self) -> str:
         """
@@ -147,19 +148,19 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
             s3_client = self.session.boto_session.client('s3')
             try:
                 s3_client.head_object(Bucket=bucket, Key=key)
-                logger.info(f"Found existing hyperparameters file at {target_s3_uri}, deleting it...")
+                self.log_info("Found existing hyperparameters file at %s, deleting it...", target_s3_uri)
                 s3_client.delete_object(Bucket=bucket, Key=key)
-                logger.info("Existing hyperparameters file deleted successfully")
-            except ClientError as e: # <-- FIX: Catch the real ClientError
+                self.log_info("Existing hyperparameters file deleted successfully")
+            except ClientError as e:
                 if e.response['Error']['Code'] == '404':
-                    logger.info(f"No existing hyperparameters file found at {target_s3_uri}")
+                    self.log_info("No existing hyperparameters file found at %s", target_s3_uri)
                 else:
-                    logger.warning(f"Error checking/deleting existing file: {str(e)}")
+                    self.log_warning("Error checking/deleting existing file: %s", str(e))
 
-            logger.info(f"Uploading hyperparameters from {local_file} to {target_s3_uri}")
+            self.log_info("Uploading hyperparameters from %s to %s", local_file, target_s3_uri)
             S3Uploader.upload(str(local_file), target_s3_uri, sagemaker_session=self.session)
             
-            logger.info(f"Hyperparameters successfully uploaded to {target_s3_uri}")
+            self.log_info("Hyperparameters successfully uploaded to %s", target_s3_uri)
             return target_s3_uri
             
         finally:
@@ -167,9 +168,8 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
 
     def create_step(self, **kwargs) -> LambdaStep:
         """
-        Creates a SageMaker LambdaStep for the pipeline.
-        This method creates a Lambda function that serializes hyperparameters to JSON
-        and uploads them to S3.
+        Creates a SageMaker LambdaStep for the pipeline that serializes hyperparameters
+        to JSON and uploads them to S3.
 
         Args:
             **kwargs: Keyword arguments for configuring the step, including:
@@ -182,7 +182,7 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         # Extract common parameters
         enable_caching = self._extract_param(kwargs, 'enable_caching', True)
         dependencies = self._extract_param(kwargs, 'dependencies', None)
-        logger.info("Creating HyperparameterPrep LambdaStep...")
+        self.log_info("Creating HyperparameterPrep LambdaStep...")
 
         step_name = self._get_step_name('HyperparameterPrep')
 
@@ -217,5 +217,5 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         # which is the pattern we're standardizing on
         lambda_step.hyperparameters_s3_uri = target_s3_uri
 
-        logger.info(f"Created LambdaStep with name: {lambda_step.name}")
+        self.log_info("Created LambdaStep with name: %s", lambda_step.name)
         return lambda_step

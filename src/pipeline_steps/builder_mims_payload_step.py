@@ -78,7 +78,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating PayloadConfig...")
+        self.log_info("Validating PayloadConfig...")
         
         # Make sure bucket is set
         if not hasattr(self.config, 'bucket') or not self.config.bucket:
@@ -103,7 +103,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"PayloadConfig missing required attribute: {attr}")
                 
-        logger.info("PayloadConfig validation succeeded.")
+        self.log_info("PayloadConfig validation succeeded.")
 
     def _create_processor(self) -> SKLearnProcessor:
         """
@@ -158,7 +158,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             if hasattr(self.config, key) and getattr(self.config, key) is not None:
                 env_vars[env_key] = str(getattr(self.config, key))
         
-        logger.info(f"Payload environment variables: {env_vars}")
+        self.log_info("Payload environment variables: %s", env_vars)
         return env_vars
 
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
@@ -203,6 +203,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             else:
                 raise ValueError(f"No container path found for input: {logical_name}")
                 
+            # Use the input value directly - property references are handled by PipelineAssembler
             processing_inputs.append(
                 ProcessingInput(
                     input_name=logical_name,
@@ -256,7 +257,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             else:
                 # Generate destination from config
                 destination = f"{self.config.pipeline_s3_loc}/payload/{logical_name}"
-                logger.info(f"Using generated destination for '{logical_name}': {destination}")
+                self.log_info("Using generated destination for '%s': %s", logical_name, destination)
             
             processing_outputs.append(
                 ProcessingOutput(
@@ -280,7 +281,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             return self.config.processing_script_arguments
             
         # Return a standard argument to ensure we don't return an empty list
-        logger.info("Using default arguments for payload generation")
+        self.log_info("Using default arguments for payload generation")
         return ["--mode", "standard"]
         
     def create_step(self, **kwargs) -> ProcessingStep:
@@ -298,7 +299,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         Returns:
             A configured sagemaker.workflow.steps.ProcessingStep instance.
         """
-        logger.info("Creating MIMS Payload ProcessingStep...")
+        self.log_info("Creating MIMS Payload ProcessingStep...")
 
         # Extract parameters
         inputs_raw = kwargs.get('inputs', {})
@@ -315,7 +316,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)
@@ -350,5 +351,5 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         if hasattr(self, 'spec') and self.spec:
             setattr(step, '_spec', self.spec)
             
-        logger.info(f"Created ProcessingStep with name: {step.name}")
+        self.log_info("Created ProcessingStep with name: %s", step.name)
         return step

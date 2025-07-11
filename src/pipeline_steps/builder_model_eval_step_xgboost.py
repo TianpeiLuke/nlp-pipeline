@@ -78,7 +78,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating XGBoostModelEvalConfig...")
+        self.log_info("Validating XGBoostModelEvalConfig...")
         
         # Validate required attributes
         required_attrs = [
@@ -104,7 +104,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         if not hasattr(self.config, 'use_large_processing_instance'):
             raise ValueError("Missing required attribute: use_large_processing_instance")
         
-        logger.info("XGBoostModelEvalConfig validation succeeded.")
+        self.log_info("XGBoostModelEvalConfig validation succeeded.")
 
     def _create_processor(self) -> XGBoostProcessor:
         """
@@ -144,7 +144,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             "ID_FIELD": str(self.config.hyperparameters.id_name),
             "LABEL_FIELD": str(self.config.hyperparameters.label_name),
         }
-        logger.info(f"Evaluation environment variables: {env_vars}")
+        self.log_info("Evaluation environment variables: %s", env_vars)
         return env_vars
 
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
@@ -189,6 +189,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             else:
                 raise ValueError(f"No container path found for input: {logical_name}")
                 
+            # Use the input value directly - property references are handled by PipelineAssembler
             processing_inputs.append(
                 ProcessingInput(
                     input_name=logical_name,
@@ -242,7 +243,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             else:
                 # Generate destination from config
                 destination = f"{self.config.pipeline_s3_loc}/model_evaluation/{logical_name}"
-                logger.info(f"Using generated destination for '{logical_name}': {destination}")
+                self.log_info("Using generated destination for '%s': %s", logical_name, destination)
             
             processing_outputs.append(
                 ProcessingOutput(
@@ -264,7 +265,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         """
         # Pass the job_type from the configuration to satisfy the script requirement
         job_type = self.config.job_type
-        logger.info(f"Setting job_type argument to: {job_type}")
+        self.log_info("Setting job_type argument to: %s", job_type)
         return ["--job_type", job_type]
         
     def create_step(self, **kwargs) -> ProcessingStep:
@@ -282,7 +283,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         Returns:
             A configured sagemaker.workflow.steps.ProcessingStep instance.
         """
-        logger.info("Creating XGBoostModelEval ProcessingStep...")
+        self.log_info("Creating XGBoostModelEval ProcessingStep...")
 
         # Extract parameters
         inputs_raw = kwargs.get('inputs', {})
@@ -299,7 +300,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)
@@ -341,5 +342,5 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         if hasattr(self, 'spec') and self.spec:
             setattr(processing_step, '_spec', self.spec)
             
-        logger.info(f"Created ProcessingStep with name: {processing_step.name}")
+        self.log_info("Created ProcessingStep with name: %s", processing_step.name)
         return processing_step

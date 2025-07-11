@@ -64,7 +64,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         if not SPEC_AVAILABLE or PYTORCH_TRAINING_SPEC is None:
             raise ValueError("PyTorch training specification not available")
             
-        logger.info("Using PyTorch training specification")
+        self.log_info("Using PyTorch training specification")
         
         super().__init__(
             config=config,
@@ -85,7 +85,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating PyTorchTrainingConfig...")
+        self.log_info("Validating PyTorchTrainingConfig...")
         
         # Validate required attributes
         required_attrs = [
@@ -103,9 +103,9 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
                 raise ValueError(f"PyTorchTrainingConfig missing required attribute: {attr}")
         
         # Input/output validation is now handled by specifications
-        logger.info("Configuration validation relies on step specifications")
+        self.log_info("Configuration validation relies on step specifications")
         
-        logger.info("PyTorchTrainingConfig validation succeeded.")
+        self.log_info("PyTorchTrainingConfig validation succeeded.")
 
     def _normalize_s3_uri(self, uri: str, description: str = "S3 URI") -> str:
         """
@@ -150,17 +150,17 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         # Handle Pipeline step references with Get key
         if isinstance(uri, dict) and 'Get' in uri:
             # For Get expressions, we also trust they'll resolve properly at execution time
-            logger.info(f"Found Pipeline step reference: {uri}")
+            self.log_info("Found Pipeline step reference: %s", uri)
             return True
         
         if not isinstance(uri, str):
-            logger.warning(f"Invalid {description} URI: type {type(uri).__name__}")
+            self.log_warning("Invalid %s URI: type %s", description, type(uri).__name__)
             return False
         
         # Use S3PathHandler for validation
         valid = S3PathHandler.is_valid(uri)
         if not valid:
-            logger.warning(f"Invalid {description} URI format: {uri}")
+            self.log_warning("Invalid %s URI format: %s", description, uri)
         
         return valid
 
@@ -218,7 +218,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         if hasattr(self.config, "env") and self.config.env:
             env_vars.update(self.config.env)
             
-        logger.info(f"Training environment variables: {env_vars}")
+        self.log_info("Training environment variables: %s", env_vars)
         return env_vars
         
         
@@ -324,7 +324,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
                 # Create data channel using helper method
                 data_channel = self._create_data_channel_from_source(base_path)
                 training_inputs.update(data_channel)
-                logger.info(f"Created data channel from {logical_name}: {base_path}")
+                self.log_info("Created data channel from %s: %s", logical_name, base_path)
                 matched_inputs.add(logical_name)
                 
         return training_inputs
@@ -371,14 +371,14 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
                 else:
                     # Generate destination using pipeline_s3_loc like tabular preprocessing
                     primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/{logical_name}"
-                    logger.info(f"Using generated destination for '{logical_name}': {primary_output_path}")
+                    self.log_info("Using generated destination for '%s': %s", logical_name, primary_output_path)
                 break
                 
         # If no model output found in spec, generate default output path
         if primary_output_path is None:
             # Generate default path using pipeline_s3_loc
             primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/model"
-            logger.warning(f"No model output found in specification. Using default path: {primary_output_path}")
+            self.log_warning("No model output found in specification. Using default path: %s", primary_output_path)
             
         return primary_output_path
     
@@ -407,7 +407,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         dependencies = kwargs.get('dependencies', [])
         enable_caching = kwargs.get('enable_caching', True)
         
-        logger.info("Creating PyTorch TrainingStep...")
+        self.log_info("Creating PyTorch TrainingStep...")
         
         # Get the step name
         step_name = self._get_step_name('PyTorchTraining')
@@ -421,7 +421,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)
@@ -437,7 +437,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         if len(training_inputs) == 0:
             raise ValueError("No training inputs available. Provide input_path or ensure dependencies supply necessary outputs.")
         
-        logger.info(f"Final training inputs: {list(training_inputs.keys())}")
+        self.log_info("Final training inputs: %s", list(training_inputs.keys()))
         
         # Get output path using specification-driven method
         output_path = self._get_outputs({})
@@ -459,10 +459,10 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             setattr(training_step, '_spec', self.spec)
             
             # Log successful creation
-            logger.info(f"Created TrainingStep with name: {training_step.name}")
+            self.log_info("Created TrainingStep with name: %s", training_step.name)
             
             return training_step
             
         except Exception as e:
-            logger.error(f"Error creating PyTorch TrainingStep: {str(e)}")
+            self.log_error("Error creating PyTorch TrainingStep: %s", str(e))
             raise ValueError(f"Failed to create PyTorchTrainingStep: {str(e)}") from e

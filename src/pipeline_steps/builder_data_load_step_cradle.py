@@ -113,28 +113,28 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             if job_type == "training":
                 from ..pipeline_step_specs.data_loading_training_spec import DATA_LOADING_TRAINING_SPEC
                 spec = DATA_LOADING_TRAINING_SPEC
-                logger.info(f"Using training-specific DATA_LOADING_TRAINING_SPEC")
+                self.log_info("Using training-specific DATA_LOADING_TRAINING_SPEC")
             elif job_type == "validation":
                 from ..pipeline_step_specs.data_loading_validation_spec import DATA_LOADING_VALIDATION_SPEC
                 spec = DATA_LOADING_VALIDATION_SPEC
-                logger.info(f"Using validation-specific DATA_LOADING_VALIDATION_SPEC")
+                self.log_info("Using validation-specific DATA_LOADING_VALIDATION_SPEC")
             elif job_type == "testing":
                 from ..pipeline_step_specs.data_loading_testing_spec import DATA_LOADING_TESTING_SPEC
                 spec = DATA_LOADING_TESTING_SPEC
-                logger.info(f"Using testing-specific DATA_LOADING_TESTING_SPEC")
+                self.log_info("Using testing-specific DATA_LOADING_TESTING_SPEC")
             elif job_type == "calibration":
                 from ..pipeline_step_specs.data_loading_calibration_spec import DATA_LOADING_CALIBRATION_SPEC
                 spec = DATA_LOADING_CALIBRATION_SPEC
-                logger.info(f"Using calibration-specific DATA_LOADING_CALIBRATION_SPEC")
+                self.log_info("Using calibration-specific DATA_LOADING_CALIBRATION_SPEC")
             
             # If no specific type-based spec is found, try to use the generic one
             if spec is None:
                 try:
                     from ..pipeline_step_specs.data_loading_spec import DATA_LOADING_SPEC
                     spec = DATA_LOADING_SPEC
-                    logger.info(f"Using generic DATA_LOADING_SPEC for job type: {job_type}")
+                    self.log_info("Using generic DATA_LOADING_SPEC for job type: %s", job_type)
                 except ImportError:
-                    logger.warning(f"No specification found for job type: {job_type}")
+                    self.log_warning("No specification found for job type: %s", job_type)
                 
         super().__init__(
             config=config,
@@ -151,7 +151,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         self.contract = CRADLE_DATA_LOADING_CONTRACT if CONTRACT_AVAILABLE else None
         
         if self.spec and not self.contract:
-            logger.warning("Script contract not available - path resolution will use hardcoded values")
+            self.log_warning("Script contract not available - path resolution will use hardcoded values")
 
     def validate_configuration(self) -> None:
         """
@@ -165,7 +165,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
           - start_date and end_date must exactly match 'YYYY-mm-DDTHH:MM:SS'
           - start_date < end_date
         """
-        logger.info("Validating CradleDataLoadConfig…")
+        self.log_info("Validating CradleDataLoadConfig…")
 
         # (1) job_type is already validated by Pydantic, but double-check presence:
         valid_job_types = {'training', 'validation', 'testing', 'calibration'}
@@ -233,7 +233,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 if logical_name not in self.contract.expected_output_paths:
                     logger.warning(f"Output '{logical_name}' in spec not found in contract expected_output_paths")
 
-        logger.info("CradleDataLoadConfig validation succeeded.")
+        self.log_info("CradleDataLoadConfig validation succeeded.")
         
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[Any]:
         """
@@ -269,7 +269,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         # But we can use the contract to validate and log output paths
         if self.contract and hasattr(self.contract, 'expected_output_paths'):
             for logical_name, container_path in self.contract.expected_output_paths.items():
-                logger.info(f"Contract defines output path for '{logical_name}': {container_path}")
+                self.log_info("Contract defines output path for '%s': %s", logical_name, container_path)
                 
         # The actual outputs are defined in the CradleDataLoadingStep itself
         return {}
@@ -297,7 +297,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
         # Create the step name
         step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
         
-        logger.info("Creating CradleDataLoadingStep...")
+        self.log_info("Creating CradleDataLoadingStep...")
         try:
             # Extract dependencies from kwargs
             dependencies = kwargs.get('dependencies', [])
@@ -326,16 +326,16 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             if self.contract:
                 setattr(step, '_contract', self.contract)
             
-            logger.info(f"Created CradleDataLoadingStep with name: {step.name}")
+            self.log_info("Created CradleDataLoadingStep with name: %s", step.name)
             
             # Get the output locations for logging
             output_locations = step.get_output_locations()
-            logger.info(f"CradleDataLoadingStep output locations: {output_locations}")
+            self.log_info("CradleDataLoadingStep output locations: %s", output_locations)
             
             return step
             
         except Exception as e:
-            logger.error(f"Error creating CradleDataLoadingStep: {e}")
+            self.log_error("Error creating CradleDataLoadingStep: %s", e)
             raise ValueError(f"Failed to create CradleDataLoadingStep: {e}") from e
         
     def _build_request(self) -> Any:
@@ -411,7 +411,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                 elif ds_cfg.data_source_type == "ANDES":
                     andes_props_cfg = ds_cfg.andes_data_source_properties
                     if andes_props_cfg.andes3_enabled:
-                        logger.info(f"ANDES 3.0 is enabled for table {andes_props_cfg.table_name}")
+                        self.log_info("ANDES 3.0 is enabled for table %s", andes_props_cfg.table_name)
                     andes_props = AndesDataSourceProperties(
                         provider=andes_props_cfg.provider,
                         table_name=andes_props_cfg.table_name,
@@ -480,7 +480,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             return request
             
         except Exception as e:
-            logger.error(f"Error building Cradle request: {e}")
+            self.log_error("Error building Cradle request: %s", e)
             raise ValueError(f"Failed to build Cradle request: {e}") from e
     
     def get_request_dict(self) -> Dict[str, Any]:
@@ -504,7 +504,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             request = self._build_request()
             return coral_utils.convert_coral_to_dict(request)
         except Exception as e:
-            logger.error(f"Error getting request dict: {e}")
+            self.log_error("Error getting request dict: %s", e)
             raise ValueError(f"Failed to get request dict: {e}") from e
             
     def get_output_location(self, step: CradleDataLoadingStep, output_type: str) -> str:
@@ -562,7 +562,7 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
                                     value = getattr(value, part)
                             return value
                         except Exception as e:
-                            logger.warning(f"Error accessing property path {property_path}: {e}")
+                            self.log_warning("Error accessing property path %s: %s", property_path, e)
         
         # Fall back to the step's built-in method
         return step.get_output_locations(output_type)

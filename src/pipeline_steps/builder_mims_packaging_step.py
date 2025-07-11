@@ -78,7 +78,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating PackageStepConfig...")
+        self.log_info("Validating PackageStepConfig...")
         
         # Validate processing script settings
         if not hasattr(self.config, 'processing_entry_point') or not self.config.processing_entry_point:
@@ -97,7 +97,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"PackageStepConfig missing required attribute: {attr}")
                 
-        logger.info("PackageStepConfig validation succeeded.")
+        self.log_info("PackageStepConfig validation succeeded.")
 
     def _create_processor(self) -> SKLearnProcessor:
         """
@@ -147,7 +147,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             if hasattr(self.config, key) and getattr(self.config, key) is not None:
                 env_vars[env_key] = str(getattr(self.config, key))
         
-        logger.info(f"Packaging environment variables: {env_vars}")
+        self.log_info("Packaging environment variables: %s", env_vars)
         return env_vars
 
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
@@ -182,8 +182,8 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         if not inference_scripts_path:
             inference_scripts_path = str(self.notebook_root / "inference") if self.notebook_root else "inference"
         
-        logger.info(f"[PACKAGING INPUT OVERRIDE] Using local inference scripts path from configuration: {inference_scripts_path}")
-        logger.info(f"[PACKAGING INPUT OVERRIDE] This local path will be used regardless of any dependency-resolved values")
+        self.log_info("[PACKAGING INPUT OVERRIDE] Using local inference scripts path from configuration: %s", inference_scripts_path)
+        self.log_info("[PACKAGING INPUT OVERRIDE] This local path will be used regardless of any dependency-resolved values")
         
         # Get container path from contract
         container_path = None
@@ -193,7 +193,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             # Fallback container path if not in contract
             container_path = "/opt/ml/processing/input/script"
             
-        # Add to processing inputs
+        # Use the input path directly - property references are handled by PipelineAssembler
         processing_inputs.append(
             ProcessingInput(
                 input_name=inference_scripts_key,
@@ -202,7 +202,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             )
         )
         matched_inputs.add(inference_scripts_key)  # Mark as handled to skip in main loop
-        logger.info(f"Added inference scripts input with local path: {inference_scripts_path} -> {container_path}")
+        self.log_info("Added inference scripts input with local path: %s -> %s", inference_scripts_path, container_path)
         
         # Create a copy of the inputs dictionary to ensure we don't modify the original
         # This ensures we don't affect subsequent steps if they need the original inputs
@@ -212,8 +212,8 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         # This is a stronger protection than just tracking in matched_inputs
         if inference_scripts_key in working_inputs:
             external_path = working_inputs[inference_scripts_key]
-            logger.info(f"[PACKAGING INPUT OVERRIDE] Ignoring dependency-provided value: {external_path}")
-            logger.info(f"[PACKAGING INPUT OVERRIDE] Using internal path {inference_scripts_path} instead")
+            self.log_info("[PACKAGING INPUT OVERRIDE] Ignoring dependency-provided value: %s", external_path)
+            self.log_info("[PACKAGING INPUT OVERRIDE] Using internal path %s instead", inference_scripts_path)
             del working_inputs[inference_scripts_key]
         
         # Process each dependency in the specification
@@ -239,6 +239,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             else:
                 raise ValueError(f"No container path found for input: {logical_name}")
                 
+            # Use the input value directly - property references are handled by PipelineAssembler
             processing_inputs.append(
                 ProcessingInput(
                     input_name=logical_name,
@@ -292,7 +293,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             else:
                 # Generate destination from config
                 destination = f"{self.config.pipeline_s3_loc}/packaging/{logical_name}"
-                logger.info(f"Using generated destination for '{logical_name}': {destination}")
+                self.log_info("Using generated destination for '%s': %s", logical_name, destination)
             
             processing_outputs.append(
                 ProcessingOutput(
@@ -312,7 +313,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             A list of strings representing the command-line arguments.
         """
         # Use standard packaging arguments
-        logger.info("Using standard packaging arguments")
+        self.log_info("Using standard packaging arguments")
         return ["--mode", "standard"]
         
     def create_step(self, **kwargs) -> ProcessingStep:
@@ -330,7 +331,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             A configured sagemaker.workflow.steps.ProcessingStep instance.
         """
-        logger.info("Creating MIMS Packaging ProcessingStep...")
+        self.log_info("Creating MIMS Packaging ProcessingStep...")
 
         # Extract parameters
         inputs_raw = kwargs.get('inputs', {})
@@ -347,7 +348,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)
@@ -382,5 +383,5 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         if hasattr(self, 'spec') and self.spec:
             setattr(step, '_spec', self.spec)
             
-        logger.info(f"Created ProcessingStep with name: {step.name}")
+        self.log_info("Created ProcessingStep with name: %s", step.name)
         return step

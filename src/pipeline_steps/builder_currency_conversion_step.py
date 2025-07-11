@@ -82,12 +82,12 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
                 if hasattr(module, spec_var_name):
                     spec = getattr(module, spec_var_name)
             except (ImportError, AttributeError):
-                logger.warning(f"Could not import specification for job type: {job_type}")
+                self.log_warning("Could not import specification for job type: %s", job_type)
                 
         if not spec:
             raise ValueError(f"No specification found for job type: {job_type}")
                 
-        logger.info(f"Using specification for {job_type}")
+        self.log_info("Using specification for %s", job_type)
         
         super().__init__(config=config, spec=spec, sagemaker_session=sagemaker_session,
                          role=role, notebook_root=notebook_root,
@@ -260,7 +260,7 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
             else:
                 # Generate destination from config
                 destination = f"{self.config.pipeline_s3_loc}/currency_conversion/{self.config.job_type}/{logical_name}"
-                logger.info(f"Using generated destination for '{logical_name}': {destination}")
+                self.log_info("Using generated destination for '%s': %s", logical_name, destination)
             
             processing_outputs.append(
                 ProcessingOutput(
@@ -325,7 +325,7 @@ class CurrencyConversionStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)

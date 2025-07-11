@@ -69,7 +69,7 @@ class XGBoostModelStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        logger.info("Validating XGBoostModelStepConfig...")
+        self.log_info("Validating XGBoostModelStepConfig...")
         
         # Validate required attributes
         required_attrs = [
@@ -87,7 +87,7 @@ class XGBoostModelStepBuilder(StepBuilderBase):
             if not hasattr(self.config, "image_uri") or not self.config.image_uri:
                 raise ValueError("image_uri must be provided when use_xgboost_framework is False")
         
-        logger.info("XGBoostModelStepConfig validation succeeded.")
+        self.log_info("XGBoostModelStepConfig validation succeeded.")
 
     def _create_xgboost_model(self, model_data: str) -> XGBoostModel:
         """
@@ -146,7 +146,7 @@ class XGBoostModelStepBuilder(StepBuilderBase):
         if hasattr(self.config, "env") and self.config.env:
             env_vars.update(self.config.env)
             
-        logger.info(f"Model environment variables: {env_vars}")
+        self.log_info("Model environment variables: %s", env_vars)
         return env_vars
 
     def _get_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -198,7 +198,7 @@ class XGBoostModelStepBuilder(StepBuilderBase):
         Returns:
             A configured ModelStep instance.
         """
-        logger.info("Creating XGBoost ModelStep...")
+        self.log_info("Creating XGBoost ModelStep...")
 
         # Extract parameters
         dependencies = self._extract_param(kwargs, 'dependencies', [])
@@ -235,5 +235,5 @@ class XGBoostModelStepBuilder(StepBuilderBase):
             ),
             depends_on=dependencies or []
         )
-        logger.info(f"Created ModelStep with name: {model_step.name}")
+        self.log_info("Created ModelStep with name: %s", model_step.name)
         return model_step

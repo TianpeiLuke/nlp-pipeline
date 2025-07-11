@@ -336,6 +336,16 @@ class StepBuilderBase(ABC):
             logger.warning(message, *safe_args, **safe_kwargs)
         except Exception as e:
             logger.warning(f"Original logging failed ({e}), logging raw message: {message}")
+            
+    def log_error(self, message, *args, **kwargs):
+        """Error version of safe logging"""
+        try:
+            safe_args = [safe_value_for_logging(arg) for arg in args]
+            safe_kwargs = {k: safe_value_for_logging(v) for k, v in kwargs.items()}
+            logger.error(message, *safe_args, **safe_kwargs)
+        except Exception as e:
+            logger.error(f"Original logging failed ({e}), logging raw message: {message}")
+            
 
     def _get_cache_config(self, enable_caching: bool = True) -> Dict[str, Any]:
         """

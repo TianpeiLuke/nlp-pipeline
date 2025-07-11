@@ -88,13 +88,13 @@ class BatchTransformStepBuilder(StepBuilderBase):
                 if hasattr(module, spec_var_name):
                     spec = getattr(module, spec_var_name)
             except (ImportError, AttributeError) as e:
-                logger.warning(f"Could not import specification for job type: {job_type}, error: {e}")
+                self.log_warning("Could not import specification for job type: %s, error: %s", job_type, e)
         
         # Even if we don't have a spec, continue without one
         if spec:
-            logger.info(f"Using specification for batch transform {job_type}")
+            self.log_info("Using specification for batch transform %s", job_type)
         else:
-            logger.info(f"No specification found for batch transform job type: {job_type}, continuing with default behavior")
+            self.log_info("No specification found for batch transform job type: %s, continuing with default behavior", job_type)
             
         super().__init__(
             config=config, 
@@ -124,7 +124,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) is None:
                 raise ValueError(f"Missing required attribute: {attr}")
                 
-        logger.info(f"BatchTransformStepBuilder configuration for '{self.config.job_type}' validated.")
+        self.log_info("BatchTransformStepBuilder configuration for '%s' validated.", self.config.job_type)
 
     def _create_transformer(self, model_name: Union[str, Properties], output_path: Optional[str] = None) -> Transformer:
         """
@@ -167,7 +167,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
         model_name = None
         if 'model_name' in inputs:
             model_name = inputs['model_name']
-            logger.info(f"Using model_name from dependencies: {model_name}")
+            self.log_info("Using model_name from dependencies: %s", model_name)
         
         if not model_name:
             raise ValueError("model_name is required but not provided in inputs")
@@ -178,10 +178,10 @@ class BatchTransformStepBuilder(StepBuilderBase):
         # Check for processed_data or input_data in the inputs
         if 'processed_data' in inputs:
             input_data = inputs['processed_data']
-            logger.info(f"Using processed_data from dependencies: {input_data}")
+            self.log_info("Using processed_data from dependencies: %s", input_data)
         elif 'input_data' in inputs:  # backward compatibility
             input_data = inputs['input_data']
-            logger.info(f"Using input_data from dependencies: {input_data}")
+            self.log_info("Using input_data from dependencies: %s", input_data)
         
         if not input_data:
             raise ValueError("Input data source (processed_data) is required but not provided in inputs")
@@ -226,7 +226,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
                     # Default transform output path will be determined by SageMaker
                     result[logical_name] = f"Will be available at: {output_spec.property_path}"
         
-        logger.info(f"Transform step will produce outputs: {list(result.keys())}")
+        self.log_info("Transform step will produce outputs: %s", list(result.keys()))
         return result
 
     def create_step(self, **kwargs) -> TransformStep:
@@ -259,7 +259,7 @@ class BatchTransformStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)
@@ -289,5 +289,5 @@ class BatchTransformStepBuilder(StepBuilderBase):
         if hasattr(self, 'spec') and self.spec:
             setattr(transform_step, '_spec', self.spec)
             
-        logger.info(f"Created TransformStep with name: {step_name}")
+        self.log_info("Created TransformStep with name: %s", step_name)
         return transform_step
