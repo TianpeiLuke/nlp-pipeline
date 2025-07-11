@@ -7,16 +7,40 @@ from datetime import datetime
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
+from sagemaker.network import NetworkConfig
 
 # Import the pipeline builder template
 from src.pipeline_builder.pipeline_builder_template import PipelineBuilderTemplate, PipelineDAG
 from src.pipeline_steps.utils import load_configs
 
-# Common parameters
-PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="PipelineExecutionTempDir", default_value="/tmp")
-KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMSEncryptionKey", default_value="")
-SECURITY_GROUP_ID = ParameterString(name="SecurityGroupId", default_value="")
-VPC_SUBNET = ParameterString(name="VPCEndpointSubnet", default_value="")
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import constants from core library (these are the parameters that will be wrapped)
+try:
+    from mods_workflow_core.utils.constants import (
+        PIPELINE_EXECUTION_TEMP_DIR,
+        KMS_ENCRYPTION_KEY_PARAM,
+        PROCESSING_JOB_SHARED_NETWORK_CONFIG,
+        SECURITY_GROUP_ID,
+        VPC_SUBNET,
+    )
+    logger.info("Successfully imported constants from mods_workflow_core")
+except ImportError:
+    logger.warning("Could not import constants from mods_workflow_core, using local definitions")
+    # Define pipeline parameters locally if import fails - match exact definitions from original module
+    PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="EXECUTION_S3_PREFIX")
+    KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMS_ENCRYPTION_KEY_PARAM")
+    SECURITY_GROUP_ID = ParameterString(name="SECURITY_GROUP_ID")
+    VPC_SUBNET = ParameterString(name="VPC_SUBNET")
+    # Also create the network config as defined in the original module
+    PROCESSING_JOB_SHARED_NETWORK_CONFIG = NetworkConfig(
+        enable_network_isolation=False,
+        security_group_ids=[SECURITY_GROUP_ID],
+        subnets=[VPC_SUBNET],
+        encrypt_inter_container_traffic=True,
+    )
 
 # Import all Configs
 from src.pipeline_steps.config_base import BasePipelineConfig
@@ -40,8 +64,6 @@ CONFIG_CLASSES = {
     'ModelRegistrationConfig': ModelRegistrationConfig,
     'PayloadConfig': PayloadConfig
 }
-
-logger = logging.getLogger(__name__)
 
 
 class TemplatePytorchPipelineBuilder:
