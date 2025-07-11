@@ -357,8 +357,25 @@ class PropertyReference(BaseModel):
         # Parse and navigate the property path
         path_parts = self._parse_property_path(self.output_spec.property_path)
         
-        # Start with properties object
-        current_obj = step_instance.properties
+        # Use helper method to navigate property path
+        return self._get_property_value(step_instance.properties, path_parts)
+    
+    def _get_property_value(self, obj: Any, path_parts: List[Union[str, Tuple[str, str]]]) -> Any:
+        """
+        Navigate through the property path to get the final value.
+        
+        Args:
+            obj: The object to start navigation from
+            path_parts: List of path parts from _parse_property_path
+            
+        Returns:
+            The value at the end of the property path
+            
+        Raises:
+            AttributeError: If any part of the path is invalid
+            ValueError: If a path part has an invalid format
+        """
+        current_obj = obj
         
         # Navigate through each part of the path
         for part in path_parts:
@@ -371,8 +388,10 @@ class PropertyReference(BaseModel):
                 if attr_name:  # If there's an attribute before the bracket
                     current_obj = getattr(current_obj, attr_name)
                 # Handle the key access
-                if isinstance(key, str) and key.isdigit():  # Array index
-                    current_obj = current_obj[int(key)]
+                if isinstance(key, int) or (isinstance(key, str) and key.isdigit()):  
+                    # Array index - convert string digits to int if needed
+                    idx = key if isinstance(key, int) else int(key)
+                    current_obj = current_obj[idx]
                 else:  # Dictionary key
                     current_obj = current_obj[key]
             else:
