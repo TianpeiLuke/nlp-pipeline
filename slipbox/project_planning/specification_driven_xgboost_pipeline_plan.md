@@ -1,7 +1,7 @@
 # Implementation Plan: Specification-Driven XGBoost End-to-End Pipeline
 
-**Document Version**: 5.1  
-**Last Updated**: July 10, 2025  
+**Document Version**: 5.2  
+**Last Updated**: July 11, 2025  
 **Status**: IMPLEMENTATION IN PROGRESS - Major components completed  
 **Completion**: 97% - Core architecture implemented, template modernization complete, final integration in progress
 
@@ -120,9 +120,12 @@ This document outlines the comprehensive plan to implement a specification-drive
 2. **Infrastructure Improvements**:
    - ✅ **Core Infrastructure Improvements**: Fixed enum hashability issues in DependencyType and NodeType
    - ✅ **Pipeline Template Modernization**: Implemented PipelineTemplateBase for consistent template implementation
-   - 🔄 **Global-to-Local Migration**: Moving from global singletons to dependency-injected instances for registry manager, dependency resolver, and semantic matcher
-   - 🔄 **Thread Safety**: Ensuring pipeline components are thread-safe for parallel execution
-   - 🔄 **Reference Visualization**: Implementing tools for visualizing property references
+   - ✅ **Pipeline Assembly System**: Implemented PipelineAssembler with enhanced property reference handling
+   - ✅ **Property Reference System**: Completed enhanced property reference data structure and message passing
+   - ✅ **Template Refactoring**: Completed conversion of XGBoost and PyTorch templates to class-based approach
+   - 🔄 **Global-to-Local Migration**: Moving from global singletons to dependency-injected instances for registry manager, dependency resolver, and semantic matcher (80% complete)
+   - 🔄 **Thread Safety**: Implementing context managers and thread-local storage for parallel execution (60% complete)
+   - 🔄 **Reference Visualization**: Implementing tools for visualizing property references and dependencies (40% complete)
 
 ### Benefits of Specification-Driven Architecture
 
@@ -133,13 +136,17 @@ The implementation of specification-driven steps has delivered substantial benef
    - Training Steps: ~300 lines removed (~60% reduction)
    - Model Steps: ~380 lines removed (~47% reduction)
    - Registration Step: ~330 lines removed (~66% reduction)
-   - Total: **~1400 lines of complex code eliminated**
+   - Template Files: ~250 lines removed (~40% reduction)
+   - Total: **~1650 lines of complex code eliminated**
 
 2. **Maintainability Improvements**:
    - Single source of truth in specifications
    - No manual property path registrations
    - No complex custom matching logic
    - Consistent patterns across all step types
+   - Template inheritance for shared functionality
+   - Centralized DAG management
+   - Standardized component lifecycle handling
 
 3. **Architecture Consistency**:
    - All step builders follow the same pattern
@@ -147,6 +154,8 @@ The implementation of specification-driven steps has delivered substantial benef
    - Unified interface through `_get_inputs()` and `_get_outputs()`
    - Script contracts consistently define container paths
    - Templates use consistent class-based approach
+   - Property reference handling standardized across the system
+   - Common approach to configuration validation
 
 4. **Enhanced Reliability**:
    - Automatic validation of required inputs
@@ -154,8 +163,328 @@ The implementation of specification-driven steps has delivered substantial benef
    - Clear error messages for missing dependencies
    - Improved traceability for debugging
    - Robust property reference resolution
+   - Automated DAG node/edge validation
+   - Error handling with proper fallbacks
+   - Consistent execution document generation
+
+5. **Developer Experience** (NEW):
+   - Intuitive class-based template creation
+   - Simplified step builder patterns
+   - Reduced boilerplate for new pipeline types
+   - Improved debugging capabilities
+   - Enhanced property reference visualizations
+   - Thread-safe component usage
+   - Consistent dependency injection patterns
+   - Better testing isolation
 
 ## Updated XGBoost Pipeline Components
+
+### Pipeline Templates (NEW)
+
+#### PipelineTemplateBase
+
+```python
+class PipelineTemplateBase(ABC):
+    """
+    Abstract base class for all pipeline templates.
+    
+    This provides a standardized foundation for all pipeline templates in the system,
+    defining a consistent structure, managing dependency components properly,
+    and enforcing best practices across different pipeline implementations.
+    """
+    
+    def __init__(
+        self,
+        config_path: str,
+        sagemaker_session: Optional[PipelineSession] = None,
+        role: Optional[str] = None,
+        notebook_root: Optional[Path] = None,
+        registry_manager: Optional[RegistryManager] = None,
+        dependency_resolver: Optional[UnifiedDependencyResolver] = None
+    ):
+        # Load configurations
+        self.configs = self._load_configs(config_path)
+        self.base_config = self._get_base_config()
+        
+        # Store basic parameters
+        self.session = sagemaker_session
+        self.role = role
+        self.notebook_root = notebook_root or Path.cwd()
+        
+        # Store dependency components
+        self._registry_manager = registry_manager
+        self._dependency_resolver = dependency_resolver
+        
+        # Initialize components if not provided
+        if not self._registry_manager or not self._dependency_resolver:
+            self._initialize_components()
+            
+        # Validate configuration
+        self._validate_configuration()
+        
+        # Initialize pipeline metadata
+        self.pipeline_metadata = {}
+    
+    @abstractmethod
+    def _validate_configuration(self) -> None:
+        """Validate configuration structure."""
+        pass
+    
+    @abstractmethod
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        """Create pipeline DAG."""
+        pass
+    
+    @abstractmethod
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        """Create mapping from step names to configurations."""
+        pass
+    
+    @abstractmethod
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        """Create mapping from step types to builder classes."""
+        pass
+    
+    def generate_pipeline(self) -> Pipeline:
+        """Generate SageMaker Pipeline."""
+        # Create pipeline components
+        dag = self._create_pipeline_dag()
+        config_map = self._create_config_map()
+        step_builder_map = self._create_step_builder_map()
+        
+        # Create pipeline assembler
+        assembler = PipelineAssembler(
+            dag=dag,
+            config_map=config_map,
+            step_builder_map=step_builder_map,
+            sagemaker_session=self.session,
+            role=self.role,
+            registry_manager=self._registry_manager,
+            dependency_resolver=self._dependency_resolver
+        )
+        
+        # Generate pipeline
+        pipeline = assembler.generate_pipeline(self._get_pipeline_name())
+        
+        # Store pipeline metadata
+        self._store_pipeline_metadata(assembler)
+        
+        return pipeline
+```
+
+#### XGBoostEndToEndTemplate
+
+```python
+class XGBoostEndToEndTemplate(PipelineTemplateBase):
+    """
+    Template-based builder for XGBoost end-to-end pipeline.
+    
+    This pipeline performs:
+    1) Data Loading (for training set)
+    2) Tabular Preprocessing (for training set)
+    3) XGBoost Model Training
+    4) Packaging
+    5) Payload Testing
+    6) Model Registration
+    7) Data Loading (for calibration set)
+    8) Tabular Preprocessing (for calibration set)
+    """
+    
+    def _validate_configuration(self) -> None:
+        """Validate the configuration structure."""
+        # Check for preprocessing configs
+        tp_configs = [cfg for name, cfg in self.configs.items() 
+                     if isinstance(cfg, TabularPreprocessingConfig)]
+        
+        if len(tp_configs) < 2:
+            raise ValueError("Expected at least two TabularPreprocessingConfig instances")
+        
+        # Check for training/calibration configs
+        training_config = next((cfg for cfg in tp_configs 
+                              if getattr(cfg, 'job_type', None) == 'training'), None)
+        if not training_config:
+            raise ValueError("No TabularPreprocessingConfig found with job_type='training'")
+            
+        calibration_config = next((cfg for cfg in tp_configs 
+                                 if getattr(cfg, 'job_type', None) == 'calibration'), None)
+        if not calibration_config:
+            raise ValueError("No TabularPreprocessingConfig found with job_type='calibration'")
+        
+        # Check for single-instance configs
+        for config_type, name in [
+            (XGBoostTrainingConfig, "XGBoost training"),
+            (PackageStepConfig, "model packaging"),
+            (PayloadConfig, "payload testing"),
+            (ModelRegistrationConfig, "model registration")
+        ]:
+            instances = [cfg for _, cfg in self.configs.items() if type(cfg) is config_type]
+            if not instances:
+                raise ValueError(f"No {name} configuration found")
+            if len(instances) > 1:
+                raise ValueError(f"Multiple {name} configurations found")
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        """Create the pipeline DAG structure."""
+        dag = PipelineDAG()
+        
+        # Add nodes
+        dag.add_node("train_data_load")
+        dag.add_node("train_preprocess")
+        dag.add_node("xgboost_train")
+        dag.add_node("model_packaging")
+        dag.add_node("payload_test")
+        dag.add_node("model_registration")
+        dag.add_node("calib_data_load")
+        dag.add_node("calib_preprocess")
+        
+        # Add edges
+        dag.add_edge("train_data_load", "train_preprocess")
+        dag.add_edge("train_preprocess", "xgboost_train")
+        dag.add_edge("xgboost_train", "model_packaging")
+        dag.add_edge("xgboost_train", "payload_test")
+        dag.add_edge("model_packaging", "model_registration")
+        dag.add_edge("payload_test", "model_registration")
+        dag.add_edge("calib_data_load", "calib_preprocess")
+        
+        return dag
+```
+
+#### PipelineAssembler
+
+```python
+class PipelineAssembler:
+    """
+    Low-level pipeline assembler that translates a declarative pipeline 
+    structure into a SageMaker Pipeline.
+    
+    It takes a directed acyclic graph (DAG), configurations, and step builder 
+    classes as inputs and handles the complex task of instantiating steps, 
+    managing dependencies, and connecting components.
+    """
+    
+    def __init__(
+        self,
+        dag: PipelineDAG,
+        config_map: Dict[str, BasePipelineConfig],
+        step_builder_map: Dict[str, Type[StepBuilderBase]],
+        sagemaker_session: Optional[PipelineSession] = None,
+        role: Optional[str] = None,
+        pipeline_parameters: Optional[List[ParameterString]] = None,
+        notebook_root: Optional[Path] = None,
+        registry_manager: Optional[RegistryManager] = None,
+        dependency_resolver: Optional[UnifiedDependencyResolver] = None
+    ):
+        # Store inputs
+        self.dag = dag
+        self.config_map = config_map
+        self.step_builder_map = step_builder_map
+        self.sagemaker_session = sagemaker_session
+        self.role = role
+        self.pipeline_parameters = pipeline_parameters or []
+        self.notebook_root = notebook_root or Path.cwd()
+        
+        # Store dependency components
+        self._registry_manager = registry_manager
+        self._dependency_resolver = dependency_resolver
+        
+        # Initialize step collections
+        self.step_builders = {}
+        self.step_instances = {}
+        self.step_messages = defaultdict(dict)
+        
+        # Initialize step builders
+        self._initialize_step_builders()
+    
+    def generate_pipeline(self, pipeline_name: str) -> Pipeline:
+        """Build and return a SageMaker Pipeline."""
+        # Propagate messages between steps
+        self._propagate_messages()
+        
+        # Get topological sort to determine build order
+        build_order = self.dag.topological_sort()
+        
+        # Instantiate steps in order
+        for step_name in build_order:
+            step = self._instantiate_step(step_name)
+            self.step_instances[step_name] = step
+            
+        # Create final pipeline
+        steps = [self.step_instances[name] for name in build_order]
+        pipeline = Pipeline(
+            name=pipeline_name,
+            steps=steps,
+            parameters=self.pipeline_parameters,
+            sagemaker_session=self.sagemaker_session
+        )
+        
+        return pipeline
+```
+
+### Enhanced Property Reference System (NEW)
+
+```python
+class PropertyReference(BaseModel):
+    """
+    Lazy evaluation reference bridging definition-time and runtime for step properties.
+    
+    This class provides a way to reference a property of another step during pipeline
+    definition, which will be resolved to an actual property value during runtime.
+    """
+    
+    step_name: str
+    property_path: str
+    destination: Optional[str] = None
+    output_spec: Optional[OutputSpecification] = None
+    
+    def to_sagemaker_property(self) -> Dict[str, str]:
+        """Convert to SageMaker Properties dictionary format."""
+        return {"Get": f"Steps.{self.step_name}.{self.property_path}"}
+    
+    def to_runtime_property(self, step_instances: Dict[str, Any]) -> Any:
+        """
+        Create an actual SageMaker property reference using step instances.
+        
+        This method navigates the property path to create a proper SageMaker
+        Properties object that can be used at runtime.
+        
+        Args:
+            step_instances: Dictionary mapping step names to step instances
+            
+        Returns:
+            SageMaker Properties object for the referenced property
+        """
+        # Check if step exists
+        if self.step_name not in step_instances:
+            raise ValueError(f"Step {self.step_name} not found in step instances")
+            
+        step = step_instances[self.step_name]
+        
+        # Start with the step's properties
+        if hasattr(step, 'properties'):
+            obj = step.properties
+        else:
+            raise AttributeError(f"Step {self.step_name} has no properties attribute")
+            
+        # Parse and navigate property path
+        path_parts = self._parse_property_path(self.property_path)
+        
+        # Follow the property path
+        for part in path_parts:
+            if isinstance(part, str):
+                # Simple attribute access
+                obj = getattr(obj, part)
+            elif isinstance(part, tuple) and len(part) == 2:
+                # Dictionary access with key
+                attr, key = part
+                obj = getattr(obj, attr)[key]
+                
+        return obj
+    
+    def _parse_property_path(self, path: str) -> List[Union[str, Tuple[str, str]]]:
+        """Parse a property path into a structured representation."""
+        # Implementation of property path parsing
+        pass
+```
 
 ### Step Specifications (All Complete)
 
@@ -326,31 +655,147 @@ This prevents errors like `'str' object has no attribute 'logical_name'` that we
 
 #### 3. Pipeline Template Base Class
 
-Implemented `PipelineTemplateBase` class to provide a consistent foundation for all pipeline templates. This reduces code duplication across templates and enforces a standard approach to pipeline generation.
+Implemented `PipelineTemplateBase` class to provide a consistent foundation for all pipeline templates. This introduces several key architectural improvements:
+
+- **Abstract Base Class Pattern**: Creates a standard template interface with abstract methods
+- **Configuration Loading Framework**: Standardizes configuration loading and validation
+- **Component Lifecycle Management**: Manages dependency components properly
+- **Factory Methods**: Provides standard ways to create templates with components
+- **Thread Safety**: Enables concurrent pipeline execution through context managers
+- **Execution Document Support**: Adds comprehensive support for execution documents
+
+The new class structure provides:
+```python
+class PipelineTemplateBase(ABC):
+    def __init__(self, config_path, sagemaker_session=None, role=None, notebook_root=None, 
+                 registry_manager=None, dependency_resolver=None):
+        """Initialize with configuration and optional components."""
+        pass
+
+    @abstractmethod
+    def _validate_configuration(self) -> None:
+        """Validate configuration structure."""
+        pass
+
+    @abstractmethod
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        """Create pipeline DAG."""
+        pass
+
+    @abstractmethod
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        """Create mapping from step names to configurations."""
+        pass
+
+    @abstractmethod
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        """Create mapping from step types to builder classes."""
+        pass
+
+    def generate_pipeline(self) -> Pipeline:
+        """Generate SageMaker Pipeline."""
+        pass
+
+    @classmethod
+    def create_with_components(cls, config_path, context_name=None, **kwargs):
+        """Create template with managed components."""
+        pass
+
+    @classmethod
+    def build_with_context(cls, config_path, **kwargs) -> Pipeline:
+        """Build pipeline with scoped dependency resolution context."""
+        pass
+```
+
+This reduces code duplication across templates and enforces a standard approach to pipeline generation, while enabling better testing isolation through dependency injection.
 
 #### 4. Property Reference Handling Cleanup
 
-Consolidated property reference handling mechanisms and removed redundant code:
+Completely overhauled the property reference handling system to address the root cause of property reference errors during pipeline execution:
 
-- Removed the redundant `property_reference_wrapper.py` module from `src/v2/pipeline_builder`
-- Deleted multiple redundant documentation files in favor of a single comprehensive document
-- Consolidated all property reference documentation in `slipbox/v2/pipeline_design/enhanced_property_reference.md`
-- Removed the `handle_property_reference` method from `StepBuilderBase` 
-- Updated all step builders to use inputs directly, letting the PipelineAssembler handle property references
-- Enhanced the `PropertyReference` class with robust `to_runtime_property()` method for correct property path navigation
-- Implemented improved property reference data structure for better step communication
-- Added property reference tracking functionality for debugging and visualization
-- Created message passing optimizations:
-  - Lazy resolution of property references
-  - Caching of resolved values for improved performance
-  - Enhanced contextual information storage with references
-  - Better error handling for resolution failures
-- Updated all template pipeline files in `src/v2/pipeline_builder/` to use the enhanced approach:
-  - Core templates: xgboost_train_evaluate_e2e, xgboost_end_to_end, xgboost_dataload_preprocess, pytorch_end_to_end, pytorch_model_registration
-  - Additional templates: xgboost_simple, xgboost_train_evaluate_no_registration, cradle_only
-- Verified that all step builders in `src/v2/pipeline_steps/` are compatible with the enhanced approach
-- Ensured all specifications in `src/v2/pipeline_step_specs/` work with the new property reference handling
-- Integrated with the dependency resolution components in `src/v2/pipeline_deps/`
+- **New `PropertyReference` Class Design**: Implemented a proper object-oriented design for property references:
+
+  ```python
+  class PropertyReference(BaseModel):
+      """Lazy evaluation reference for step properties."""
+      
+      step_name: str
+      property_path: str
+      destination: Optional[str] = None
+      output_spec: Optional[OutputSpecification] = None
+      
+      def to_sagemaker_property(self) -> Dict[str, str]:
+          """Convert to SageMaker Properties dictionary format."""
+          return {"Get": f"Steps.{self.step_name}.{self.property_path}"}
+      
+      def to_runtime_property(self, step_instances: Dict[str, Any]) -> Any:
+          """Create an actual SageMaker property reference using step instances."""
+          # Validate step exists
+          if self.step_name not in step_instances:
+              raise ValueError(f"Step {self.step_name} not found")
+              
+          # Navigate property path
+          step = step_instances[self.step_name]
+          obj = step.properties  # Start with properties
+          
+          # Follow property path segments
+          path_parts = self._parse_property_path(self.property_path)
+          for part in path_parts:
+              if isinstance(part, str):
+                  # Simple attribute access
+                  obj = getattr(obj, part)
+              elif isinstance(part, tuple) and len(part) == 2:
+                  # Dictionary access
+                  attr, key = part
+                  obj = getattr(obj, attr)[key]
+                  
+          return obj
+  ```
+
+- **Property Path Parser**: Created a parser that can handle complex property paths including dictionary access:
+
+  ```python
+  def _parse_property_path(self, path: str) -> List[Union[str, Tuple[str, str]]]:
+      """Parse property path into structured parts."""
+      # Handle nested properties like: properties.ProcessingOutputConfig.Outputs['DATA']
+      parts = []
+      segments = path.split('.')
+      
+      for segment in segments:
+          # Check for dictionary access: Outputs['DATA']
+          match = re.match(r'([a-zA-Z_][a-zA-Z0-9_]*)\[[\'\"]([^\]\'\"]+)[\'\"]\]', segment)
+          if match:
+              # Dictionary access with string key
+              attr_name = match.group(1)
+              key = match.group(2)
+              parts.append((attr_name, key))
+          else:
+              # Simple attribute access
+              parts.append(segment)
+              
+      return parts
+  ```
+
+- **Infrastructure Changes**:
+  - Removed the redundant `property_reference_wrapper.py` module from `src/v2/pipeline_builder`
+  - Deleted multiple redundant documentation files in favor of a single comprehensive document
+  - Consolidated all property reference documentation in `slipbox/v2/pipeline_design/enhanced_property_reference.md`
+  - Removed the `handle_property_reference` method from `StepBuilderBase` 
+  - Updated all step builders to use inputs directly, letting the PipelineAssembler handle property references
+
+- **Enhanced Functionality**:
+  - Implemented property reference tracking for debugging and visualization
+  - Created message passing optimizations:
+    - Lazy resolution of property references (only resolved when needed)
+    - Caching of resolved values for improved performance
+    - Enhanced contextual information storage with references
+    - Better error handling with fallbacks
+
+- **Broad Integration**:
+  - Updated all template pipeline files in `src/v2/pipeline_builder/` to use the new approach
+  - Verified all step builders in `src/v2/pipeline_steps/` are compatible
+  - Ensured all specifications work with the new property reference handling
+  - Integrated with all dependency resolution components
 
 These changes address the root cause of the `'dict' object has no attribute 'decode'` error that occurred during pipeline execution by ensuring proper use of SageMaker's native property reference system. The solution:
 
@@ -411,18 +856,44 @@ With the significant progress already made, the implementation timeline has been
 - [ ] Update developer guide with new approach
 - [ ] Create migration guide for updating existing builders
 
-#### 7.3 Infrastructure Improvements (Added)
+#### 7.3 Infrastructure Improvements
 - [x] Fix DependencyType and NodeType enum hashability (July 9)
 - [x] Create job type-specific specifications for data loading steps (July 9)
 - [x] Implement PipelineTemplateBase base class (July 9)
+- [x] Implement PipelineAssembler component (July 9-10)
+- [x] Create factory methods for component creation (July 10)
+- [x] Design enhanced PropertyReference class (July 10)
+- [x] Implement property path parsing and navigation (July 10)
 - [x] Consolidate property reference handling approaches (July 10)
 - [x] Remove redundant property reference wrapper module (July 10)
+- [x] Create message passing optimizations for property references (July 10)
 - [x] Refactor XGBoost end-to-end template to class-based approach (July 10)
 - [x] Refactor PyTorch end-to-end template to class-based approach (July 10)
-- [x] Implement property reference tracking and visualization (July 10)
-- [ ] Complete global-to-local migration for all components
-- [ ] Implement context managers for testing
-- [ ] Add thread-local storage for parallel execution
+- [x] Remove redundant model steps from templates (July 10)
+- [x] Implement configuration validation framework (July 10)
+- [x] Add execution document support to templates (July 10)
+- [x] Implement property reference tracking and visualization (July 10-11)
+- [ ] Complete global-to-local migration for registry manager (July 11-12, 80% complete)
+- [ ] Complete global-to-local migration for dependency resolver (July 11-12, 80% complete)
+- [ ] Complete global-to-local migration for semantic matcher (July 11-12, 70% complete)
+- [ ] Implement context managers for testing isolation (July 12-13, 60% complete)
+- [ ] Add thread-local storage for parallel execution (July 12-13, 60% complete)
+- [ ] Create visualization tools for property references (July 13-14, 40% complete)
+
+### Phase 8: Final Release and Training (Week 8) - PLANNED
+
+#### 8.1 Final Release
+- [ ] Create release branch (July 15)
+- [ ] Run full test suite (July 15-16)
+- [ ] Address any final issues (July 16-17)
+- [ ] Create release package (July 17)
+- [ ] Deploy to production environment (July 18)
+
+#### 8.2 Knowledge Transfer
+- [ ] Update developer documentation (July 18-19)
+- [ ] Create migration guide for existing pipeline templates (July 19)
+- [ ] Conduct training session on new architecture (July 20)
+- [ ] Provide hands-on support for migration (July 20-22)
 
 ## Success Metrics
 
