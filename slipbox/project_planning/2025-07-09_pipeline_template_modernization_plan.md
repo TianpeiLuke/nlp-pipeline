@@ -40,6 +40,7 @@ The plan builds on previous infrastructure work, specifically the removal of glo
 5. **Verbose Property Path Handling**
    - Direct property path management instead of using specification-driven approach
    - Redundant property path registrations
+   - Inefficient property reference data structure leading to message passing issues
 
 6. **Limited Documentation**
    - Examples lack comprehensive comments explaining design patterns
@@ -73,11 +74,16 @@ The plan builds on previous infrastructure work, specifically the removal of glo
    - Use declarative DAG definition
    - Leverage topology for step relationships
 
-5. **Standardize Pipeline Template Architecture**
+5. **Enhance Property Reference Data Structure**
+   - Implement efficient property reference tracking
+   - Optimize message passing between pipeline steps
+   - Add debugging and visualization capabilities
+
+6. **Standardize Pipeline Template Architecture**
    - Create a consistent structure for all templates
    - Implement common patterns for reuse across templates
 
-6. **Enhance Documentation**
+7. **Enhance Documentation**
    - Add comprehensive comments explaining design patterns
    - Document best practices for pipeline creation
 
@@ -150,7 +156,36 @@ def build_in_thread(cls, config_path, **kwargs):
     return template.generate_pipeline()
 ```
 
-### 5. Specification-Driven Approach
+### 5. Property Reference Data Structure Enhancements
+
+Improve property reference handling and message passing:
+
+```python
+def _track_property_references(self, steps):
+    """
+    Track property references between steps for debugging.
+    
+    This creates a directed graph of property references that can be
+    visualized for debugging and validation purposes.
+    """
+    references = {}
+    for step_name, step in steps.items():
+        if hasattr(step, 'inputs'):
+            for input_item in step.inputs:
+                if hasattr(input_item, 'source') and not isinstance(input_item.source, str):
+                    source_step = self._get_source_step_name(input_item.source)
+                    if source_step:
+                        if step_name not in references:
+                            references[step_name] = []
+                        references[step_name].append({
+                            'source_step': source_step,
+                            'property_path': str(input_item.source),
+                            'destination': input_item.destination
+                        })
+    return references
+```
+
+### 6. Specification-Driven Approach
 
 Leverage step specifications for managing property paths:
 
@@ -162,7 +197,7 @@ def _get_property_paths(self, step_name, step_instance):
     return {}
 ```
 
-### 6. PipelineAssembler Factory Method
+### 7. PipelineAssembler Factory Method
 
 Use the create_with_components factory method from PipelineAssembler:
 
@@ -210,53 +245,66 @@ def _create_assembler(self, dag, config_map, step_builder_map):
 - ✅ Add comprehensive documentation
 
 #### 2.2 Update XGBoost End-to-End Template
-- Apply same pattern as 2.1
-- Test with existing pipeline
+- ✅ Apply same pattern as 2.1
+- ✅ Test with existing pipeline
 
 #### 2.3 Update XGBoost DataLoad-Preprocess Template
-- Apply same pattern as 2.1
-- Test with existing pipeline
+- ✅ Apply same pattern as 2.1
+- ✅ Test with existing pipeline
 
 #### 2.4 Update PyTorch End-to-End Template
-- Apply same pattern as 2.1
-- Test with existing pipeline
+- ✅ Apply same pattern as 2.1
+- ✅ Test with existing pipeline
 
 #### 2.5 Update PyTorch Model Registration Template
-- Apply same pattern as 2.1
-- Test with existing pipeline
+- ✅ Apply same pattern as 2.1
+- ✅ Test with existing pipeline
 
-### Phase 3: Create Reference Example (Week 3)
+### Phase 3: Property Reference Enhancements (Week 2-3)
 
-#### 3.1 Create Comprehensive Reference Template
-- Implement a new template that showcases all best practices
-- Use all modern design patterns
-- Add extensive documentation
+#### 3.1 Optimize Property Reference Data Structure
+- ✅ Implement more efficient property reference tracking
+- ✅ Enhance message passing between steps
+- ✅ Add visualization capabilities for debugging
 
-#### 3.2 Write Tutorial Documentation
-- Create tutorial for using the template
-- Document each design pattern
-- Provide examples of extension points
+#### 3.2 Implement Reference Visualization
+- 🔄 Create tools for visualizing property references
+- 🔄 Add debugging support for reference resolution
+- 🔄 Document common resolution patterns
 
-#### 3.3 Add Unit Tests
-- Create unit tests for template classes
-- Test component lifecycle management
-- Test thread safety
+### Phase 4: Create Reference Example (Week 3)
 
-### Phase 4: Update Pipeline Examples (Week 4)
+#### 4.1 Create Comprehensive Reference Template
+- 📝 Implement a new template that showcases all best practices
+- 📝 Use all modern design patterns
+- 📝 Add extensive documentation
 
-#### 4.1 Update Notebook Examples
-- Modify notebook examples to use new templates
-- Showcase context manager usage
-- Demonstrate thread-safety patterns
+#### 4.2 Write Tutorial Documentation
+- 📝 Create tutorial for using the template
+- 📝 Document each design pattern
+- 📝 Provide examples of extension points
 
-#### 4.2 Update CLI Examples
-- Update command-line interface examples
-- Show component creation and management
+#### 4.3 Add Unit Tests
+- 📝 Create unit tests for template classes
+- 📝 Test component lifecycle management
+- 📝 Test thread safety
+- 📝 Verify property reference behavior
 
-#### 4.3 Final Documentation and Cleanup
-- Complete all documentation
-- Ensure consistency across all templates
-- Verify backward compatibility
+### Phase 5: Update Pipeline Examples (Week 4)
+
+#### 5.1 Update Notebook Examples
+- 📝 Modify notebook examples to use new templates
+- 📝 Showcase context manager usage
+- 📝 Demonstrate thread-safety patterns
+
+#### 5.2 Update CLI Examples
+- 📝 Update command-line interface examples
+- 📝 Show component creation and management
+
+#### 5.3 Final Documentation and Cleanup
+- 📝 Complete all documentation
+- 📝 Ensure consistency across all templates
+- 📝 Verify backward compatibility
 
 ## Template Structure Before and After
 
@@ -337,6 +385,86 @@ def generate_pipeline(self):
     return pipeline
 ```
 
+## Property Reference Data Structure and Message Passing
+
+### Previous Approach
+
+In the previous implementation, property references were handled using a simple dictionary structure:
+
+```python
+# Old approach - Direct dictionary usage
+property_paths = {
+    'step_name.properties.OutputPath': 'training_data',
+    'step_name.properties.S3Uri': 'model_artifacts'
+}
+```
+
+This approach had several limitations:
+- No validation of property path validity
+- No tracking of dependencies between steps
+- Difficult to debug reference resolution failures
+- Limited ability to visualize step relationships
+
+### New Approach
+
+The new implementation uses a structured approach to property references:
+
+```python
+# New approach - Structured reference objects
+class PropertyReference:
+    def __init__(self, step_name, property_path, destination=None):
+        self.step_name = step_name
+        self.property_path = property_path
+        self.destination = destination
+        
+    def resolve(self, registry_manager):
+        # Logic to resolve reference using registry manager
+        pass
+        
+    def __str__(self):
+        return f"{self.step_name}.{self.property_path}"
+```
+
+Benefits of the new approach:
+1. **Improved Validation**: References can be validated during pipeline creation
+2. **Enhanced Debugging**: Detailed error messages for resolution failures
+3. **Visualization Support**: References can be visualized as a graph
+4. **Dependency Tracking**: Automatic tracking of step dependencies
+5. **Message Passing Optimization**: More efficient communication between steps
+
+### Message Passing Enhancements
+
+The new implementation also includes improvements to the message passing mechanism:
+
+1. **Lazy Resolution**: Property references are only resolved when needed
+2. **Caching**: Resolved values are cached for improved performance
+3. **Contextual Information**: Additional metadata is stored with references
+4. **Error Handling**: Better error messages for resolution failures
+5. **Visualization**: Support for visualizing message flow
+
+Example of the enhanced message passing:
+
+```python
+# Message passing with new property reference structure
+def pass_message(source_step, target_step, property_path, target_input):
+    """
+    Pass a message from source step to target step.
+    
+    Args:
+        source_step: The step providing the output
+        target_step: The step receiving the input
+        property_path: The property path to extract
+        target_input: The input name on the target step
+    """
+    reference = PropertyReference(
+        step_name=source_step.name,
+        property_path=property_path,
+        destination=target_input
+    )
+    target_step.inputs[target_input] = reference
+    target_step.add_dependency(source_step)
+```
+
 ## Best Practices to Document
 
 1. **Component Lifecycle Management**
@@ -359,10 +487,17 @@ def generate_pipeline(self):
    - Isolate components between threads
    - Use context managers for proper cleanup
 
-5. **Error Handling**
+5. **Property Reference Management**
+   - Use structured property references
+   - Track dependencies between steps
+   - Leverage visualization tools for debugging
+   - Use message passing utilities for step communication
+
+6. **Error Handling**
    - Validate components before use
    - Handle missing components gracefully
    - Provide clear error messages
+   - Include context in error reporting
 
 ## Timeline and Dependencies
 
@@ -376,14 +511,16 @@ def generate_pipeline(self):
 | 2.3 | Update XGBoost DataLoad-Preprocess Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
 | 2.4 | Update PyTorch End-to-End Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
 | 2.5 | Update PyTorch Model Registration Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
-| 3.1 | Create Comprehensive Reference Template | 📝 PLANNED | 1.0 | 2.1-2.5 |
-| 3.2 | Write Tutorial Documentation | 📝 PLANNED | 0.5 | 3.1 |
-| 3.3 | Add Unit Tests | 📝 PLANNED | 0.5 | 3.1 |
-| 4.1 | Update Notebook Examples | 📝 PLANNED | 0.5 | 3.1 |
-| 4.2 | Update CLI Examples | 📝 PLANNED | 0.5 | 3.1 |
-| 4.3 | Final Documentation and Cleanup | 📝 PLANNED | 0.5 | All |
+| 3.1 | Optimize Property Reference Data Structure | ✅ COMPLETED | 0.5 | 1.1, 2.1-2.5 |
+| 3.2 | Implement Reference Visualization | 🔄 IN PROGRESS | 0.5 | 3.1 |
+| 4.1 | Create Comprehensive Reference Template | 📝 PLANNED | 1.0 | 2.1-2.5, 3.1 |
+| 4.2 | Write Tutorial Documentation | 📝 PLANNED | 0.5 | 4.1 |
+| 4.3 | Add Unit Tests | 📝 PLANNED | 0.5 | 4.1 |
+| 5.1 | Update Notebook Examples | 📝 PLANNED | 0.5 | 4.1 |
+| 5.2 | Update CLI Examples | 📝 PLANNED | 0.5 | 4.1 |
+| 5.3 | Final Documentation and Cleanup | 📝 PLANNED | 0.5 | All |
 
-Total estimated time: 7.5 weeks of developer effort, likely spanning 4-5 calendar weeks with parallel work.
+Total estimated time: 8.5 weeks of developer effort, likely spanning 5-6 calendar weeks with parallel work.
 
 ## Conclusion
 
@@ -405,6 +542,8 @@ The modernization continues to build on our previous work to remove global singl
   - Removed `handle_property_reference` method from step builders
   - Updated step builders to use consistent property reference approach
   - Fixed `'dict' object has no attribute 'decode'` error during pipeline execution
+  - Implemented improved property reference data structure for better step communication
+  - Added property reference tracking for debugging and visualization
 - ✅ Completed template modernization:
   - Updated XGBoost End-to-End Template
   - Updated XGBoost DataLoad-Preprocess Template
@@ -414,9 +553,14 @@ The modernization continues to build on our previous work to remove global singl
   - Updated XGBoost Train-Evaluate No Registration Template
   - Updated Cradle Only Template
   - All templates now use the enhanced property reference handling approach
+  - Simplified template structure with redundant steps removed
 
 ### Next Steps
 
+- Complete reference visualization tools implementation
 - Create comprehensive reference examples
 - Finalize documentation and examples
 - Complete unit testing for all template classes
+- Implement additional property reference visualization tools
+- Expand message passing capabilities between pipeline steps
+- Create framework for automated DAG validation
