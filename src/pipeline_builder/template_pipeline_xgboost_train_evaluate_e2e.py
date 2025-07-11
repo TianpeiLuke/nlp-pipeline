@@ -22,6 +22,7 @@ from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.image_uris import retrieve
+from sagemaker.network import NetworkConfig
 
 # Import base template
 from .pipeline_template_base import PipelineTemplateBase
@@ -55,19 +56,34 @@ from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
 from ..pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
 
-# Pipeline parameters
-PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="EXECUTION_S3_PREFIX", default_value=None)
-KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMS_ENCRYPTION_KEY_PARAM", default_value=None)
-SECURITY_GROUP_ID = ParameterString(name="SECURITY_GROUP_ID", default_value=None)
-VPC_SUBNET = ParameterString(name="VPC_SUBNET", default_value=None)
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import pipeline constants if available
-import os
-import importlib
+# Import constants from core library (these are the parameters that will be wrapped)
+try:
+    from mods_workflow_core.utils.constants import (
+        PIPELINE_EXECUTION_TEMP_DIR,
+        KMS_ENCRYPTION_KEY_PARAM,
+        PROCESSING_JOB_SHARED_NETWORK_CONFIG,
+        SECURITY_GROUP_ID,
+        VPC_SUBNET,
+    )
+    logger.info("Successfully imported constants from mods_workflow_core")
+except ImportError:
+    logger.warning("Could not import constants from mods_workflow_core, using local definitions")
+    # Define pipeline parameters locally if import fails - match exact definitions from original module
+    PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="EXECUTION_S3_PREFIX")
+    KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMS_ENCRYPTION_KEY_PARAM")
+    SECURITY_GROUP_ID = ParameterString(name="SECURITY_GROUP_ID")
+    VPC_SUBNET = ParameterString(name="VPC_SUBNET")
+    # Also create the network config as defined in the original module
+    PROCESSING_JOB_SHARED_NETWORK_CONFIG = NetworkConfig(
+        enable_network_isolation=False,
+        security_group_ids=[SECURITY_GROUP_ID],
+        subnets=[VPC_SUBNET],
+        encrypt_inter_container_traffic=True,
+    )
 
 # Define default constants with uppercase values
 OUTPUT_TYPE_DATA = "DATA"
@@ -357,6 +373,7 @@ class XGBoostTrainEvaluateE2ETemplate(PipelineTemplateBase):
         
         This method stores Cradle data loading requests and registration
         step configurations for use in filling execution documents.
+        It also logs information about property references that were handled during pipeline assembly.
         
         Args:
             assembler: PipelineAssembler instance
@@ -364,6 +381,19 @@ class XGBoostTrainEvaluateE2ETemplate(PipelineTemplateBase):
         # Store Cradle data loading requests
         if hasattr(assembler, 'cradle_loading_requests'):
             self.pipeline_metadata['cradle_loading_requests'] = assembler.cradle_loading_requests
+            
+        # Log property reference handling for debugging
+        if hasattr(assembler, 'steps'):
+            property_ref_count = 0
+            for step_name, step in assembler.steps.items():
+                # Check if step has inputs that might be property references
+                if hasattr(step, 'inputs') and step.inputs:
+                    for input_item in step.inputs:
+                        if hasattr(input_item, 'source') and not isinstance(input_item.source, str):
+                            property_ref_count += 1
+            
+            if property_ref_count > 0:
+                logger.info(f"Pipeline contains {property_ref_count} property references that benefit from automatic handling")
             
         # Find registration steps
         try:

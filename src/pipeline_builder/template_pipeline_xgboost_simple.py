@@ -1,14 +1,12 @@
 """
-Template-based builder for XGBoost Train-Evaluate E2E pipeline without MIMS Registration.
+Template-based builder for XGBoost simple pipeline without packaging, payload, evaluation or registration.
 
-This template creates a pipeline that performs:
+This template creates a simplified pipeline that performs:
 1) Data Loading (for training set)
 2) Tabular Preprocessing (for training set)
 3) XGBoost Model Training
-4) Packaging
-5) Data Loading (for calibration set)
-6) Tabular Preprocessing (for calibration set)
-7) Model Evaluation (on calibration set)
+4) Data Loading (for calibration set)
+5) Tabular Preprocessing (for calibration set)
 """
 
 from typing import Dict, List, Any, Optional, Type
@@ -49,14 +47,7 @@ from ..pipeline_steps.builder_step_base import StepBuilderBase
 from ..pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
-from ..pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
-from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Import constants from core library (these are the parameters that will be wrapped)
 try:
@@ -67,8 +58,10 @@ try:
         SECURITY_GROUP_ID,
         VPC_SUBNET,
     )
+    logger = logging.getLogger(__name__)
     logger.info("Successfully imported constants from mods_workflow_core")
 except ImportError:
+    logger = logging.getLogger(__name__)
     logger.warning("Could not import constants from mods_workflow_core, using local definitions")
     # Define pipeline parameters locally if import fails - match exact definitions from original module
     PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="EXECUTION_S3_PREFIX")
@@ -83,30 +76,33 @@ except ImportError:
         encrypt_inter_container_traffic=True,
     )
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Define default constants with uppercase values
 OUTPUT_TYPE_DATA = "DATA"
 OUTPUT_TYPE_METADATA = "METADATA"
 OUTPUT_TYPE_SIGNATURE = "SIGNATURE"
 
 
-class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
+class XGBoostSimpleTemplate(PipelineTemplateBase):
     """
-    Template-based builder for XGBoost Train-Evaluate E2E pipeline without MIMS Registration.
+    Template-based builder for XGBoost simple pipeline.
     
     This pipeline performs:
     1) Data Loading (for training set)
     2) Tabular Preprocessing (for training set)
     3) XGBoost Model Training
-    4) Packaging
-    5) Data Loading (for calibration set)
-    6) Tabular Preprocessing (for calibration set)
-    7) Model Evaluation (on calibration set)
+    4) Data Loading (for calibration set)
+    5) Tabular Preprocessing (for calibration set)
     """
     # Define required and optional inputs for preprocessing steps
     REQUIRED_INPUTS = {"DATA"}
     OPTIONAL_INPUTS = {"METADATA", "SIGNATURE"}
     
     # Define config classes used by this template
+    # Keep all config classes for consistency even if some are not used in this template
     CONFIG_CLASSES = {
         'BasePipelineConfig':         BasePipelineConfig,
         'CradleDataLoadConfig':       CradleDataLoadConfig,
@@ -129,7 +125,7 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         dependency_resolver: Optional[UnifiedDependencyResolver] = None
     ):
         """
-        Initialize XGBoost Train-Evaluate E2E template without Registration.
+        Initialize XGBoost simple template.
         
         Args:
             config_path: Path to configuration file
@@ -149,7 +145,7 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
             dependency_resolver=dependency_resolver
         )
         
-        logger.info(f"Initialized XGBoost Train-Evaluate E2E template (No Registration) for: {self._get_pipeline_name()}")
+        logger.info(f"Initialized XGBoost Simple template for: {self._get_pipeline_name()}")
 
     def _validate_configuration(self) -> None:
         """
@@ -177,18 +173,12 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         if not calibration_config:
             raise ValueError("No TabularPreprocessingConfig found with job_type='calibration'")
         
-        # Check for required single-instance configs
-        for config_type, name in [
-            (XGBoostTrainingConfig, "XGBoost training"),
-            (PackageStepConfig, "model packaging"),
-            (PayloadConfig, "payload testing"),
-            (XGBoostModelEvalConfig, "model evaluation")
-        ]:
-            instances = [cfg for _, cfg in self.configs.items() if type(cfg) is config_type]
-            if not instances:
-                raise ValueError(f"No {name} configuration found")
-            if len(instances) > 1:
-                raise ValueError(f"Multiple {name} configurations found, expected exactly one")
+        # Check for required XGBoost training config
+        xgboost_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, XGBoostTrainingConfig)]
+        if not xgboost_configs:
+            raise ValueError("No XGBoost training configuration found")
+        if len(xgboost_configs) > 1:
+            raise ValueError("Multiple XGBoost training configurations found, expected exactly one")
                 
         logger.info("Basic configuration structure validation passed")
 
@@ -216,9 +206,6 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
             STEP_NAMES["CradleDataLoading"]["spec_type"]: CradleDataLoadingStepBuilder,
             STEP_NAMES["TabularPreprocessing"]["spec_type"]: TabularPreprocessingStepBuilder,
             STEP_NAMES["XGBoostTraining"]["spec_type"]: XGBoostTrainingStepBuilder,
-            STEP_NAMES["Package"]["spec_type"]: MIMSPackagingStepBuilder,
-            STEP_NAMES["Payload"]["spec_type"]: MIMSPayloadStepBuilder,
-            STEP_NAMES["XGBoostModelEval"]["spec_type"]: XGBoostModelEvalStepBuilder,
         }
 
     def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
@@ -247,18 +234,10 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         config_map["train_data_load"] = cradle_configs.get('training')
         config_map["train_preprocess"] = tp_configs.get('training')
         
-        # Find single instance configs (removing hyperparameter_prep)
-        for cfg_type, step_name in [
-            (XGBoostTrainingConfig, "xgboost_train"),
-            (PackageStepConfig, "model_packaging"),
-            (PayloadConfig, "payload_test"),
-            (XGBoostModelEvalConfig, "model_evaluation")
-        ]:
-            # Use exact type matching (type(cfg) is cfg_type) instead of isinstance()
-            # This prevents subclasses (like PayloadConfig) from matching when looking for parent class
-            instances = [cfg for _, cfg in self.configs.items() if type(cfg) is cfg_type]
-            if instances:
-                config_map[step_name] = instances[0]
+        # Find single instance configs
+        xgboost_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, XGBoostTrainingConfig)]
+        if xgboost_configs:
+            config_map["xgboost_train"] = xgboost_configs[0]
         
         # Add calibration flow steps
         config_map["calib_data_load"] = cradle_configs.get('calibration')
@@ -280,30 +259,19 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         """
         dag = PipelineDAG()
         
-        # Add all nodes - no model_registration node
+        # Add all nodes as specified
         dag.add_node("train_data_load")    # Data load for training
         dag.add_node("train_preprocess")   # Tabular preprocessing for training
         dag.add_node("xgboost_train")      # XGBoost training step
-        dag.add_node("model_packaging")    # Package step
-        dag.add_node("payload_test")       # Payload step
         dag.add_node("calib_data_load")    # Data load for calibration
         dag.add_node("calib_preprocess")   # Tabular preprocessing for calibration
-        dag.add_node("model_evaluation")   # Model evaluation step
         
         # Training flow
         dag.add_edge("train_data_load", "train_preprocess")
         dag.add_edge("train_preprocess", "xgboost_train")
         
-        # Output flow - no connection to registration
-        dag.add_edge("xgboost_train", "model_packaging")
-        dag.add_edge("xgboost_train", "payload_test")
-        
         # Calibration flow
         dag.add_edge("calib_data_load", "calib_preprocess")
-        
-        # Evaluation flow
-        dag.add_edge("xgboost_train", "model_evaluation")
-        dag.add_edge("calib_preprocess", "model_evaluation")
         
         return dag
     
@@ -312,8 +280,6 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         Store pipeline metadata from template.
         
         This method stores Cradle data loading requests for use in filling execution documents.
-        Registration step metadata is not stored since this template does not include registration.
-        It also logs information about property references that were handled during pipeline assembly.
         
         Args:
             assembler: PipelineAssembler instance
@@ -321,19 +287,6 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         # Store Cradle data loading requests
         if hasattr(assembler, 'cradle_loading_requests'):
             self.pipeline_metadata['cradle_loading_requests'] = assembler.cradle_loading_requests
-            
-        # Log property reference handling for debugging
-        if hasattr(assembler, 'steps'):
-            property_ref_count = 0
-            for step_name, step in assembler.steps.items():
-                # Check if step has inputs that might be property references
-                if hasattr(step, 'inputs') and step.inputs:
-                    for input_item in step.inputs:
-                        if hasattr(input_item, 'source') and not isinstance(input_item.source, str):
-                            property_ref_count += 1
-            
-            if property_ref_count > 0:
-                logger.info(f"Pipeline contains {property_ref_count} property references that benefit from automatic handling")
     
     def _get_pipeline_name(self) -> str:
         """
@@ -342,15 +295,13 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         Returns:
             Pipeline name
         """
-        return f"{self.base_config.pipeline_name}-xgb-train-eval-no-registration"
+        return f"{self.base_config.pipeline_name}-xgb-simple"
 
     def fill_execution_document(self, execution_document: Dict[str, Any]) -> Dict[str, Any]:
         """
         Fill in the execution document with pipeline metadata.
         
         This method fills the execution document with Cradle data loading requests.
-        Model registration configurations are not included as this template does not
-        include registration.
         
         Args:
             execution_document: Execution document to fill
