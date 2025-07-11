@@ -372,10 +372,10 @@ def generate_pipeline(self):
 | 1.2 | Implement Factory Methods | ✅ COMPLETED | 0.5 | 1.1 |
 | 1.3 | Design Template Documentation | ✅ COMPLETED | 0.5 | None |
 | 2.1 | Update XGBoost Train-Evaluate E2E Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
-| 2.2 | Update XGBoost End-to-End Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
-| 2.3 | Update XGBoost DataLoad-Preprocess Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
-| 2.4 | Update PyTorch End-to-End Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
-| 2.5 | Update PyTorch Model Registration Template | 📝 PLANNED | 0.5 | 1.1, 1.2 |
+| 2.2 | Update XGBoost End-to-End Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
+| 2.3 | Update XGBoost DataLoad-Preprocess Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
+| 2.4 | Update PyTorch End-to-End Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
+| 2.5 | Update PyTorch Model Registration Template | ✅ COMPLETED | 0.5 | 1.1, 1.2 |
 | 3.1 | Create Comprehensive Reference Template | 📝 PLANNED | 1.0 | 2.1-2.5 |
 | 3.2 | Write Tutorial Documentation | 📝 PLANNED | 0.5 | 3.1 |
 | 3.3 | Add Unit Tests | 📝 PLANNED | 0.5 | 3.1 |
@@ -405,9 +405,18 @@ The modernization continues to build on our previous work to remove global singl
   - Removed `handle_property_reference` method from step builders
   - Updated step builders to use consistent property reference approach
   - Fixed `'dict' object has no attribute 'decode'` error during pipeline execution
+- ✅ Completed template modernization:
+  - Updated XGBoost End-to-End Template
+  - Updated XGBoost DataLoad-Preprocess Template
+  - Updated PyTorch End-to-End Template
+  - Updated PyTorch Model Registration Template
+  - Updated XGBoost Simple Template
+  - Updated XGBoost Train-Evaluate No Registration Template
+  - Updated Cradle Only Template
+  - All templates now use the enhanced property reference handling approach
 
 ### Next Steps
 
-- Complete updates to remaining pipeline templates
 - Create comprehensive reference examples
 - Finalize documentation and examples
+- Complete unit testing for all template classes

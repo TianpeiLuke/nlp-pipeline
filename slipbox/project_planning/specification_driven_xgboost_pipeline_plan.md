@@ -288,6 +288,12 @@ Consolidated property reference handling mechanisms and removed redundant code:
 - Removed the `handle_property_reference` method from `StepBuilderBase` 
 - Updated all step builders to use inputs directly, letting the PipelineAssembler handle property references
 - Enhanced the `PropertyReference` class with robust `to_runtime_property()` method for correct property path navigation
+- Updated all template pipeline files in `src/v2/pipeline_builder/` to use the enhanced approach:
+  - Core templates: xgboost_train_evaluate_e2e, xgboost_end_to_end, xgboost_dataload_preprocess, pytorch_end_to_end, pytorch_model_registration
+  - Additional templates: xgboost_simple, xgboost_train_evaluate_no_registration, cradle_only
+- Verified that all step builders in `src/v2/pipeline_steps/` are compatible with the enhanced approach
+- Ensured all specifications in `src/v2/pipeline_step_specs/` work with the new property reference handling
+- Integrated with the dependency resolution components in `src/v2/pipeline_deps/`
 
 These changes address the root cause of the `'dict' object has no attribute 'decode'` error that occurred during pipeline execution by ensuring proper use of SageMaker's native property reference system. The solution:
 
@@ -295,6 +301,7 @@ These changes address the root cause of the `'dict' object has no attribute 'dec
 - Standardizes on a single approach to property reference handling
 - Improves maintainability by centralizing property reference logic
 - Ensures correct behavior during pipeline validation and execution
+- Provides a robust foundation for all pipeline templates
 
 ### Dependency Injection Approach
 
