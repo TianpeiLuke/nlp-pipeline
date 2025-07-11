@@ -324,7 +324,12 @@ class PropertyReference(BaseModel):
     
     def to_sagemaker_property(self) -> Dict[str, str]:
         """Convert to SageMaker Properties dictionary format at pipeline definition time."""
-        return {"Get": f"Steps.{self.step_name}.{self.output_spec.property_path}"}
+        # Get the property path without 'properties.' prefix
+        property_path = self.output_spec.property_path
+        if property_path.startswith('properties.'):
+            property_path = property_path[11:]
+        
+        return {"Get": f"Steps.{self.step_name}.{property_path}"}
     
     def to_runtime_property(self, step_instances: Dict[str, Any]) -> Any:
         """
@@ -398,13 +403,16 @@ class PropertyReference(BaseModel):
         
         result = []
         
-        # Pattern to match dictionary access like: Outputs['DATA'] or Outputs["DATA"] or Outputs[0]
-        dict_pattern = re.compile(r'(\w+)(?:\[([\'"]?)([^\]]+)(?:[\'"]?)\])')
+        # Improved pattern to match dictionary access like: 
+        # Outputs['DATA'] or Outputs["DATA"] or Outputs[0]
+        # Ensures that quotes are properly balanced using backreference
+        dict_pattern = re.compile(r'(\w+)\[([\'"]?)([^\]\'\"]+)\2\]')
         
         # Split by dots first, but preserve quoted parts
         parts = []
         current = ""
         in_brackets = False
+        bracket_depth = 0
         
         for char in path:
             if char == '.' and not in_brackets:
@@ -413,9 +421,12 @@ class PropertyReference(BaseModel):
                     current = ""
             elif char == '[':
                 in_brackets = True
+                bracket_depth += 1
                 current += char
             elif char == ']':
-                in_brackets = False
+                bracket_depth -= 1
+                if bracket_depth == 0:
+                    in_brackets = False
                 current += char
             else:
                 current += char
@@ -430,7 +441,13 @@ class PropertyReference(BaseModel):
             if dict_match:
                 # Extract the attribute name and key
                 attr_name = dict_match.group(1)
+                quote_type = dict_match.group(2)  # This will be ' or " or empty
                 key = dict_match.group(3)
+                
+                # Handle numeric indices
+                if not quote_type and key.isdigit():
+                    key = int(key)
+                    
                 # Add a tuple for dictionary access
                 result.append((attr_name, key))
             else:
