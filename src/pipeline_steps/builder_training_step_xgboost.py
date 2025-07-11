@@ -160,7 +160,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         if hasattr(self.config, "env") and self.config.env:
             env_vars.update(self.config.env)
             
-        logger.info(f"Training environment variables: {env_vars}")
+        self.log_info("Training environment variables: %s", env_vars)
         return env_vars
         
     def _create_data_channels_from_source(self, base_path):
@@ -174,6 +174,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             Dictionary of channel name to TrainingInput
         """
         from sagemaker.workflow.functions import Join
+        
+        # Base path is used directly - property references are handled by PipelineAssembler
         
         channels = {
             "train": TrainingInput(s3_data=Join(on='/', values=[base_path, "train/"])),
@@ -213,8 +215,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         
         # Generate hyperparameters file regardless of whether inputs contains it
         internal_hyperparameters_s3_uri = self._prepare_hyperparameters_file()
-        logger.info(f"[TRAINING INPUT OVERRIDE] Generated hyperparameters internally at: {internal_hyperparameters_s3_uri}")
-        logger.info(f"[TRAINING INPUT OVERRIDE] This will be used regardless of any dependency-provided values")
+        self.log_info("[TRAINING INPUT OVERRIDE] Generated hyperparameters internally at: %s", internal_hyperparameters_s3_uri)
+        self.log_info("[TRAINING INPUT OVERRIDE] This will be used regardless of any dependency-provided values")
         
         # Get container path from contract for the hyperparameters
         hyperparams_container_path = None
@@ -226,12 +228,15 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             parts = hyperparams_container_path.split('/')
             if len(parts) > 4 and parts[1] == "opt" and parts[2] == "ml" and parts[3] == "input" and parts[4] == "data":
                 channel_name = parts[5]  # This would be 'config'
+                # Property references are now handled by PipelineAssembler
                 training_inputs[channel_name] = TrainingInput(s3_data=internal_hyperparameters_s3_uri)
-                logger.info(f"Created {channel_name} channel from internally generated hyperparameters: {internal_hyperparameters_s3_uri}")
+                self.log_info("Created %s channel from internally generated hyperparameters: %s", 
+                             channel_name, internal_hyperparameters_s3_uri)
         else:
             # Fallback to 'config' if not in contract
             training_inputs["config"] = TrainingInput(s3_data=internal_hyperparameters_s3_uri)
-            logger.info(f"Created config channel from internally generated hyperparameters: {internal_hyperparameters_s3_uri}")
+            self.log_info("Created config channel from internally generated hyperparameters: %s", 
+                         internal_hyperparameters_s3_uri)
         
         matched_inputs.add(hyperparameters_key)
         
@@ -241,8 +246,8 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         # Remove our special case from the inputs dictionary
         if hyperparameters_key in working_inputs:
             external_path = working_inputs[hyperparameters_key]
-            logger.info(f"[TRAINING INPUT OVERRIDE] Ignoring dependency-provided hyperparameters: {external_path}")
-            logger.info(f"[TRAINING INPUT OVERRIDE] Using internal hyperparameters instead: {internal_hyperparameters_s3_uri}")
+            self.log_info("[TRAINING INPUT OVERRIDE] Ignoring dependency-provided hyperparameters: %s", external_path)
+            self.log_info("[TRAINING INPUT OVERRIDE] Using internal hyperparameters instead: %s", internal_hyperparameters_s3_uri)
             del working_inputs[hyperparameters_key]
         
         # Process each dependency in the specification
@@ -274,19 +279,24 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                     # Create separate channels for each data split using helper method
                     data_channels = self._create_data_channels_from_source(base_path)
                     training_inputs.update(data_channels)
-                    logger.info(f"Created data channels from {logical_name}: {base_path}")
+                    # Safe logging that handles Pipeline variables using the standard pattern
+                    self.log_info("Created data channels from %s: %s", logical_name, base_path)
                 else:
                     # For other inputs, extract the channel name from the container path
                     parts = container_path.split('/')
                     if len(parts) > 4 and parts[1] == "opt" and parts[2] == "ml" and parts[3] == "input" and parts[4] == "data":
                         if len(parts) > 5:
                             channel_name = parts[5]  # Extract channel name from path
+                            # Input data is used directly - property references are handled by PipelineAssembler
                             training_inputs[channel_name] = TrainingInput(s3_data=working_inputs[logical_name])
-                            logger.info(f"Created {channel_name} channel from {logical_name}: {working_inputs[logical_name]}")
+                            # Safe logging that handles Pipeline variables using the standard pattern
+                            self.log_info("Created %s channel from %s: %s", channel_name, logical_name, working_inputs[logical_name])
                         else:
                             # If no specific channel in path, use logical name as channel
+                            # Input data is used directly - property references are handled by PipelineAssembler
                             training_inputs[logical_name] = TrainingInput(s3_data=working_inputs[logical_name])
-                            logger.info(f"Created {logical_name} channel from {logical_name}: {working_inputs[logical_name]}")
+                            # Safe logging that handles Pipeline variables using the standard pattern
+                            self.log_info("Created %s channel from %s: %s", logical_name, logical_name, working_inputs[logical_name])
             else:
                 raise ValueError(f"No container path found for input: {logical_name}")
                 
@@ -407,7 +417,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             # Write JSON locally
             with open(local_file, "w") as f:
                 json.dump(hyperparams_dict, indent=2, fp=f)
-            logger.info(f"Created hyperparameters JSON file at {local_file}")
+            self.log_info("Created hyperparameters JSON file at %s", local_file)
 
             # Construct S3 URI for the config directory
             prefix = self.config.hyperparameters_s3_uri if hasattr(self.config, 'hyperparameters_s3_uri') else None
@@ -420,19 +430,19 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             
             # Use our helper methods for consistent path handling
             config_dir = self._normalize_s3_uri(prefix, "hyperparameters prefix")
-            logger.info(f"Normalized hyperparameters prefix: {config_dir}")
+            self.log_info("Normalized hyperparameters prefix: %s", config_dir)
             
             # Check if hyperparameters.json is already in the path
             if S3PathHandler.get_name(config_dir) == "hyperparameters.json":
                 # Use path as is if it already includes the filename
                 target_s3_uri = config_dir
-                logger.info(f"Using existing hyperparameters path: {target_s3_uri}")
+                self.log_info("Using existing hyperparameters path: %s", target_s3_uri)
             else:
                 # Otherwise append the filename using S3PathHandler.join for proper path handling
                 target_s3_uri = S3PathHandler.join(config_dir, "hyperparameters.json")
-                logger.info(f"Constructed hyperparameters path: {target_s3_uri}")
+                self.log_info("Constructed hyperparameters path: %s", target_s3_uri)
                 
-            logger.info(f"Using hyperparameters S3 target URI: {target_s3_uri}")
+            self.log_info("Using hyperparameters S3 target URI: %s", target_s3_uri)
 
             # Check if file exists and handle appropriately
             s3_parts = target_s3_uri.replace('s3://', '').split('/', 1)
@@ -442,18 +452,18 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             s3_client = self.session.boto_session.client('s3')
             try:
                 s3_client.head_object(Bucket=bucket, Key=key)
-                logger.info(f"Found existing hyperparameters file at {target_s3_uri}")
+                self.log_info("Found existing hyperparameters file at %s", target_s3_uri)
             except ClientError as e:
                 if e.response['Error']['Code'] == '404':
-                    logger.info(f"No existing hyperparameters file found at {target_s3_uri}")
+                    self.log_info("No existing hyperparameters file found at %s", target_s3_uri)
                 else:
-                    logger.warning(f"Error checking existing file: {str(e)}")
+                    self.log_warning("Error checking existing file: %s", str(e))
 
             # Upload the file
-            logger.info(f"Uploading hyperparameters from {local_file} to {target_s3_uri}")
+            self.log_info("Uploading hyperparameters from %s to %s", local_file, target_s3_uri)
             S3Uploader.upload(str(local_file), target_s3_uri, sagemaker_session=self.session)
             
-            logger.info(f"Hyperparameters successfully uploaded to {target_s3_uri}")
+            self.log_info("Hyperparameters successfully uploaded to %s", target_s3_uri)
             return target_s3_uri
         
         finally:
@@ -533,7 +543,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
                 extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                 inputs.update(extracted_inputs)
             except Exception as e:
-                logger.warning(f"Failed to extract inputs from dependencies: {e}")
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
         # Add explicitly provided inputs (overriding any extracted ones)
         inputs.update(inputs_raw)
@@ -550,7 +560,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         if len(training_inputs) == 0:
             raise ValueError("No training inputs available. Provide input_path or ensure dependencies supply necessary outputs.")
         
-        logger.info(f"Final training inputs: {list(training_inputs.keys())}")
+        self.log_info("Final training inputs: %s", list(training_inputs.keys()))
         
         # Get output path using specification-driven method
         output_path = self._get_outputs({})
@@ -572,10 +582,10 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
             setattr(training_step, '_spec', self.spec)
             
             # Log successful creation
-            logger.info(f"Created TrainingStep with name: {training_step.name}")
+            self.log_info("Created TrainingStep with name: %s", training_step.name)
             
             return training_step
             
         except Exception as e:
-            logger.error(f"Error creating XGBoost TrainingStep: {str(e)}")
+            self.log_warning("Error creating XGBoost TrainingStep: %s", str(e))
             raise ValueError(f"Failed to create XGBoostTrainingStep: {str(e)}") from e
