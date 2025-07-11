@@ -168,10 +168,40 @@ def _instantiate_step(self, step_name: str) -> Step:
     if step_name in self.step_messages:
         for input_name, message in self.step_messages[step_name].items():
             src_step = message['source_step']
+            src_output = message['source_output']
             if src_step in self.step_instances:
-                inputs[input_name] = {
-                    "Get": f"Steps.{src_step}.{message['source_output']}"
-                }
+                # Try to get the source step's builder to access its specifications
+                src_builder = self.step_builders.get(src_step)
+                output_spec = None
+                
+                # Try to find the output spec for this output name
+                if src_builder and hasattr(src_builder, 'spec') and src_builder.spec:
+                    output_spec = src_builder.spec.get_output_by_name_or_alias(src_output)
+                
+                if output_spec:
+                    try:
+                        # Create a PropertyReference object
+                        prop_ref = PropertyReference(
+                            step_name=src_step,
+                            output_spec=output_spec
+                        )
+                        
+                        # Use the enhanced to_runtime_property method to get an actual SageMaker Properties object
+                        runtime_prop = prop_ref.to_runtime_property(self.step_instances)
+                        inputs[input_name] = runtime_prop
+                        
+                        logger.debug(f"Created runtime property reference for {step_name}.{input_name} -> {src_step}.{output_spec.property_path}")
+                    except Exception as e:
+                        # Log the error and fall back to a safe string
+                        logger.warning(f"Error creating runtime property reference: {str(e)}")
+                        s3_uri = f"s3://pipeline-reference/{src_step}/{src_output}"
+                        inputs[input_name] = s3_uri
+                        logger.warning(f"Using S3 URI fallback: {s3_uri}")
+                else:
+                    # Create a safe string reference as a fallback
+                    s3_uri = f"s3://pipeline-reference/{src_step}/{src_output}"
+                    inputs[input_name] = s3_uri
+                    logger.warning(f"Could not find output spec for {src_step}.{src_output}, using S3 URI placeholder: {s3_uri}")
     
     # Generate outputs
     outputs = self._generate_outputs(step_name)
@@ -187,7 +217,20 @@ def _instantiate_step(self, step_name: str) -> Step:
     return step
 ```
 
-This extracts inputs from dependencies, generates outputs, and uses the step builder to create a SageMaker Pipeline step.
+This extracts inputs from dependencies, generates outputs, and uses the step builder to create a SageMaker Pipeline step. It now uses the enhanced `PropertyReference` class to properly create SageMaker property references.
+
+### 5.1 Enhanced Property Reference Handling
+
+The assembler now uses the `PropertyReference` class's `to_runtime_property()` method to create actual SageMaker `Properties` objects rather than dictionary representations. This addresses a key issue where property references weren't properly handled during pipeline execution.
+
+The enhanced implementation:
+
+1. **Properly locates output specifications** - It finds the source step's output specification using the step builder's spec registry
+2. **Creates proper PropertyReference objects** - It creates a `PropertyReference` that connects to the source step's output 
+3. **Navigates property paths correctly** - It uses `to_runtime_property()` to navigate property paths to access the correct property object
+4. **Provides robust error handling** - It includes fallbacks to S3 URIs when property references can't be resolved
+
+This approach solves the `AttributeError: 'dict' object has no attribute 'decode'` error that occurred during pipeline execution when a dictionary representation of a property was passed to functions expecting a string URL or a proper `Properties` object.
 
 ### 6. Pipeline Generation
 
@@ -321,6 +364,12 @@ However, in most cases, you would use `PipelineTemplateBase` which provides a hi
 5. **Error Handling**:
    - Validate inputs before creating the assembler
    - Handle errors gracefully during pipeline generation
+   - Provide fallbacks for property references that can't be resolved
+
+6. **Property References**:
+   - Use the enhanced `PropertyReference.to_runtime_property()` method to create proper SageMaker property references
+   - Always include error handling when resolving property references
+   - Understand that property paths like `properties.ProcessingOutputConfig.Outputs['DATA'].S3Output.S3Uri` need special parsing
 
 By following these best practices, you can create reliable, maintainable, and efficient pipelines using the `PipelineAssembler`.
 
