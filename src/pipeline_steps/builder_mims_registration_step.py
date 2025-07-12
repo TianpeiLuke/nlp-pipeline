@@ -127,61 +127,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         self.log_info("ModelRegistrationConfig validation succeeded.")
 
 
-    class TarballPathWrapper:
-        """
-        Wrapper for property reference that provides compatibility with MIMS validation.
-        This wrapper makes Join object appear as a property reference to validation methods.
-        """
-        def __init__(self, source, filename):
-            from sagemaker.workflow.functions import Join
-            self.source = source
-            self.filename = filename
-            # Store the actual Join for runtime path construction
-            self.join_obj = Join(on='/', values=[source, filename])
-            
-            # Simulate a SageMaker property for validation
-            # Extract any existing expr information from source if available
-            self._expr = {"Get": "Steps.Package.ProcessingOutputConfig.Outputs.S3Uri"}
-            if hasattr(source, 'expr') and 'Get' in source.expr:
-                # Keep original expr reference but ensure "S3" is in it
-                self._expr = source.expr
-        
-        @property
-        def expr(self):
-            """Support expr['Get'] check in validation."""
-            return self._expr
-            
-        def __repr__(self):
-            """Return the actual Join object for SageMaker to use at runtime."""
-            return repr(self.join_obj)
-        
-        def __str__(self):
-            return f"{self.source}/{self.filename}"
-    
-    def _ensure_tarball_path(self, source, source_type):
-        """
-        Ensure source path ends with .tar.gz
-        
-        Args:
-            source: Path or property reference
-            source_type: Type of source ("model" or "payload")
-            
-        Returns:
-            Modified source that ensures a .tar.gz suffix
-        """
-        if isinstance(source, str):
-            if not source.endswith('.tar.gz'):
-                source = f"{source}/payload.tar.gz" if source_type == "payload" else f"{source}/model.tar.gz"
-                self.log_info(f"Appended tarball suffix to {source_type} source: {source}")
-        elif hasattr(source, 'expr') and 'Get' in source.expr:
-            # Create a wrapped property reference that handles validation correctly
-            suffix = 'payload.tar.gz' if source_type == "payload" else 'model.tar.gz'
-            self.log_info(f"Creating wrapped Join expression with '{suffix}' for property reference")
-            source = self.TarballPathWrapper(source, suffix)
-        else:
-            self.log_warning(f"Unknown {source_type} source type: {type(source).__name__}. Cannot append .tar.gz suffix")
-        
-        return source
+    # No special handling needed since upstream steps now provide paths with .tar.gz suffix
 
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
@@ -223,8 +169,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             "/opt/ml/processing/input/model"  # Fallback if contract not available
         )
         
-        # Ensure model_source ends with .tar.gz
-        model_source = self._ensure_tarball_path(inputs[model_logical_name], "model")
+        # Use model source directly - upstream changes ensure it ends with .tar.gz
+        model_source = inputs[model_logical_name]
         
         self.log_info("Using source for '%s' directly without wrapper", model_logical_name)
         
@@ -247,8 +193,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 "/opt/ml/processing/mims_payload"  # Fallback if contract not available
             )
             
-            # Ensure payload_source ends with .tar.gz
-            payload_source = self._ensure_tarball_path(inputs[payload_logical_name], "payload")
+            # Use payload source directly - upstream changes ensure it ends with .tar.gz
+            payload_source = inputs[payload_logical_name]
             
             self.log_info("Using source for '%s' directly without wrapper", payload_logical_name)
             
@@ -297,8 +243,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         if model_logical_name not in inputs:
             raise ValueError(f"Required input '{model_logical_name}' not provided")
             
-        # Ensure model_source ends with .tar.gz
-        model_source = self._ensure_tarball_path(inputs[model_logical_name], "model")
+        # Use model source directly - upstream changes ensure it ends with .tar.gz
+        model_source = inputs[model_logical_name]
         self.log_info("Using source for '%s' directly without wrapper", model_logical_name)
         
         # Add model input as the first input (order matters)
@@ -316,8 +262,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         payload_keys = ["GeneratedPayloadSamples", "payload_s3_key", "payload_s3_uri"]
         for key in payload_keys:
             if key in inputs:
-                # Ensure payload_source ends with .tar.gz
-                payload_source = self._ensure_tarball_path(inputs[key], "payload")
+                # Use payload source directly - upstream changes ensure it ends with .tar.gz
+                payload_source = inputs[key]
                 self.log_info("Using source for '%s' directly without wrapper", key)
                     
                 ordered_processing_inputs.append(

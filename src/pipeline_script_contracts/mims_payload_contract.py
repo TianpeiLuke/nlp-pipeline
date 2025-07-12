@@ -13,7 +13,7 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
         "model_input": "/opt/ml/processing/input/model"
     },
     expected_output_paths={
-        "payload_sample": "/opt/ml/processing/output/payload_sample",
+        "payload_sample": "/opt/ml/processing/output/payload.tar.gz",
         "payload_metadata": "/opt/ml/processing/output/payload_metadata"
     },
     required_env_vars=[

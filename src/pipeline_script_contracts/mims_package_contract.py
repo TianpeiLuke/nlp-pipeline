@@ -14,7 +14,7 @@ MIMS_PACKAGE_CONTRACT = ScriptContract(
         "inference_scripts_input": "/opt/ml/processing/input/script"
     },
     expected_output_paths={
-        "packaged_model": "/opt/ml/processing/output"
+        "packaged_model": "/opt/ml/processing/output/model.tar.gz"
     },
     required_env_vars=[
         # No required environment variables for this script
