@@ -1,10 +1,17 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, TYPE_CHECKING
 from pathlib import Path
 import logging
 
 from .config_base import BasePipelineConfig
 from .hyperparameters_xgboost import XGBoostModelHyperparameters
+
+# Import the script contract
+from ..pipeline_script_contracts.hyperparameter_prep_contract import HYPERPARAMETER_PREP_CONTRACT
+
+# Import for type hints only
+if TYPE_CHECKING:
+    from ..pipeline_script_contracts.base_script_contract import ScriptContract
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +36,6 @@ class HyperparameterPrepConfig(BasePipelineConfig):
         pattern=r'^s3://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._-]+)*$'
     )
 
-    # Input/Output names
-    input_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {},
-        description="Mapping of input channel names to their descriptions."
-    )
-    
-    output_names: Optional[Dict[str, str]] = Field(
-        default_factory=lambda: {
-            "hyperparameters_s3_uri": "S3 URI to the hyperparameters JSON file"
-        },
-        description="Mapping of output channel names to their descriptions."
-    )
-
     # Lambda function timeout in seconds
     lambda_timeout: int = Field(
         default=60,
@@ -59,19 +53,14 @@ class HyperparameterPrepConfig(BasePipelineConfig):
         validate_assignment = True
 
     @model_validator(mode="after")
-    def validate_hyperparameters_and_channels(self) -> "HyperparameterPrepConfig":
-        """Validate hyperparameters and channel configurations."""
-
-        # Set default output names if None or empty
-        if not self.output_names:
-            self.output_names = {
-                "hyperparameters_s3_uri": "S3 URI to the hyperparameters JSON file"
-            }
-
-        # Validate required output channel
-        if "hyperparameters_s3_uri" not in self.output_names:
-            raise ValueError("output_names must contain key 'hyperparameters_s3_uri'")
-
+    def validate_hyperparameters(self) -> "HyperparameterPrepConfig":
+        """Validate hyperparameters."""
+        if not self.hyperparameters:
+            raise ValueError("hyperparameters must be provided and non-empty")
+            
+        if not self.hyperparameters_s3_uri:
+            raise ValueError("hyperparameters_s3_uri must be provided and non-empty")
+            
         return self
 
     @model_validator(mode='before')
@@ -92,3 +81,12 @@ class HyperparameterPrepConfig(BasePipelineConfig):
             )
 
         return values
+        
+    def get_script_contract(self) -> 'ScriptContract':
+        """
+        Get script contract for this configuration.
+        
+        Returns:
+            The hyperparameter preparation script contract
+        """
+        return HYPERPARAMETER_PREP_CONTRACT
