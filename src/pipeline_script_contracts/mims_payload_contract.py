@@ -13,8 +13,7 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
         "model_input": "/opt/ml/processing/input/model"
     },
     expected_output_paths={
-        "payload_sample": "/opt/ml/processing/output/payload.tar.gz",
-        "payload_metadata": "/opt/ml/processing/output/payload_metadata"
+        "payload_sample": "/opt/ml/processing/output/payload.tar.gz"
     },
     required_env_vars=[
         # No strictly required environment variables - script has defaults
@@ -34,15 +33,13 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
     1. Extracts hyperparameters from model artifacts (model.tar.gz or directory)
     2. Creates model variable list from field information
     3. Generates sample payloads in multiple formats (JSON, CSV)
-    4. Creates payload metadata for inference testing
-    5. Archives payload files for deployment
+    4. Archives payload files for deployment
     
     Input Structure:
     - /opt/ml/processing/input/model: Model artifacts containing hyperparameters.json
     
     Output Structure:
-    - /opt/ml/processing/output/payload_sample/: Sample payload files
-    - /opt/ml/processing/output/payload_metadata/: Payload metadata files
+    - /tmp/mims_payload_work/payload_sample/: Sample payload files (temporary)
     - /opt/ml/processing/output/payload.tar.gz: Archived payload files
     
     Environment Variables:

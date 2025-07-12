@@ -27,15 +27,26 @@ ENV_SPECIAL_FIELD_PREFIX = "SPECIAL_FIELD_"
 
 # Fixed input/output directories
 INPUT_MODEL_DIR = "/opt/ml/processing/input/model"
-OUTPUT_DIR = "/opt/ml/processing/output"
-PAYLOAD_SAMPLE_DIR = os.path.join(OUTPUT_DIR, "payload_sample")
-PAYLOAD_METADATA_DIR = os.path.join(OUTPUT_DIR, "payload_metadata")
-WORKING_DIRECTORY = "/tmp/mims_payload_work"
+OUTPUT_DIR = Path("/opt/ml/processing/output")
+WORKING_DIRECTORY = Path("/tmp/mims_payload_work")
+PAYLOAD_SAMPLE_DIR = WORKING_DIRECTORY / "payload_sample"
 
 class VariableType(str, Enum):
     """Type of variable in model input/output"""
     NUMERIC = "NUMERIC"
     TEXT = "TEXT"
+
+def ensure_directory(directory_path):
+    """Ensure a directory exists, creating it if necessary."""
+    try:
+        if isinstance(directory_path, str):
+            directory_path = Path(directory_path)
+        directory_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Directory ensured: {directory_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create directory {directory_path}: {str(e)}")
+        return False
 
 def create_model_variable_list(
     full_field_list: List[str],
@@ -368,16 +379,47 @@ def create_payload_archive(payload_files: List[str]) -> str:
         Path to the created archive
     """
     # Create archive in the output directory
-    archive_path = os.path.join(OUTPUT_DIR, "payload.tar.gz")
+    archive_path = Path(OUTPUT_DIR) / "payload.tar.gz"
     
-    with tarfile.open(archive_path, "w:gz") as tar:
-        # Add payload files
-        for file_path in payload_files:
-            # Add file to archive with basename as name
-            tar.add(file_path, arcname=os.path.basename(file_path))
+    # Ensure parent directory exists (but not the actual archive path)
+    ensure_directory(archive_path.parent)
     
-    logger.info(f"Created payload archive: {archive_path}")
-    return archive_path
+    # Log archive creation
+    logger.info(f"Creating payload archive at: {archive_path}")
+    logger.info(f"Including {len(payload_files)} payload files")
+    
+    try:
+        total_size = 0
+        files_added = 0
+        
+        with tarfile.open(str(archive_path), "w:gz") as tar:
+            for file_path in payload_files:
+                # Add file to archive with basename as name
+                file_name = os.path.basename(file_path)
+                size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                total_size += size_mb
+                files_added += 1
+                logger.info(f"Adding to tar: {file_name} ({size_mb:.2f}MB)")
+                tar.add(file_path, arcname=file_name)
+        
+        logger.info(f"Tar creation summary:")
+        logger.info(f"  Files added: {files_added}")
+        logger.info(f"  Total uncompressed size: {total_size:.2f}MB")
+        
+        # Verify archive was created
+        if archive_path.exists() and archive_path.is_file():
+            compressed_size = archive_path.stat().st_size / (1024 * 1024)
+            logger.info(f"Successfully created payload archive: {archive_path}")
+            logger.info(f"  Compressed tar size: {compressed_size:.2f}MB")
+            logger.info(f"  Compression ratio: {compressed_size/total_size:.2%}")
+        else:
+            logger.error(f"Archive creation failed - file does not exist: {archive_path}")
+            
+        return str(archive_path)
+        
+    except Exception as e:
+        logger.error(f"Error creating payload archive: {str(e)}", exc_info=True)
+        raise
 
 def main():
     """Main entry point for the script."""
@@ -409,9 +451,10 @@ def main():
     pipeline_version = hyperparams.get('pipeline_version', '1.0.0')
     model_objective = hyperparams.get('model_registration_objective', None)
     
-    # Create output directories
-    os.makedirs(PAYLOAD_SAMPLE_DIR, exist_ok=True)
-    os.makedirs(PAYLOAD_METADATA_DIR, exist_ok=True)
+    # Ensure working and output directories exist
+    ensure_directory(WORKING_DIRECTORY)
+    ensure_directory(OUTPUT_DIR)
+    ensure_directory(PAYLOAD_SAMPLE_DIR)
     
     # Generate and save payloads to the sample directory
     payload_file_paths = save_payloads(
@@ -423,25 +466,12 @@ def main():
         special_field_values
     )
     
-    # Save metadata about the payloads to metadata directory
-    metadata = {
-        'input_var_list': var_type_list,
-        'content_types': content_types,
-        'pipeline_name': pipeline_name,
-        'pipeline_version': pipeline_version,
-        'model_objective': model_objective
-    }
-    
-    metadata_file_path = os.path.join(PAYLOAD_METADATA_DIR, 'payload_metadata.json')
-    with open(metadata_file_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
     
     # Create tar.gz archive of only payload files (not metadata)
     archive_path = create_payload_archive(payload_file_paths)
     
     logger.info(f"MIMS payload generation complete.")
     logger.info(f"Payload files saved to: {PAYLOAD_SAMPLE_DIR}")
-    logger.info(f"Metadata files saved to: {PAYLOAD_METADATA_DIR}")
     logger.info(f"Payload archive saved to: {archive_path}")
 
 if __name__ == '__main__':
