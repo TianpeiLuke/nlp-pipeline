@@ -13,7 +13,7 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
         "model_input": "/opt/ml/processing/input/model"
     },
     expected_output_paths={
-        "payload_sample": "/opt/ml/processing/output/payload.tar.gz"
+        "payload_sample": "/opt/ml/processing/output"
     },
     required_env_vars=[
         # No strictly required environment variables - script has defaults
@@ -40,7 +40,7 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
     
     Output Structure:
     - /tmp/mims_payload_work/payload_sample/: Sample payload files (temporary)
-    - /opt/ml/processing/output/payload.tar.gz: Archived payload files
+    - /opt/ml/processing/output/: Output directory containing payload.tar.gz file
     
     Environment Variables:
     - CONTENT_TYPES: Comma-separated list of content types (default: "application/json")
