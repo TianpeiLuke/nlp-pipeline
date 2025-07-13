@@ -21,7 +21,7 @@ Adding a new step to the pipeline involves creating several components that work
 
 First, register your step in the central step registry:
 
-**File to Update**: `src/v2/pipeline_registry/step_names.py`
+**File to Update**: `src/pipeline_registry/step_names.py`
 
 ```python
 STEP_NAMES = {
@@ -42,7 +42,7 @@ This registration connects your step's components together and makes them discov
 
 Create a configuration class to hold all parameters needed for your step:
 
-**Create New File**: `src/v2/pipeline_steps/config_your_new_step.py`
+**Create New File**: `src/pipeline_steps/config_your_new_step.py`
 
 ```python
 from .config_base import BasePipelineConfig
@@ -97,7 +97,7 @@ The configuration class should include:
 
 Define the contract between your script and the SageMaker environment:
 
-**Create New File**: `src/v2/pipeline_script_contracts/your_new_step_contract.py`
+**Create New File**: `src/pipeline_script_contracts/your_new_step_contract.py`
 
 ```python
 from pydantic import BaseModel
@@ -146,7 +146,7 @@ The script contract defines:
 
 Define how your step connects with others in the pipeline:
 
-**Create New File**: `src/v2/pipeline_step_specs/your_new_step_spec.py`
+**Create New File**: `src/pipeline_step_specs/your_new_step_spec.py`
 
 ```python
 from typing import Dict, List, Optional
@@ -225,7 +225,7 @@ The step specification defines:
 
 Implement the builder that creates the SageMaker step:
 
-**Create New File**: `src/v2/pipeline_steps/builder_your_new_step.py`
+**Create New File**: `src/pipeline_steps/builder_your_new_step.py`
 
 ```python
 from typing import Dict, List, Any, Optional
@@ -344,14 +344,14 @@ The step builder:
 
 Make your components discoverable by updating registry files:
 
-#### Update `src/v2/pipeline_steps/__init__.py` to expose your builder:
+#### Update `src/pipeline_steps/__init__.py` to expose your builder:
 
 ```python
 # Add to existing imports
 from .builder_your_new_step import YourNewStepBuilder
 ```
 
-#### Update `src/v2/pipeline_step_specs/__init__.py` to expose your specification:
+#### Update `src/pipeline_step_specs/__init__.py` to expose your specification:
 
 ```python
 # Add to existing imports
@@ -362,16 +362,16 @@ from .your_new_step_spec import YOUR_NEW_STEP_SPEC
 
 Implement tests to verify your components work correctly:
 
-**Create New File**: `test/v2/pipeline_steps/test_builder_your_new_step.py`
+**Create New File**: `test/pipeline_steps/test_builder_your_new_step.py`
 
 ```python
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.v2.pipeline_steps.builder_your_new_step import YourNewStepBuilder
-from src.v2.pipeline_steps.config_your_new_step import YourNewStepConfig
-from src.v2.pipeline_step_specs.your_new_step_spec import YOUR_NEW_STEP_SPEC
-from src.v2.pipeline_deps.base_specifications import NodeType, DependencyType
+from src.pipeline_steps.builder_your_new_step import YourNewStepBuilder
+from src.pipeline_steps.config_your_new_step import YourNewStepConfig
+from src.pipeline_step_specs.your_new_step_spec import YOUR_NEW_STEP_SPEC
+from src.pipeline_deps.base_specifications import NodeType, DependencyType
 
 class TestYourNewStepBuilder(unittest.TestCase):
     def setUp(self):
@@ -423,7 +423,7 @@ class TestYourNewStepBuilder(unittest.TestCase):
         self.assertEqual(env_vars["REQUIRED_PARAM_1"], "value1")
         self.assertEqual(env_vars["REQUIRED_PARAM_2"], "42")
     
-    @patch('src.v2.pipeline_steps.builder_your_new_step.YourNewStepBuilder._get_processor')
+    @patch('src.pipeline_steps.builder_your_new_step.YourNewStepBuilder._get_processor')
     def test_create_step(self, mock_get_processor):
         """Test step creation with dependencies."""
         # Mock dependencies
@@ -440,13 +440,13 @@ class TestYourNewStepBuilder(unittest.TestCase):
         mock_processor.run.assert_called_once()
 ```
 
-**Create New File**: `test/v2/pipeline_step_specs/test_your_new_step_spec.py`
+**Create New File**: `test/pipeline_step_specs/test_your_new_step_spec.py`
 
 ```python
 import unittest
 
-from src.v2.pipeline_step_specs.your_new_step_spec import YOUR_NEW_STEP_SPEC
-from src.v2.pipeline_deps.base_specifications import ValidationResult
+from src.pipeline_step_specs.your_new_step_spec import YOUR_NEW_STEP_SPEC
+from src.pipeline_deps.base_specifications import ValidationResult
 
 class TestYourNewStepSpec(unittest.TestCase):
     def test_contract_alignment(self):
@@ -479,7 +479,7 @@ class TestYourNewStepSpec(unittest.TestCase):
 
 Finally, make your step usable in pipeline templates:
 
-**File to Update**: `src/v2/pipeline_builder/template_pipeline_your_template.py`
+**File to Update**: `src/pipeline_builder/template_pipeline_your_template.py`
 
 ```python
 # Add your step to the template's DAG creation

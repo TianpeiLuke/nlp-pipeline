@@ -27,11 +27,32 @@ The developer guide is organized into several interconnected documents:
 - **[Design Principles](design_principles.md)** - Core design principles to follow
 - **[Best Practices](best_practices.md)** - Recommended best practices for development
 - **[Common Pitfalls](common_pitfalls.md)** - Common mistakes to avoid
+- **[Alignment Rules](alignment_rules.md)** - Centralized alignment guidance across scripts, specifications, and builders
 - **[Validation Checklist](validation_checklist.md)** - Comprehensive checklist for validating implementations
 
 ### Examples
 
 - **[Example Implementation](example.md)** - Complete example of adding a new pipeline step
+
+## Quick Start Summary
+
+**New to pipeline development?** Follow this rapid orientation:
+
+1. **Understand the Architecture**: Four layers work together - Scripts → Contracts → Specifications → Builders
+2. **Check Prerequisites**: Ensure you have step requirements and understand the business logic
+3. **Follow the Process**: Register step → Create config → Develop contract → Build specification → Implement builder → Test
+4. **Key Decision Points**:
+   - What inputs/outputs does your step need?
+   - What SageMaker step type (Processing, Training, Transform)?
+   - What job type variants (training, calibration, validation)?
+5. **Essential Files to Create**:
+   - `config_your_step.py` (configuration)
+   - `your_step_contract.py` (script contract)
+   - `your_step_spec.py` (step specification)
+   - `builder_your_step.py` (step builder)
+6. **Validation**: Use alignment rules and validation checklist before integration
+
+**Experienced developers?** Jump to [Creation Process](creation_process.md) for the step-by-step procedure.
 
 ## Recommended Reading Order
 

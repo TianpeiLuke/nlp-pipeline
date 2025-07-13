@@ -14,7 +14,7 @@ input_path = "/opt/ml/processing/input/data"  # Hardcoded path
 output_path = "/opt/ml/processing/output/results"  # Hardcoded path
 ```
 
-**Solution**: Use the script contract to get paths.
+**Solution**: Use the script contract to get paths. See [Script Contract Development](script_contract.md) for details.
 
 ```python
 # CORRECT ✅
@@ -149,7 +149,7 @@ dependencies={
 }
 ```
 
-**Solution**: Use consistent logical names across contract and specification.
+**Solution**: Use consistent logical names across contract and specification. See [Alignment Rules](alignment_rules.md) for detailed guidance.
 
 ```python
 # CORRECT ✅
@@ -537,7 +537,7 @@ def _get_inputs(self, inputs):
     ]
 ```
 
-**Solution**: Use specification-driven methods.
+**Solution**: Use specification-driven methods. See [Step Builder Implementation](step_builder.md) for details.
 
 ```python
 # CORRECT ✅

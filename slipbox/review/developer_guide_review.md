@@ -92,4 +92,5 @@ The guide is organized into the following primary sections:
 - [Best Practices](../developer_guide/best_practices.md)  
 - [Common Pitfalls](../developer_guide/common_pitfalls.md)  
 - [Validation Checklist](../developer_guide/validation_checklist.md)  
+- [Alignment Rules](../developer_guide/alignment_rules.md)  
 - [Example Implementation](../developer_guide/example.md)

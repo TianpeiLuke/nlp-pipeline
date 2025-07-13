@@ -26,8 +26,9 @@ Our pipeline architecture follows a specification-driven approach with a four-la
 4. [Design Principles](design_principles.md)
 5. [Best Practices](best_practices.md)
 6. [Common Pitfalls to Avoid](common_pitfalls.md)
-7. [Example](example.md)
-8. [Validation Checklist](validation_checklist.md)
+7. [Alignment Rules](alignment_rules.md)
+8. [Example](example.md)
+9. [Validation Checklist](validation_checklist.md)
 
 ## Quick Start
 
