@@ -326,21 +326,26 @@ model_file = os.path.join(model_dir, "model.tar.gz")
 )
 ```
 
-**Solution**: Use standard property path formats.
+**Solution**: Use standard property path formats based on step type.
 
 ```python
 # CORRECT ✅
+# For Processing Steps - use the logical name in the path
+"processed_data": OutputSpec(
+    logical_name="processed_data",
+    property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri"  # Note: 'processed_data' matches logical_name
+    # ...
+)
+
+# For Training Steps - model artifacts
 "model_output": OutputSpec(
     logical_name="model_output",
     property_path="properties.ModelArtifacts.S3ModelArtifacts"  # Correct format for model artifacts
     # ...
 )
 
-"processed_data": OutputSpec(
-    logical_name="processed_data",
-    property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri"  # Correct format for processing output
-    # ...
-)
+# Key Rule: For Processing Steps, the property path must include the logical name:
+# properties.ProcessingOutputConfig.Outputs['<logical_name>'].S3Output.S3Uri
 ```
 
 ### 3. Mismatch Between NodeType and Dependencies/Outputs
