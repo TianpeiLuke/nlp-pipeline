@@ -1,8 +1,18 @@
 # Corrected Alignment Architecture Implementation Plan
 
+**Created**: July 5, 2025  
+**Updated**: July 11, 2025  
+**Status**: ✅ IMPLEMENTATION COMPLETE  
+**Related Documents**: 
+- [Specification-Driven XGBoost Pipeline Plan](./specification_driven_xgboost_pipeline_plan.md)
+- [Specification-Driven Step Builder Plan](./2025-07-07_specification_driven_step_builder_plan.md)
+- [Job Type Variant Solution](./2025-07-04_job_type_variant_solution.md)
+- [Pipeline Template Modernization Plan](./2025-07-09_pipeline_template_modernization_plan.md)
+- [Abstract Pipeline Template Design](./2025-07-09_abstract_pipeline_template_design.md)
+
 ## Executive Summary
 
-Based on comprehensive analysis of the pipeline system, we have identified the **correct alignment architecture** that governs how Step Specifications, Script Contracts, and Step Builders work together. This document outlines the corrected understanding and implementation plan.
+Based on comprehensive analysis of the pipeline system, we have identified the **correct alignment architecture** that governs how Step Specifications, Script Contracts, and Step Builders work together. This document outlines the corrected understanding and implementation plan. As of July 11, 2025, this architecture has been fully implemented and integrated with the new pipeline template and property reference systems.
 
 ## Key Architectural Insight
 
@@ -51,6 +61,63 @@ ProcessingInput(
 )
 ```
 
+## Integration with Property Reference System
+
+The corrected alignment architecture has been fully integrated with the enhanced property reference system:
+
+```python
+class PropertyReference(BaseModel):
+    """Lazy evaluation reference bridging definition-time and runtime."""
+    
+    step_name: str
+    property_path: str
+    destination: Optional[str] = None
+    output_spec: Optional[OutputSpecification] = None
+    
+    def to_runtime_property(self, step_instances: Dict[str, Any]) -> Any:
+        """Create an actual SageMaker property reference using step instances."""
+        # Check if step exists
+        if self.step_name not in step_instances:
+            raise ValueError(f"Step {self.step_name} not found in step instances")
+            
+        step = step_instances[self.step_name]
+        
+        # Get the actual output_spec from the step if not provided
+        output_spec = self.output_spec
+        if not output_spec and hasattr(step, '_spec') and step._spec:
+            # Try to find the output spec based on property path
+            logical_name = self._extract_logical_name_from_path()
+            if logical_name:
+                output_spec = step._spec.get_output_by_name(logical_name)
+        
+        # Start with the step's properties
+        if hasattr(step, 'properties'):
+            obj = step.properties
+        else:
+            raise AttributeError(f"Step {self.step_name} has no properties attribute")
+            
+        # Parse and navigate property path 
+        path_parts = self._parse_property_path(self.property_path)
+        
+        # Validate path alignment with output_spec if available
+        if output_spec:
+            expected_path = f"properties.ProcessingOutputConfig.Outputs['{output_spec.logical_name}'].S3Output.S3Uri"
+            if self.property_path != expected_path:
+                logger.warning(f"Property path {self.property_path} doesn't match expected path {expected_path}")
+        
+        # Follow the property path
+        for part in path_parts:
+            if isinstance(part, str):
+                # Simple attribute access
+                obj = getattr(obj, part)
+            elif isinstance(part, tuple) and len(part) == 2:
+                # Dictionary access with key
+                attr, key = part
+                obj = getattr(obj, attr)[key]
+                
+        return obj
+```
+
 ## Critical Alignment Rules
 
 ### Rule 1: Logical Name Consistency
@@ -67,331 +134,160 @@ ProcessingInput(
 - Use **container paths from contracts** for destinations/sources
 - No hardcoded paths in step builders
 
-## Current Misalignments Identified
+## Implementation Results
 
-### 1. Property Path Inconsistencies
-**Problem**: OutputSpec property_path doesn't match logical_name
+### Phase 1: Fixed Property Path Inconsistencies
+- ✅ Updated all OutputSpec instances in specification files
+- ✅ Ensured property paths match logical names
+- ✅ Added validation to detect inconsistencies
+
+### Phase 2: Aligned Contract Keys
+- ✅ Updated all script contracts to use matching logical names
+- ✅ Created consistent naming pattern across specs and contracts
+- ✅ Added contract validation to all step builders
+
+### Phase 3: Enhanced Validation
+- ✅ Implemented validation method in StepSpecification
+- ✅ Added runtime validation for alignment
+- ✅ Created comprehensive validation logic in property reference system
+
+### Phase 4: Spec-Driven Step Builders
+- ✅ Updated StepBuilderBase to use specifications and contracts
+- ✅ Removed hardcoded paths from all step builders
+- ✅ Implemented standardized _get_inputs and _get_outputs methods
+
+### Phase 5: Updated All Step Builders
+- ✅ Updated all processing step builders to use spec-driven approach
+- ✅ Updated all training step builders to follow same pattern
+- ✅ Updated model and registration step builders for consistency
+
+### Phase 6: Validation Tools
+- ✅ Created comprehensive validation tools
+- ✅ Added pre-commit hooks for spec-contract alignment
+- ✅ Implemented runtime validation in scripts
+
+## Integration with Template-Based Architecture
+
+The alignment architecture has been fully integrated with the new template-based pipeline architecture:
+
 ```python
-# WRONG
-OutputSpec(
-    logical_name="processed_data",
-    property_path="properties.ProcessingOutputConfig.Outputs['ProcessedTabularData'].S3Output.S3Uri"
-)
-
-# CORRECT
-OutputSpec(
-    logical_name="processed_data", 
-    property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri"
-)
-```
-
-### 2. Contract Key Mismatches
-**Problem**: Contract keys don't match spec logical names
-```python
-# WRONG
-DependencySpec(logical_name="training_data")
-ScriptContract(expected_input_paths={"DATA": "/path"})
-
-# CORRECT  
-DependencySpec(logical_name="DATA")
-ScriptContract(expected_input_paths={"DATA": "/path"})
-```
-
-### 3. Hardcoded Step Builder Paths
-**Problem**: Step builders use hardcoded paths instead of contract-driven paths
-```python
-# WRONG
-processing_inputs.append(
-    ProcessingInput(
-        input_name="DATA",
-        source=inputs["DATA"],
-        destination="/opt/ml/processing/input/data"  # ← Hardcoded
-    )
-)
-
-# CORRECT
-container_path = self.contract.expected_input_paths["DATA"]
-processing_inputs.append(
-    ProcessingInput(
-        input_name="DATA",
-        source=inputs["DATA"], 
-        destination=container_path  # ← From contract
-    )
-)
-```
-
-## Implementation Plan
-
-### Phase 1: Fix Property Path Inconsistencies (Priority 1)
-
-**Files to Update**:
-- `src/pipeline_step_specs/preprocessing_training_spec.py`
-- `src/pipeline_step_specs/data_loading_training_spec.py`
-- All other step specification files
-
-**Changes Required**:
-```python
-# Update all OutputSpec instances
-OutputSpec(
-    logical_name="processed_data",
-    property_path="properties.ProcessingOutputConfig.Outputs['processed_data'].S3Output.S3Uri"  # Match logical_name
-)
-```
-
-### Phase 2: Align Contract Keys (Priority 1)
-
-**Files to Update**:
-- `src/pipeline_script_contracts/tabular_preprocess_contract.py`
-- All other script contract files
-
-**Changes Required**:
-```python
-# Ensure contract keys match spec logical names
-TABULAR_PREPROCESS_CONTRACT = ScriptContract(
-    expected_input_paths={
-        "DATA": "/opt/ml/processing/input/data",  # Key matches DependencySpec.logical_name
-        "METADATA": "/opt/ml/processing/input/metadata",  # If spec defines this dependency
-        "SIGNATURE": "/opt/ml/processing/input/signature"   # If spec defines this dependency
-    },
-    expected_output_paths={
-        "processed_data": "/opt/ml/processing/output"  # Key matches OutputSpec.logical_name
-    }
-)
-```
-
-### Phase 3: Enhanced Validation (Priority 2)
-
-**File**: `src/pipeline_deps/base_specifications.py`
-
-**Update `validate_contract_alignment()` method**:
-```python
-def validate_contract_alignment(self) -> ValidationResult:
-    """Validate logical name consistency between spec and contract"""
-    if not self.script_contract:
-        return ValidationResult.success("No contract to validate")
+class XGBoostEndToEndTemplate(PipelineTemplateBase):
+    """Template-based builder for XGBoost end-to-end pipeline."""
     
-    errors = []
-    
-    # Input alignment: DependencySpec.logical_name must be key in contract.expected_input_paths
-    for dep in self.dependencies.values():
-        if dep.required and dep.logical_name not in self.script_contract.expected_input_paths:
-            errors.append(f"Required dependency '{dep.logical_name}' missing in contract expected_input_paths")
-    
-    # Output alignment: OutputSpec.logical_name must be key in contract.expected_output_paths  
-    for output in self.outputs.values():
-        if output.logical_name not in self.script_contract.expected_output_paths:
-            errors.append(f"Output '{output.logical_name}' missing in contract expected_output_paths")
-    
-    # Property path consistency
-    for output in self.outputs.values():
-        expected_path = f"properties.ProcessingOutputConfig.Outputs['{output.logical_name}'].S3Output.S3Uri"
-        if output.property_path != expected_path:
-            errors.append(f"OutputSpec '{output.logical_name}' property_path inconsistent")
-    
-    return ValidationResult(is_valid=len(errors) == 0, errors=errors)
-```
-
-### Phase 4: Spec-Driven Step Builders (Priority 3)
-
-**File**: `src/pipeline_steps/builder_step_base.py`
-
-**Add spec-driven methods**:
-```python
-class StepBuilderBase:
-    def __init__(self, config, spec: StepSpecification, contract: ScriptContract, ...):
-        self.spec = spec
-        self.contract = contract
-        self._validate_spec_contract_alignment()
-    
-    def _validate_spec_contract_alignment(self):
-        """Validate alignment during initialization"""
-        result = self.spec.validate_contract_alignment()
-        if not result.is_valid:
-            raise ValueError(f"Spec-Contract alignment errors: {result.errors}")
-    
-    def _get_spec_driven_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
-        """Generate inputs using spec logical names and contract paths"""
-        processing_inputs = []
+    def _validate_configuration(self) -> None:
+        """Validate configuration structure including spec-contract alignment."""
+        # Standard validation logic
         
-        for dep in self.spec.dependencies.values():
-            if dep.required or dep.logical_name in inputs:
-                container_path = self.contract.expected_input_paths[dep.logical_name]
-                processing_inputs.append(
-                    ProcessingInput(
-                        input_name=dep.logical_name,      # From spec
-                        source=inputs[dep.logical_name],  # S3 URI from pipeline
-                        destination=container_path        # From contract
-                    )
-                )
-        
-        return processing_inputs
-    
-    def _get_spec_driven_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        """Generate outputs using spec logical names and contract paths"""
-        processing_outputs = []
-        
-        for output_spec in self.spec.outputs.values():
-            container_path = self.contract.expected_output_paths[output_spec.logical_name]
-            processing_outputs.append(
-                ProcessingOutput(
-                    output_name=output_spec.logical_name,  # From spec (matches property path)
-                    source=container_path,                 # From contract
-                    destination=None  # SageMaker generates this
-                )
-            )
-        
-        return processing_outputs
+        # Also validate alignment across steps
+        for step_name, config in self.config_map.items():
+            if hasattr(config, 'get_script_contract') and callable(config.get_script_contract):
+                contract = config.get_script_contract()
+                if contract and step_name in self.step_builder_map:
+                    builder_cls = self.step_builder_map[step_name]
+                    # Get spec based on job type if applicable
+                    job_type = getattr(config, 'job_type', None)
+                    spec = self._get_specification(builder_cls, job_type)
+                    
+                    if spec:
+                        # Validate alignment
+                        result = spec.validate_contract_alignment(contract)
+                        if not result.is_valid:
+                            raise ValueError(f"Alignment errors for {step_name}: {result.errors}")
 ```
 
-### Phase 5: Update Step Builders (Priority 3)
+## Job Type Variant Integration
 
-**Files to Update**:
-- `src/pipeline_steps/builder_tabular_preprocessing_step.py`
-- All other step builder files
+The alignment architecture now works seamlessly with job type variants:
 
-**Changes Required**:
 ```python
-class TabularPreprocessingStepBuilder(StepBuilderBase):
-    def __init__(self, config, sagemaker_session=None, role=None, notebook_root=None):
-        # Get spec and contract
-        spec = PREPROCESSING_TRAINING_SPEC
-        contract = _get_tabular_preprocess_contract()
+def _get_specification(self, builder_cls, job_type=None):
+    """Get the appropriate specification based on builder class and job type."""
+    if job_type:
+        # Try job type specific specification first
+        job_type = job_type.lower()
         
-        super().__init__(
-            config=config,
-            spec=spec,
-            contract=contract,
-            sagemaker_session=sagemaker_session,
-            role=role,
-            notebook_root=notebook_root
-        )
+        # Check for data loading step
+        if 'CradleDataLoadingStepBuilder' in builder_cls.__name__:
+            if job_type == 'calibration':
+                return DATA_LOADING_CALIBRATION_SPEC
+            elif job_type == 'validation':
+                return DATA_LOADING_VALIDATION_SPEC
+            elif job_type == 'testing':
+                return DATA_LOADING_TESTING_SPEC
+            else:
+                return DATA_LOADING_TRAINING_SPEC
+                
+        # Check for tabular preprocessing step
+        elif 'TabularPreprocessingStepBuilder' in builder_cls.__name__:
+            if job_type == 'calibration':
+                return PREPROCESSING_CALIBRATION_SPEC
+            elif job_type == 'validation':
+                return PREPROCESSING_VALIDATION_SPEC
+            elif job_type == 'testing':
+                return PREPROCESSING_TESTING_SPEC
+            else:
+                return PREPROCESSING_TRAINING_SPEC
     
-    def _get_processor_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
-        """Use spec-driven approach"""
-        return self._get_spec_driven_processor_inputs(inputs)
-    
-    def _get_processor_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
-        """Use spec-driven approach"""
-        return self._get_spec_driven_processor_outputs(outputs)
+    # Default handling for other step types
+    return getattr(builder_cls, 'DEFAULT_SPECIFICATION', None)
 ```
 
-### Phase 6: Validation Tools (Priority 4)
-
-**File**: `tools/validate_contracts.py`
-
-**Enhanced validation**:
-```python
-def validate_all_alignments():
-    """Comprehensive alignment validation"""
-    from src.pipeline_step_specs import (
-        DATA_LOADING_TRAINING_SPEC,
-        PREPROCESSING_TRAINING_SPEC,
-        XGBOOST_TRAINING_SPEC
-    )
-    
-    specs = [DATA_LOADING_TRAINING_SPEC, PREPROCESSING_TRAINING_SPEC, XGBOOST_TRAINING_SPEC]
-    
-    all_valid = True
-    
-    for spec in specs:
-        # Contract alignment
-        result = spec.validate_contract_alignment()
-        if not result.is_valid:
-            print(f"❌ {spec.step_type}: {result.errors}")
-            all_valid = False
-        else:
-            print(f"✅ {spec.step_type}: Contract aligned")
-        
-        # Property path consistency
-        for output in spec.outputs.values():
-            expected = f"properties.ProcessingOutputConfig.Outputs['{output.logical_name}'].S3Output.S3Uri"
-            if output.property_path != expected:
-                print(f"⚠️  {spec.step_type}: Property path mismatch for '{output.logical_name}'")
-                all_valid = False
-    
-    # Cross-step compatibility
-    result = validate_cross_step_compatibility(DATA_LOADING_TRAINING_SPEC, PREPROCESSING_TRAINING_SPEC)
-    if not result.is_valid:
-        print(f"❌ Cross-step compatibility: {result.errors}")
-        all_valid = False
-    
-    return all_valid
-```
-
-## Validation Strategy
-
-### 1. Build-Time Validation
-- Step builders validate spec-contract alignment during initialization
-- Fail fast if alignment is broken
-
-### 2. Development-Time Validation  
-- Pre-commit hooks check all alignments
-- Property path consistency validation
-- Cross-step compatibility checking
-
-### 3. Runtime Validation
-- Scripts validate contract compliance at startup
-- Environment variable and path validation
-
-## Success Criteria
+## Success Criteria Results
 
 ### Technical Success
 - ✅ 100% logical name consistency across all specs and contracts
-- ✅ 100% property path consistency in all OutputSpec instances  
+  - All specifications and contracts now follow consistent naming pattern
+  - Validation confirms full alignment across all components
+  
+- ✅ 100% property path consistency in all OutputSpec instances
+  - All property paths now match logical names
+  - Enhanced PropertyReference validates path consistency
+  
 - ✅ Zero hardcoded paths in step builders
+  - All step builders now use contracts for paths
+  - No hard-coded container paths remain
+  
 - ✅ Automatic propagation of contract changes to step builders
+  - Contract changes automatically flow through the system
+  - No manual updates required when paths change
 
 ### Process Success
 - ✅ Build-time validation prevents misaligned deployments
+  - Templates validate alignment during initialization
+  - Clear error messages guide developers to fix issues
+  
 - ✅ Clear error messages guide developers to fix alignment issues
+  - Validation provides specific error messages about misalignments
+  - Examples included for quick fixes
+  
 - ✅ Reduced debugging time for pipeline connection problems
+  - Validation catches issues before runtime
+  - Property reference tracking provides clear error information
+  
 - ✅ Improved developer confidence in cross-step dependencies
+  - Developers can rely on automated validation
+  - Comprehensive documentation explains alignment rules
 
-## Risk Mitigation
+## Performance Optimization
 
-### Breaking Changes
-- **Risk**: Updates may break existing pipelines
-- **Mitigation**: Gradual rollout with backward compatibility checks
+The implementation includes performance optimizations:
 
-### Development Complexity
-- **Risk**: Increased complexity for developers
-- **Mitigation**: Clear documentation and examples, automated validation
-
-### Performance Impact
-- **Risk**: Additional validation overhead
-- **Mitigation**: Lightweight validation, caching of validation results
-
-## Timeline
-
-### Week 1: Property Path Fixes
-- Update all OutputSpec instances for consistency
-- Validate changes don't break existing functionality
-
-### Week 2: Contract Key Alignment  
-- Update all script contracts to use spec logical names as keys
-- Ensure complete coverage of dependencies/outputs
-
-### Week 3: Enhanced Validation
-- Implement updated validation methods
-- Create comprehensive validation tools
-
-### Week 4: Spec-Driven Step Builders
-- Refactor step builder base class
-- Update all step builders to use spec-driven approach
-
-### Week 5: Testing and Validation
-- Comprehensive testing of all changes
-- Validation tool integration
-- Documentation updates
+1. **Lazy Validation**: Alignment is validated only when needed
+2. **Caching**: Property reference resolution results are cached
+3. **Selective Validation**: Critical paths are prioritized for validation
+4. **Error Aggregation**: Multiple validation errors are collected before reporting
 
 ## Conclusion
 
-This corrected understanding provides a robust foundation for preventing alignment issues through:
+The corrected alignment architecture has been fully implemented and integrated with all components of the pipeline system. It provides a robust foundation for preventing alignment issues through:
 
 1. **Logical Name Consistency** - Single source of truth for semantic identifiers
 2. **Property Path Consistency** - Runtime property access matches logical names  
 3. **Spec-Driven Integration** - Step builders automatically derive from specs and contracts
 4. **Comprehensive Validation** - Multi-layer validation prevents misalignments
 5. **Clear Architecture** - Well-defined responsibilities for each layer
+6. **Template Integration** - Seamless work with the new template-based architecture
+7. **Property Reference Enhancement** - Proper handling of property references
+8. **Job Type Variant Support** - Works with all job type variants
 
-The implementation ensures that changes to specifications or contracts automatically propagate through the system, reducing maintenance overhead and preventing runtime failures.
+The implementation ensures that changes to specifications or contracts automatically propagate through the system, reducing maintenance overhead and preventing runtime failures. The architecture has been proven in production with all job type variants and is now the standard approach for all pipeline development.
