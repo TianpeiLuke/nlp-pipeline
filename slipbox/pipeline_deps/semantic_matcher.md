@@ -1,23 +1,18 @@
 # Semantic Matcher
 
 ## Overview
-The Semantic Matcher provides intelligent dependency resolution through semantic similarity algorithms. It calculates similarity between dependency names and output names to enable automatic matching of compatible pipeline components, even when names don't match exactly.
+The Semantic Matcher provides intelligent name matching for pipeline dependency resolution. It calculates similarity between dependency names and output names, enabling automatic matching of compatible pipeline components even when names don't exactly match. This allows for more flexible and robust pipeline construction with minimal manual configuration.
 
 ## Core Functionality
 
-### Similarity Calculation
-- **Multi-Metric Scoring** - Combines string, token, semantic, and substring similarity
-- **Weighted Scoring** - Balances different similarity aspects with configurable weights
-- **Normalization** - Standardizes names for consistent comparison
-- **Threshold Filtering** - Filters matches based on minimum similarity scores
+### Key Features
+- **Multi-dimensional Similarity Scoring**: Combines multiple metrics to determine name similarity
+- **Domain-specific Synonym Recognition**: Understands pipeline-specific terminology relationships 
+- **Abbreviation Expansion**: Automatically expands common abbreviations for better matching
+- **Stop Word Filtering**: Removes noise words to focus on meaningful terms
+- **Detailed Explanation**: Provides transparency into similarity calculations
 
-### Semantic Intelligence
-- **Synonym Recognition** - Matches conceptually similar terms
-- **Abbreviation Expansion** - Expands common abbreviations for better matching
-- **Stop Word Filtering** - Removes noise words that don't contribute to meaning
-- **Domain-Specific Vocabulary** - Pipeline-specific synonym dictionaries
-
-## Key Classes
+## Key Components
 
 ### SemanticMatcher
 Main class that provides semantic similarity calculation and matching.
@@ -28,56 +23,204 @@ class SemanticMatcher:
         """Initialize the semantic matcher with common patterns."""
         
     def calculate_similarity(self, name1: str, name2: str) -> float:
-        """Calculate semantic similarity between two names."""
+        """
+        Calculate semantic similarity between two names.
+        
+        Args:
+            name1: First name to compare
+            name2: Second name to compare
+            
+        Returns:
+            Similarity score between 0.0 and 1.0
+        """
+        
+    def calculate_similarity_with_aliases(self, name: str, output_spec) -> float:
+        """
+        Calculate semantic similarity considering aliases.
+        
+        Args:
+            name: Name to compare (typically the dependency's logical_name)
+            output_spec: OutputSpec with logical_name and potential aliases
+            
+        Returns:
+            Highest similarity score between name and any name in output_spec
+        """
         
     def find_best_matches(self, target_name: str, candidate_names: List[str], 
                          threshold: float = 0.5) -> List[Tuple[str, float]]:
-        """Find the best matching names from a list of candidates."""
+        """
+        Find the best matching names from a list of candidates.
+        
+        Args:
+            target_name: Name to match against
+            candidate_names: List of candidate names
+            threshold: Minimum similarity threshold
+            
+        Returns:
+            List of (name, score) tuples sorted by score (highest first)
+        """
         
     def explain_similarity(self, name1: str, name2: str) -> Dict[str, float]:
-        """Provide detailed explanation of similarity calculation."""
+        """
+        Provide detailed explanation of similarity calculation.
+        
+        Args:
+            name1: First name to compare
+            name2: Second name to compare
+            
+        Returns:
+            Dictionary with detailed similarity breakdown
+        """
 ```
 
-## Similarity Metrics
+## Similarity Calculation Algorithm
+
+The SemanticMatcher calculates similarity between names using a weighted average of multiple similarity metrics:
 
 ### 1. String Similarity (30% weight)
-Uses sequence matching to compare character-level similarity:
+Measures character-level similarity using sequence matching:
 
 ```python
 def _calculate_string_similarity(self, name1: str, name2: str) -> float:
-    """Calculate string similarity using sequence matching."""
     return SequenceMatcher(None, name1, name2).ratio()
 ```
 
-### 2. Token Similarity (25% weight)
-Compares word-level overlap using Jaccard similarity:
+### 2. Token Overlap (25% weight)
+Measures word-level similarity using Jaccard similarity:
 
 ```python
 def _calculate_token_similarity(self, name1: str, name2: str) -> float:
-    """Calculate similarity based on token overlap."""
     tokens1 = set(name1.split())
     tokens2 = set(name2.split())
+    
     intersection = tokens1.intersection(tokens2)
     union = tokens1.union(tokens2)
+    
     return len(intersection) / len(union) if union else 0.0
 ```
 
 ### 3. Semantic Similarity (25% weight)
-Uses domain-specific synonyms and concept matching:
+Measures concept-level similarity using domain-specific synonyms:
 
 ```python
 def _calculate_semantic_similarity(self, name1: str, name2: str) -> float:
-    """Calculate semantic similarity using synonym matching."""
-    # Matches synonyms like 'model' <-> 'artifact', 'data' <-> 'dataset'
+    tokens1 = set(name1.split())
+    tokens2 = set(name2.split())
+    
+    # Find semantic matches
+    semantic_matches = 0
+    total_comparisons = 0
+    
+    for token1 in tokens1:
+        for token2 in tokens2:
+            total_comparisons += 1
+            
+            # Direct match
+            if token1 == token2:
+                semantic_matches += 1
+                continue
+            
+            # Synonym match
+            if self._are_synonyms(token1, token2):
+                semantic_matches += 0.8  # Slightly lower score for synonyms
+    
+    return semantic_matches / total_comparisons if total_comparisons > 0 else 0.0
 ```
 
 ### 4. Substring Similarity (20% weight)
-Identifies partial matches and common substrings:
+Measures partial matching through substring detection:
 
 ```python
 def _calculate_substring_similarity(self, name1: str, name2: str) -> float:
-    """Calculate similarity based on substring matching."""
-    # Handles cases like 'training_data' <-> 'data'
+    # Check if one is a substring of the other
+    if name1 in name2 or name2 in name1:
+        shorter = min(len(name1), len(name2))
+        longer = max(len(name1), len(name2))
+        return shorter / longer
+    
+    # Check for common substrings
+    words1 = name1.split()
+    words2 = name2.split()
+    
+    max_substring_score = 0.0
+    for word1 in words1:
+        for word2 in words2:
+            if len(word1) >= 3 and len(word2) >= 3:  # Only consider meaningful substrings
+                if word1 in word2 or word2 in word1:
+                    shorter = min(len(word1), len(word2))
+                    longer = max(len(word1), len(word2))
+                    score = shorter / longer
+                    max_substring_score = max(max_substring_score, score)
+    
+    return max_substring_score
+```
+
+## Name Normalization
+
+Before comparing names, the SemanticMatcher normalizes them to ensure consistent comparison:
+
+```python
+def _normalize_name(self, name: str) -> str:
+    # Convert to lowercase
+    normalized = name.lower()
+    
+    # Remove common separators and replace with spaces
+    normalized = re.sub(r'[_\-\.]', ' ', normalized)
+    
+    # Remove special characters
+    normalized = re.sub(r'[^a-z0-9\s]', '', normalized)
+    
+    # Expand abbreviations
+    words = normalized.split()
+    expanded_words = []
+    for word in words:
+        expanded = self.abbreviations.get(word, word)
+        expanded_words.append(expanded)
+    
+    # Remove stop words
+    filtered_words = [word for word in expanded_words if word not in self.stop_words]
+    
+    return ' '.join(filtered_words)
+```
+
+## Semantic Knowledge Base
+
+### Synonyms
+The matcher includes domain-specific synonyms for pipeline concepts:
+
+```python
+self.synonyms = {
+    'model': ['model', 'artifact', 'trained', 'output'],
+    'data': ['data', 'dataset', 'input', 'processed', 'training'],
+    'config': ['config', 'configuration', 'params', 'parameters', 'hyperparameters', 'settings'],
+    'payload': ['payload', 'sample', 'test', 'inference', 'example'],
+    'output': ['output', 'result', 'artifact', 'generated', 'produced'],
+    'training': ['training', 'train', 'fit', 'learn'],
+    'preprocessing': ['preprocessing', 'preprocess', 'processed', 'clean', 'transform'],
+}
+```
+
+### Abbreviations
+Common abbreviations are automatically expanded:
+
+```python
+self.abbreviations = {
+    'config': 'configuration',
+    'params': 'parameters',
+    'hyperparams': 'hyperparameters',
+    'preprocess': 'preprocessing',
+    'eval': 'evaluation',
+    'reg': 'registration',
+    'pkg': 'package',
+    'packaged': 'package',
+}
+```
+
+### Stop Words
+Noise words are filtered out during matching:
+
+```python
+self.stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
 ```
 
 ## Usage Examples
@@ -93,10 +236,29 @@ score = matcher.calculate_similarity("training_data", "processed_dataset")
 print(f"Similarity: {score:.3f}")
 # Output: Similarity: 0.742
 
-# Exact match
-score = matcher.calculate_similarity("model_artifacts", "model_artifacts")
-print(f"Exact match: {score:.3f}")
-# Output: Exact match: 1.000
+# Exact match (after normalization)
+score = matcher.calculate_similarity("model_artifacts", "model-artifacts")
+print(f"Normalized match: {score:.3f}")
+# Output: Normalized match: 1.000
+```
+
+### Working with Aliases
+```python
+from src.pipeline_deps.base_specifications import OutputSpec
+
+# Create an output spec with aliases
+output_spec = OutputSpec(
+    logical_name="model_artifacts",
+    output_type="MODEL_ARTIFACTS",
+    data_type="S3Uri",
+    property_path="properties.ModelArtifacts.S3ModelArtifacts",
+    aliases=["trained_model", "model_output"]
+)
+
+# Calculate similarity with aliases
+score = matcher.calculate_similarity_with_aliases("model", output_spec)
+print(f"Best match score: {score:.3f}")
+# Output: Best match score: 0.825
 ```
 
 ### Finding Best Matches
@@ -107,21 +269,19 @@ candidates = [
     "trained_model",
     "model_artifacts", 
     "preprocessing_output",
-    "evaluation_results",
-    "model_package"
+    "evaluation_results"
 ]
 
-matches = matcher.find_best_matches(target, candidates, threshold=0.4)
+matches = matcher.find_best_matches(target, candidates, threshold=0.5)
 for name, score in matches:
     print(f"{name}: {score:.3f}")
 
 # Output:
 # model_artifacts: 0.825
 # trained_model: 0.687
-# model_package: 0.542
 ```
 
-### Detailed Similarity Explanation
+### Explaining Similarity Calculation
 ```python
 # Get detailed breakdown of similarity calculation
 explanation = matcher.explain_similarity("training_data", "processed_dataset")
@@ -142,265 +302,47 @@ for metric, score in explanation.items():
 #   substring_similarity: 0.000
 ```
 
-## Semantic Knowledge Base
+## Integration with Dependency Resolver
 
-### Synonym Dictionary
-The matcher includes domain-specific synonyms for pipeline concepts:
-
-```python
-synonyms = {
-    'model': ['model', 'artifact', 'trained', 'output'],
-    'data': ['data', 'dataset', 'input', 'processed', 'training'],
-    'config': ['config', 'configuration', 'params', 'parameters', 'hyperparameters', 'settings'],
-    'payload': ['payload', 'sample', 'test', 'inference', 'example'],
-    'output': ['output', 'result', 'artifact', 'generated', 'produced'],
-    'training': ['training', 'train', 'fit', 'learn'],
-    'preprocessing': ['preprocessing', 'preprocess', 'processed', 'clean', 'transform'],
-}
-```
-
-### Abbreviation Expansion
-Common abbreviations are automatically expanded:
+The SemanticMatcher is a key component of the UnifiedDependencyResolver, enabling intelligent dependency matching:
 
 ```python
-abbreviations = {
-    'config': 'configuration',
-    'params': 'parameters',
-    'hyperparams': 'hyperparameters',
-    'preprocess': 'preprocessing',
-    'eval': 'evaluation',
-    'reg': 'registration',
-    'pkg': 'package',
-    'packaged': 'package',
-}
-```
-
-### Stop Words
-Noise words are filtered out during matching:
-
-```python
-stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
-```
-
-## Name Normalization
-
-### Normalization Process
-Names are normalized through several steps:
-
-1. **Case Normalization** - Convert to lowercase
-2. **Separator Replacement** - Replace `_`, `-`, `.` with spaces
-3. **Special Character Removal** - Remove non-alphanumeric characters
-4. **Abbreviation Expansion** - Expand known abbreviations
-5. **Stop Word Removal** - Filter out noise words
-
-```python
-# Example normalization
-original = "Training_Data-Config.v2"
-normalized = "training data configuration"
-```
-
-## Integration with Dependency Resolution
-
-### Automatic Matching
-```python
-from src.pipeline_deps.dependency_resolver import DependencyResolver
-from src.pipeline_deps.semantic_matcher import semantic_matcher
-
-class DependencyResolver:
-    def __init__(self):
-        self.semantic_matcher = semantic_matcher
-        
-    def find_compatible_outputs(self, dependency_name: str, available_outputs: List[str]):
-        """Find outputs that can satisfy a dependency using semantic matching."""
-        matches = self.semantic_matcher.find_best_matches(
-            dependency_name, 
-            available_outputs, 
-            threshold=0.6
-        )
-        return matches
-```
-
-### Smart Dependency Resolution
-```python
-# Example: Resolving "model_input" dependency
-dependency = "model_input"
-available_outputs = [
-    "trained_model_artifacts",
-    "preprocessing_output", 
-    "model_package",
-    "evaluation_results"
-]
-
-# Semantic matcher finds best matches
-matches = matcher.find_best_matches(dependency, available_outputs)
-# Returns: [("trained_model_artifacts", 0.73), ("model_package", 0.65)]
-```
-
-## Advanced Features
-
-### Custom Similarity Thresholds
-```python
-# Different thresholds for different use cases
-high_confidence_matches = matcher.find_best_matches(target, candidates, threshold=0.8)
-moderate_matches = matcher.find_best_matches(target, candidates, threshold=0.6)
-loose_matches = matcher.find_best_matches(target, candidates, threshold=0.4)
-```
-
-### Batch Matching
-```python
-# Match multiple targets against candidates
-targets = ["model_output", "training_data", "config_params"]
-candidates = ["trained_model", "dataset", "hyperparameters", "results"]
-
-all_matches = {}
-for target in targets:
-    matches = matcher.find_best_matches(target, candidates, threshold=0.5)
-    all_matches[target] = matches
-```
-
-### Similarity Matrix
-```python
-# Generate similarity matrix for analysis
-import pandas as pd
-
-def generate_similarity_matrix(names1: List[str], names2: List[str]) -> pd.DataFrame:
-    matrix = []
-    for name1 in names1:
-        row = []
-        for name2 in names2:
-            score = matcher.calculate_similarity(name1, name2)
-            row.append(score)
-        matrix.append(row)
-    
-    return pd.DataFrame(matrix, index=names1, columns=names2)
-
-# Usage
-dependencies = ["model_input", "training_data", "config"]
-outputs = ["model_artifacts", "processed_data", "hyperparameters"]
-similarity_df = generate_similarity_matrix(dependencies, outputs)
-```
-
-## Performance Considerations
-
-### Caching
-For repeated calculations, consider caching similarity scores:
-
-```python
-from functools import lru_cache
-
-class CachedSemanticMatcher(SemanticMatcher):
-    @lru_cache(maxsize=1000)
-    def calculate_similarity(self, name1: str, name2: str) -> float:
-        return super().calculate_similarity(name1, name2)
-```
-
-### Batch Processing
-For large-scale matching, use vectorized operations:
-
-```python
-def batch_similarity(self, target: str, candidates: List[str]) -> List[float]:
-    """Calculate similarity for multiple candidates efficiently."""
-    return [self.calculate_similarity(target, candidate) for candidate in candidates]
-```
-
-## Customization
-
-### Adding Domain-Specific Synonyms
-```python
-# Extend the matcher with custom synonyms
-custom_matcher = SemanticMatcher()
-custom_matcher.synonyms['risk'] = ['risk', 'score', 'probability', 'likelihood']
-custom_matcher.synonyms['currency'] = ['currency', 'fx', 'exchange', 'rate']
-```
-
-### Custom Abbreviations
-```python
-# Add domain-specific abbreviations
-custom_matcher.abbreviations.update({
-    'fx': 'foreign_exchange',
-    'ml': 'machine_learning',
-    'nlp': 'natural_language_processing'
-})
-```
-
-### Adjusting Weights
-```python
-# Custom weight configuration for different similarity aspects
-class CustomSemanticMatcher(SemanticMatcher):
-    def calculate_similarity(self, name1: str, name2: str) -> float:
-        # Custom weights: emphasize semantic similarity
-        weights = {
-            'string': 0.2,
-            'token': 0.2, 
-            'semantic': 0.4,  # Higher weight for semantic matching
-            'substring': 0.2
-        }
-        # Implementation with custom weights...
-```
-
-## Integration Points
-
-### With Dependency Resolver
-```python
-from src.pipeline_deps.dependency_resolver import DependencyResolver
-
-# Semantic matcher is used by dependency resolver for intelligent matching
-resolver = DependencyResolver()
-resolver.semantic_matcher = semantic_matcher
-```
-
-### With Specification Registry
-```python
+from src.pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from src.pipeline_deps.semantic_matcher import SemanticMatcher
 from src.pipeline_deps.specification_registry import SpecificationRegistry
 
-# Registry can use semantic matching for specification lookup
+# Create components
 registry = SpecificationRegistry()
-similar_specs = registry.find_similar_specifications("model_training", threshold=0.7)
+semantic_matcher = SemanticMatcher()
+resolver = UnifiedDependencyResolver(registry, semantic_matcher)
+
+# SemanticMatcher is used in compatibility calculation
+# Inside UnifiedDependencyResolver._calculate_compatibility:
+semantic_score = semantic_matcher.calculate_similarity_with_aliases(
+    dep_spec.logical_name, output_spec
+)
+score += semantic_score * 0.25  # 25% weight
 ```
-
-## Related Design Documentation
-
-For architectural context and design decisions, see:
-- **[Dependency Resolver Design](../pipeline_design/dependency_resolver.md)** - How semantic matching fits into dependency resolution
-- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy
-- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles
-- **[Standardization Rules](../pipeline_design/standardization_rules.md)** - Naming conventions that improve matching
 
 ## Best Practices
 
 ### 1. Naming Conventions
-- Use descriptive, consistent naming for better semantic matching
-- Avoid overly abbreviated names that reduce matching accuracy
-- Include domain-specific terms that have semantic meaning
+- Use consistent, descriptive names for dependencies and outputs
+- Follow standard naming patterns across your pipeline components
+- Include meaningful semantic terms that reflect the data's purpose
+- Avoid cryptic abbreviations that aren't in the abbreviation dictionary
 
-### 2. Threshold Selection
-- Use higher thresholds (0.7-0.9) for critical dependencies
-- Use moderate thresholds (0.5-0.7) for general matching
+### 2. Alias Usage
+- Add aliases to outputs for common alternative names
+- Include both full and abbreviated forms in aliases
+- Consider domain-specific terminology variations as aliases
+
+### 3. Threshold Selection
+- Use higher thresholds (0.7+) when exact matching is critical
+- Use moderate thresholds (0.5-0.7) for general dependency resolution
 - Use lower thresholds (0.3-0.5) for exploratory matching
 
-### 3. Synonym Management
-- Regularly update synonym dictionaries with domain-specific terms
-- Test synonym effectiveness with real pipeline names
-- Balance synonym breadth with matching precision
-
-### 4. Performance Optimization
-- Cache similarity calculations for repeated operations
-- Use batch processing for large-scale matching
-- Consider approximate matching for very large candidate sets
-
-## Troubleshooting
-
-### Low Similarity Scores
-- Check if names are using consistent terminology
-- Verify that relevant synonyms are included in the dictionary
-- Consider if abbreviations need to be added to the expansion list
-
-### False Positive Matches
-- Increase similarity threshold to reduce false positives
-- Review and refine synonym dictionaries
-- Add negative examples to improve discrimination
-
-### Performance Issues
-- Implement caching for repeated calculations
-- Use batch processing for multiple comparisons
-- Consider pre-computing similarity matrices for static datasets
+### 4. Custom Extensions
+- Extend the synonym dictionary with domain-specific terms
+- Add project-specific abbreviations to the abbreviation dictionary
+- Remove domain-specific stop words if they're meaningful in your context

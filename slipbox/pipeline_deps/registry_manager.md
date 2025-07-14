@@ -1,23 +1,18 @@
 # Registry Manager
 
 ## Overview
-The Registry Manager provides centralized management of multiple isolated specification registries, ensuring complete isolation between different contexts (pipelines, environments, etc.). It enables context-scoped registries for multi-tenant pipeline systems.
+The Registry Manager provides centralized management of multiple isolated specification registries, ensuring complete isolation between different contexts (pipelines, environments, etc.). Each context gets its own dedicated SpecificationRegistry instance, preventing cross-contamination of specifications between different pipelines or environments.
 
 ## Core Functionality
 
-### Context Isolation
-- **Multiple Registries** - Manages separate registry instances for different contexts
-- **Complete Isolation** - No cross-contamination between contexts
-- **Dynamic Creation** - Creates registries on-demand for new contexts
-- **Context Statistics** - Tracks usage and statistics per context
+### Key Features
+- **Context-Specific Registries**: Maintains separate registry instances for different contexts
+- **Complete Isolation**: Ensures specifications from one context don't affect others
+- **Dynamic Creation**: Creates registries on-demand for new contexts
+- **Context Statistics**: Provides usage statistics for each context
+- **Cleanup Management**: Supports individual or bulk context cleanup
 
-### Registry Lifecycle
-- **Creation** - Automatic registry creation for new contexts
-- **Retrieval** - Fast access to context-specific registries
-- **Cleanup** - Individual or bulk registry clearing
-- **Statistics** - Context usage monitoring and reporting
-
-## Key Classes
+## Key Components
 
 ### RegistryManager
 Main manager class that coordinates multiple registry instances.
@@ -29,19 +24,63 @@ class RegistryManager:
         
     def get_registry(self, context_name: str = "default", 
                     create_if_missing: bool = True) -> Optional[SpecificationRegistry]:
-        """Get the registry for a specific context."""
+        """
+        Get the registry for a specific context.
+        
+        Args:
+            context_name: Name of the context (e.g., pipeline name, environment)
+            create_if_missing: Whether to create a new registry if one doesn't exist
+            
+        Returns:
+            Context-specific registry or None if not found and create_if_missing is False
+        """
         
     def list_contexts(self) -> List[str]:
-        """Get list of all registered context names."""
+        """
+        Get list of all registered context names.
+        
+        Returns:
+            List of context names with registries
+        """
         
     def clear_context(self, context_name: str) -> bool:
-        """Clear the registry for a specific context."""
+        """
+        Clear the registry for a specific context.
+        
+        Args:
+            context_name: Name of the context to clear
+            
+        Returns:
+            True if the registry was cleared, False if it didn't exist
+        """
         
     def clear_all_contexts(self):
         """Clear all registries."""
         
     def get_context_stats(self) -> Dict[str, Dict[str, int]]:
-        """Get statistics for all contexts."""
+        """
+        Get statistics for all contexts.
+        
+        Returns:
+            Dictionary mapping context names to their statistics
+        """
+```
+
+### Helper Functions
+Convenience functions for common operations:
+
+```python
+def get_registry(manager: RegistryManager, context_name: str = "default") -> SpecificationRegistry:
+    """Get the registry for a specific context."""
+    
+def list_contexts(manager: RegistryManager) -> List[str]:
+    """Get list of all registered context names."""
+    
+def clear_context(manager: RegistryManager, context_name: str) -> bool:
+    """Clear the registry for a specific context."""
+    
+def get_context_stats(manager: RegistryManager) -> Dict[str, Dict[str, int]]:
+    """Get statistics for all contexts."""
 ```
 
 ## Usage Examples
@@ -58,74 +97,81 @@ training_registry = manager.get_registry("training_pipeline")
 validation_registry = manager.get_registry("validation_pipeline")
 
 # Register specifications in different contexts
-training_registry.register_specification("data_loading", training_data_spec)
-validation_registry.register_specification("data_loading", validation_data_spec)
+training_registry.register("data_loading", training_data_spec)
+validation_registry.register("data_loading", validation_data_spec)
 
 # List all contexts
 contexts = manager.list_contexts()
 print(f"Active contexts: {contexts}")
 # Output: ['training_pipeline', 'validation_pipeline']
+
+# Get statistics about contexts
+stats = manager.get_context_stats()
+for context, context_stats in stats.items():
+    print(f"Context '{context}': {context_stats['step_count']} steps")
 ```
 
-### Using Global Registry Manager
+### Using Helper Functions
 ```python
-from src.pipeline_deps.registry_manager import get_registry, list_contexts
+from src.pipeline_deps.registry_manager import (
+    RegistryManager, get_registry, list_contexts, clear_context, get_context_stats
+)
 
-# Get registry using convenience function
-pipeline_registry = get_registry("my_pipeline")
+# Create registry manager
+manager = RegistryManager()
+
+# Get registry using helper function
+registry = get_registry(manager, "my_pipeline")
 
 # Register specifications
-pipeline_registry.register_specification("preprocessing", preprocess_spec)
-pipeline_registry.register_specification("training", training_spec)
+registry.register("preprocessing", preprocess_spec)
+registry.register("training", training_spec)
 
 # List all contexts
-all_contexts = list_contexts()
+all_contexts = list_contexts(manager)
 print(f"All contexts: {all_contexts}")
-```
 
-### Context Statistics
-```python
-from src.pipeline_deps.registry_manager import get_context_stats
+# Clear specific context
+success = clear_context(manager, "old_pipeline")
+if success:
+    print("Context cleared successfully")
 
-# Get statistics for all contexts
-stats = get_context_stats()
-for context_name, context_stats in stats.items():
-    print(f"Context '{context_name}':")
-    print(f"  Steps: {context_stats['step_count']}")
-    print(f"  Step Types: {context_stats['step_type_count']}")
-
-# Example output:
-# Context 'training_pipeline':
-#   Steps: 5
-#   Step Types: 3
-# Context 'validation_pipeline':
-#   Steps: 3
-#   Step Types: 2
+# Get context statistics
+stats = get_context_stats(manager)
+print(f"Context statistics: {stats}")
 ```
 
 ### Context Cleanup
 ```python
-from src.pipeline_deps.registry_manager import clear_context, registry_manager
+from src.pipeline_deps.registry_manager import RegistryManager
+
+# Create registry manager
+manager = RegistryManager()
+
+# Create some registries
+registry1 = manager.get_registry("context1")
+registry2 = manager.get_registry("context2")
 
 # Clear specific context
-success = clear_context("old_pipeline")
-if success:
-    print("Context cleared successfully")
+success = manager.clear_context("context1")
+print(f"Context1 cleared: {success}")
 
 # Clear all contexts
-registry_manager.clear_all_contexts()
+manager.clear_all_contexts()
 print("All contexts cleared")
 ```
 
-## Integration Features
+## Integration with Pipeline Builder
 
-### Pipeline Builder Integration
 The registry manager provides a decorator for automatic integration with pipeline builders:
 
 ```python
-from src.pipeline_deps.registry_manager import integrate_with_pipeline_builder
+from src.pipeline_deps.registry_manager import integrate_with_pipeline_builder, RegistryManager
 
-@integrate_with_pipeline_builder
+# Create a registry manager
+manager = RegistryManager()
+
+@integrate_with_pipeline_builder(manager)
 class MyPipelineBuilder:
     def __init__(self, base_config):
         self.base_config = base_config
@@ -135,11 +181,8 @@ class MyPipelineBuilder:
         # Use self.registry for context-specific specifications
         data_spec = self.registry.get_specification("data_loading")
         return self._build_with_spec(data_spec)
-```
 
-### Automatic Context Detection
-```python
-# Registry manager automatically detects context from pipeline configuration
+# Usage with configuration
 class PipelineConfig:
     def __init__(self, pipeline_name: str):
         self.pipeline_name = pipeline_name
@@ -153,37 +196,46 @@ builder = MyPipelineBuilder(config)
 
 ### Environment-Based Contexts
 ```python
+# Create registry manager
+manager = RegistryManager()
+
 # Different registries for different environments
-dev_registry = get_registry("development")
-staging_registry = get_registry("staging")
-prod_registry = get_registry("production")
+dev_registry = manager.get_registry("development")
+staging_registry = manager.get_registry("staging")
+prod_registry = manager.get_registry("production")
 
 # Each environment can have different specifications
-dev_registry.register_specification("data_loading", dev_data_spec)
-prod_registry.register_specification("data_loading", prod_data_spec)
+dev_registry.register("data_loading", dev_data_spec)
+prod_registry.register("data_loading", prod_data_spec)
 ```
 
 ### Pipeline-Based Contexts
 ```python
+# Create registry manager
+manager = RegistryManager()
+
 # Different registries for different pipeline types
-training_registry = get_registry("training_pipeline")
-inference_registry = get_registry("inference_pipeline")
-batch_registry = get_registry("batch_processing")
+training_registry = manager.get_registry("training_pipeline")
+inference_registry = manager.get_registry("inference_pipeline")
+batch_registry = manager.get_registry("batch_processing")
 
 # Each pipeline type has its own specifications
-training_registry.register_specification("model_training", training_spec)
-inference_registry.register_specification("model_inference", inference_spec)
+training_registry.register("model_training", training_spec)
+inference_registry.register("model_inference", inference_spec)
 ```
 
 ### Multi-Tenant Contexts
 ```python
+# Create registry manager
+manager = RegistryManager()
+
 # Different registries for different tenants/customers
-customer_a_registry = get_registry("customer_a")
-customer_b_registry = get_registry("customer_b")
+customer_a_registry = manager.get_registry("customer_a")
+customer_b_registry = manager.get_registry("customer_b")
 
 # Each customer can have customized specifications
-customer_a_registry.register_specification("preprocessing", custom_preprocess_a)
-customer_b_registry.register_specification("preprocessing", custom_preprocess_b)
+customer_a_registry.register("preprocessing", custom_preprocess_a)
+customer_b_registry.register("preprocessing", custom_preprocess_b)
 ```
 
 ## Backward Compatibility
@@ -197,59 +249,38 @@ from src.pipeline_deps.registry_manager import (
     get_default_registry
 )
 
+# Create registry manager
+manager = RegistryManager()
+
 # Legacy pipeline registry access
-pipeline_registry = get_pipeline_registry("my_pipeline")
+pipeline_registry = get_pipeline_registry(manager, "my_pipeline")
 
 # Legacy default registry access
-default_registry = get_default_registry()
+default_registry = get_default_registry(manager)
 ```
 
-### Migration Path
-```python
-# Old code
-from src.pipeline_deps import SpecificationRegistry
-registry = SpecificationRegistry()
-
-# New code
-from src.pipeline_deps.registry_manager import get_registry
-registry = get_registry("my_context")
-```
-
-## Global Registry Manager
-
-### Singleton Pattern
-The module provides a global registry manager instance:
+## Integration with Dependency Resolver
 
 ```python
-from src.pipeline_deps.registry_manager import registry_manager
+from src.pipeline_deps.registry_manager import RegistryManager
+from src.pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from src.pipeline_deps.semantic_matcher import SemanticMatcher
 
-# Direct access to global manager
-registry = registry_manager.get_registry("my_context")
-contexts = registry_manager.list_contexts()
-stats = registry_manager.get_context_stats()
-```
+# Create components
+manager = RegistryManager()
+registry = manager.get_registry("my_pipeline")
+semantic_matcher = SemanticMatcher()
 
-### Thread Safety
-The registry manager is designed to be thread-safe for concurrent access:
+# Create dependency resolver with registry
+resolver = UnifiedDependencyResolver(registry, semantic_matcher)
 
-```python
-import threading
-from src.pipeline_deps.registry_manager import get_registry
+# Register specifications
+registry.register("data_load", data_loading_spec)
+registry.register("preprocess", preprocessing_spec)
+registry.register("train", training_spec)
 
-def worker_function(context_name: str):
-    # Each thread can safely access its own context
-    registry = get_registry(f"worker_{context_name}")
-    registry.register_specification("task", task_spec)
-
-# Create multiple worker threads
-threads = []
-for i in range(5):
-    thread = threading.Thread(target=worker_function, args=(str(i),))
-    threads.append(thread)
-    thread.start()
-
-for thread in threads:
-    thread.join()
+# Resolve dependencies
+dependencies = resolver.resolve_all_dependencies(["data_load", "preprocess", "train"])
 ```
 
 ## Best Practices
@@ -257,7 +288,7 @@ for thread in threads:
 ### 1. Context Naming
 - Use descriptive context names: `training_pipeline`, `production_env`
 - Follow consistent naming conventions across your organization
-- Avoid special characters that might cause issues in logging or file systems
+- Consider including environment and pipeline type in context names
 
 ### 2. Context Lifecycle
 - Create contexts when needed, don't pre-create all possible contexts
@@ -278,12 +309,15 @@ for thread in threads:
 
 ### Context Not Found
 ```python
-from src.pipeline_deps.registry_manager import get_registry
+# Create registry manager
+manager = RegistryManager()
 
 # Handle missing context
-registry = get_registry("nonexistent_context", create_if_missing=False)
+registry = manager.get_registry("nonexistent_context", create_if_missing=False)
 if registry is None:
     print("Context not found")
+    # Create context or use default
+    registry = manager.get_registry("default")
 else:
     # Use registry
     pass
@@ -291,70 +325,29 @@ else:
 
 ### Registry Cleanup Errors
 ```python
-from src.pipeline_deps.registry_manager import clear_context
+# Create registry manager
+manager = RegistryManager()
 
 # Handle cleanup failures
-success = clear_context("context_to_clear")
+success = manager.clear_context("context_to_clear")
 if not success:
     print("Context was already cleared or didn't exist")
+    # Proceed with alternative logic
 ```
-
-## Integration Points
-
-### With Specification Registry
-```python
-# Registry manager creates and manages SpecificationRegistry instances
-from src.pipeline_deps.specification_registry import SpecificationRegistry
-
-# Each context gets its own SpecificationRegistry instance
-registry = get_registry("my_context")
-assert isinstance(registry, SpecificationRegistry)
-```
-
-### With Dependency Resolver
-```python
-from src.pipeline_deps.dependency_resolver import DependencyResolver
-from src.pipeline_deps.registry_manager import get_registry
-
-# Use context-specific registry with dependency resolver
-registry = get_registry("training_context")
-resolver = DependencyResolver(registry)
-dependencies = resolver.resolve_dependencies(["data_loading", "training"])
-```
-
-### With Pipeline Builder
-```python
-# Automatic integration with pipeline builders
-@integrate_with_pipeline_builder
-class TrainingPipelineBuilder:
-    def build(self):
-        # self.registry is automatically context-scoped
-        specs = self.registry.list_specifications()
-        return self._build_pipeline_from_specs(specs)
-```
-
-## Related Design Documentation
-
-For architectural context and design decisions, see:
-- **[Registry Manager Design](../pipeline_design/registry_manager.md)** - Registry management architecture
-- **[Specification Registry Design](../pipeline_design/specification_registry.md)** - Registry implementation patterns
-- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy
-- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles
-- **[Standardization Rules](../pipeline_design/standardization_rules.md)** - Naming and structure conventions
 
 ## Performance Considerations
 
 ### Memory Management
-- Registries are kept in memory for fast access
+- Each context maintains its own separate registry in memory
 - Clear unused contexts to free memory
-- Monitor context statistics to identify memory usage patterns
+- Registry manager has minimal overhead compared to individual registries
 
 ### Concurrent Access
-- Registry manager supports concurrent access from multiple threads
-- Each context is isolated, preventing race conditions
-- Use context-specific registries to avoid contention
+- Registry manager operations are thread-safe for basic access patterns
+- Each context is isolated, preventing cross-contamination
+- Consider using dedicated registry managers for high-concurrency scenarios
 
 ### Scalability
-- Registry manager scales to hundreds of contexts
-- Context creation is lightweight and fast
+- The registry manager scales to hundreds of contexts
+- Context creation is a lightweight operation
 - Statistics collection is optimized for frequent access

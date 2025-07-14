@@ -1,315 +1,326 @@
-# Dependency Resolver
+# Unified Dependency Resolver
 
 ## Overview
-The Dependency Resolver automatically analyzes pipeline step specifications to determine execution order and data flow dependencies. It uses semantic matching and constraint validation to build valid pipeline execution graphs.
+The Unified Dependency Resolver automatically determines input/output connections between pipeline steps using specification-driven analysis. It evaluates compatibility between step outputs and inputs using semantic matching and type compatibility rules, enabling automatic pipeline assembly with minimal manual configuration.
 
 ## Core Functionality
 
-### Dependency Analysis
-- **Input/Output Matching** - Matches step outputs to compatible inputs
-- **Semantic Compatibility** - Uses semantic tags for intelligent matching
-- **Constraint Validation** - Ensures data format and type compatibility
-- **Circular Dependency Detection** - Prevents invalid dependency cycles
+### Key Features
+- **Automatic Dependency Resolution**: Resolves dependencies between steps based on their specifications
+- **Semantic Name Matching**: Uses semantic similarity to match input/output names
+- **Compatibility Scoring**: Evaluates multiple factors to determine best matches
+- **Caching**: Caches resolution results for performance optimization
+- **Error Reporting**: Detailed error reporting for unresolved dependencies
 
-### Resolution Algorithms
-- **Topological Sorting** - Determines valid execution order
-- **Graph Construction** - Builds dependency graphs from specifications
-- **Conflict Resolution** - Handles multiple compatible matches
-- **Optimization** - Minimizes data transfer and processing overhead
+## Key Components
 
-## Key Classes
-
-### DependencyResolver
-Main resolver class that orchestrates dependency analysis.
+### UnifiedDependencyResolver
+Main resolver class that analyzes and resolves dependencies between pipeline steps.
 
 ```python
-class DependencyResolver:
-    def __init__(self, registry: SpecificationRegistry):
-        self.registry = registry
-        self.semantic_matcher = SemanticMatcher()
+class UnifiedDependencyResolver:
+    def __init__(self, registry: SpecificationRegistry, semantic_matcher: SemanticMatcher):
+        """
+        Initialize the dependency resolver.
         
-    def resolve_dependencies(self, step_names: List[str]) -> DependencyGraph:
-        """Resolve dependencies for given steps"""
+        Args:
+            registry: Specification registry
+            semantic_matcher: Semantic matcher for name similarity calculations
+        """
         
-    def build_execution_order(self, dependencies: DependencyGraph) -> List[str]:
-        """Determine optimal execution order"""
+    def resolve_all_dependencies(self, available_steps: List[str]) -> Dict[str, Dict[str, PropertyReference]]:
+        """
+        Resolve dependencies for all registered steps.
         
-    def validate_dependencies(self, dependencies: DependencyGraph) -> ValidationResult:
-        """Validate dependency graph for consistency"""
+        Args:
+            available_steps: List of step names available in the pipeline
+            
+        Returns:
+            Dictionary mapping step names to their resolved dependencies
+        """
+        
+    def resolve_step_dependencies(self, consumer_step: str, available_steps: List[str]) -> Dict[str, PropertyReference]:
+        """
+        Resolve dependencies for a single step.
+        
+        Args:
+            consumer_step: Name of the step whose dependencies to resolve
+            available_steps: List of available step names
+            
+        Returns:
+            Dictionary mapping dependency names to property references
+        """
+        
+    def get_resolution_report(self, available_steps: List[str]) -> Dict[str, Any]:
+        """
+        Generate a detailed resolution report for debugging.
+        
+        Args:
+            available_steps: List of available step names
+            
+        Returns:
+            Detailed report of resolution process
+        """
+        
+    def clear_cache(self):
+        """Clear the resolution cache."""
 ```
 
-### DependencyGraph
-Represents the dependency relationships between pipeline steps.
+### DependencyResolutionError
+Exception raised when dependencies cannot be resolved.
+
+```python
+class DependencyResolutionError(Exception):
+    """Raised when dependencies cannot be resolved."""
+    pass
+```
+
+### PropertyReference
+Reference to a property of another step, used to represent resolved dependencies.
 
 ```python
 @dataclass
-class DependencyGraph:
-    nodes: Dict[str, StepNode]
-    edges: List[DependencyEdge]
-    execution_order: List[str]
-    
-class StepNode:
+class PropertyReference:
     step_name: str
-    specification: BaseSpecification
-    dependencies: List[str]
-    dependents: List[str]
-    
-class DependencyEdge:
-    source_step: str
-    target_step: str
-    output_name: str
-    input_name: str
-    compatibility_score: float
+    output_spec: OutputSpec
 ```
+
+## Dependency Resolution Process
+
+### 1. Step Specification Analysis
+The resolver examines the specifications of all steps in the pipeline to understand their inputs and outputs.
+
+### 2. Dependency Matching
+For each step, the resolver:
+1. Identifies its required and optional dependencies from its specification
+2. Searches available steps for compatible outputs
+3. Calculates compatibility scores for each potential match
+4. Selects the best match for each dependency
+
+### 3. Compatibility Scoring
+Compatibility between a dependency and an output is determined by evaluating:
+
+- **Type Compatibility (40%)**: Whether the dependency type (MODEL_ARTIFACTS, TRAINING_DATA, etc.) matches the output type
+- **Data Type Compatibility (20%)**: Whether the data types (String, S3Uri, Integer, etc.) are compatible
+- **Semantic Name Matching (25%)**: Similarity between dependency and output names, including alias support
+- **Source Compatibility (10%)**: Whether the provider step type is in the list of compatible sources
+- **Keyword Matching (5%)**: Matching of semantic keywords
+
+Each factor contributes to an overall compatibility score between 0.0 and 1.0, with higher scores indicating better matches.
+
+### 4. Resolution Result
+The resolution process produces a mapping from each step's dependency names to PropertyReferences pointing to other steps' outputs.
 
 ## Usage Examples
 
 ### Basic Dependency Resolution
-```python
-from src.pipeline_deps import DependencyResolver, SpecificationRegistry
 
-# Create registry with step specifications
+```python
+from src.pipeline_deps.dependency_resolver import create_dependency_resolver
+from src.pipeline_deps.specification_registry import SpecificationRegistry
+from src.pipeline_deps.semantic_matcher import SemanticMatcher
+
+# Create the resolver components
 registry = SpecificationRegistry()
-registry.register_specification("data_loading", DATA_LOADING_SPEC)
-registry.register_specification("preprocessing", PREPROCESSING_SPEC)
-registry.register_specification("training", TRAINING_SPEC)
+semantic_matcher = SemanticMatcher()
+resolver = create_dependency_resolver(registry, semantic_matcher)
 
-# Resolve dependencies
-resolver = DependencyResolver(registry)
-dependency_graph = resolver.resolve_dependencies([
-    "data_loading", "preprocessing", "training"
-])
+# Register step specifications
+registry.register("data_load", DATA_LOADING_SPEC)
+registry.register("preprocess", PREPROCESSING_SPEC)
+registry.register("train", TRAINING_SPEC)
 
-# Get execution order
-execution_order = resolver.build_execution_order(dependency_graph)
-print(f"Execution order: {execution_order}")
-# Output: ['data_loading', 'preprocessing', 'training']
+# Resolve dependencies for all steps
+available_steps = ["data_load", "preprocess", "train"]
+dependencies = resolver.resolve_all_dependencies(available_steps)
+
+# Print the resolved dependencies
+for step_name, step_deps in dependencies.items():
+    print(f"Step: {step_name}")
+    for dep_name, prop_ref in step_deps.items():
+        print(f"  {dep_name} -> {prop_ref.step_name}.{prop_ref.output_spec.logical_name}")
 ```
 
-### Advanced Resolution with Options
-```python
-# Resolve with multiple compatible steps
-dependency_graph = resolver.resolve_dependencies([
-    "data_loading_training",
-    "preprocessing_training", 
-    "preprocessing_validation",
-    "xgboost_training"
-])
+### Resolving Dependencies for a Single Step
 
-# Analyze dependency relationships
-for edge in dependency_graph.edges:
-    print(f"{edge.source_step}.{edge.output_name} -> {edge.target_step}.{edge.input_name}")
-    print(f"Compatibility: {edge.compatibility_score}")
+```python
+# Resolve dependencies for just the training step
+train_deps = resolver.resolve_step_dependencies("train", available_steps)
+
+# Print the resolved dependencies
+print(f"Training step dependencies:")
+for dep_name, prop_ref in train_deps.items():
+    print(f"  {dep_name} -> {prop_ref.step_name}.{prop_ref.output_spec.logical_name}")
 ```
 
-### Validation and Error Handling
+### Generating a Resolution Report
+
 ```python
-# Validate dependency graph
-validation_result = resolver.validate_dependencies(dependency_graph)
+# Get detailed resolution information for debugging
+report = resolver.get_resolution_report(available_steps)
 
-if not validation_result.is_valid:
-    print("Dependency validation failed:")
-    for error in validation_result.errors:
-        print(f"  - {error}")
-        
-    print("Warnings:")
-    for warning in validation_result.warnings:
-        print(f"  - {warning}")
-```
+# Print summary statistics
+print(f"Total steps: {report['total_steps']}")
+print(f"Registered steps: {report['registered_steps']}")
+print(f"Resolution rate: {report['resolution_summary']['resolution_rate']:.2f}")
+print(f"Steps with errors: {report['resolution_summary']['steps_with_errors']}")
 
-## Resolution Process
-
-### 1. Specification Loading
-```python
-# Load step specifications from registry
-specifications = []
-for step_name in step_names:
-    spec = registry.get_specification(step_name)
-    specifications.append(spec)
-```
-
-### 2. Compatibility Analysis
-```python
-# Find compatible input/output pairs
-compatible_pairs = []
-for source_spec in specifications:
-    for target_spec in specifications:
-        if source_spec != target_spec:
-            matches = semantic_matcher.find_matches(
-                source_spec.outputs, 
-                target_spec.inputs
-            )
-            compatible_pairs.extend(matches)
-```
-
-### 3. Graph Construction
-```python
-# Build dependency graph
-graph = DependencyGraph()
-for spec in specifications:
-    graph.add_node(StepNode(spec.step_name, spec))
+# Print detailed information for each step
+for step_name, details in report['step_details'].items():
+    print(f"\nStep: {step_name} ({details['step_type']})")
+    print(f"  Total dependencies: {details['total_dependencies']}")
+    print(f"  Required dependencies: {details['required_dependencies']}")
+    print(f"  Resolved dependencies: {len(details['resolved_dependencies'])}")
     
-for match in compatible_pairs:
-    graph.add_edge(DependencyEdge(
-        source_step=match.source_step,
-        target_step=match.target_step,
-        output_name=match.output_name,
-        input_name=match.input_name,
-        compatibility_score=match.score
-    ))
+    if details.get('unresolved_dependencies'):
+        print(f"  Unresolved dependencies: {details['unresolved_dependencies']}")
+    
+    if 'error' in details:
+        print(f"  Error: {details['error']}")
 ```
 
-### 4. Execution Order Determination
-```python
-# Topological sort for execution order
-execution_order = topological_sort(graph)
-if not execution_order:
-    raise CircularDependencyError("Circular dependency detected")
-```
-
-## Semantic Matching
-
-### Compatibility Scoring
-The resolver uses semantic matching to score compatibility between outputs and inputs:
+## Compatibility Calculation Logic
 
 ```python
-def calculate_compatibility_score(output_spec: DataSpecification, 
-                                input_spec: DataSpecification) -> float:
+def _calculate_compatibility(self, dep_spec: DependencySpec, output_spec: OutputSpec,
+                           provider_spec: StepSpecification) -> float:
     score = 0.0
     
-    # Data type compatibility
-    if output_spec.data_type == input_spec.data_type:
+    # 1. Dependency type compatibility (40% weight)
+    if dep_spec.dependency_type == output_spec.output_type:
         score += 0.4
-    elif are_compatible_types(output_spec.data_type, input_spec.data_type):
+    elif self._are_types_compatible(dep_spec.dependency_type, output_spec.output_type):
         score += 0.2
-        
-    # Format compatibility  
-    if output_spec.format == input_spec.format:
-        score += 0.3
-    elif are_compatible_formats(output_spec.format, input_spec.format):
+    else:
+        # If types are not compatible at all, return 0
+        return 0.0
+    
+    # 2. Data type compatibility (20% weight)
+    if dep_spec.data_type == output_spec.data_type:
+        score += 0.2
+    elif self._are_data_types_compatible(dep_spec.data_type, output_spec.data_type):
         score += 0.1
-        
-    # Semantic tag overlap
-    tag_overlap = len(set(output_spec.semantic_tags) & set(input_spec.semantic_tags))
-    score += min(0.3, tag_overlap * 0.1)
     
-    return score
-```
-
-### Matching Thresholds
-- **Perfect Match**: Score >= 0.9 (exact type, format, and semantic alignment)
-- **Good Match**: Score >= 0.7 (compatible with minor conversions)
-- **Acceptable Match**: Score >= 0.5 (requires data transformation)
-- **Poor Match**: Score < 0.5 (not recommended, may require manual intervention)
-
-## Error Handling
-
-### Common Errors
-```python
-class DependencyResolutionError(Exception):
-    """Base class for dependency resolution errors"""
+    # 3. Enhanced semantic name matching with alias support (25% weight)
+    semantic_score = self.semantic_matcher.calculate_similarity_with_aliases(
+        dep_spec.logical_name, output_spec
+    )
+    score += semantic_score * 0.25
     
-class CircularDependencyError(DependencyResolutionError):
-    """Raised when circular dependencies are detected"""
+    # Optional: Add direct match bonus for exact matches
+    if dep_spec.logical_name == output_spec.logical_name:
+        score += 0.05  # Exact logical name match bonus
+    elif dep_spec.logical_name in output_spec.aliases:
+        score += 0.05  # Exact alias match bonus
     
-class IncompatibleSpecificationError(DependencyResolutionError):
-    """Raised when specifications are incompatible"""
+    # 4. Compatible source check (10% weight)
+    if dep_spec.compatible_sources:
+        if provider_spec.step_type in dep_spec.compatible_sources:
+            score += 0.1
+    else:
+        # If no compatible sources specified, give small bonus for any match
+        score += 0.05
     
-class MissingDependencyError(DependencyResolutionError):
-    """Raised when required dependencies are missing"""
+    # 5. Keyword matching bonus (5% weight)
+    if dep_spec.semantic_keywords:
+        keyword_score = self._calculate_keyword_match(dep_spec.semantic_keywords, output_spec.logical_name)
+        score += keyword_score * 0.05
+    
+    return min(score, 1.0)  # Cap at 1.0
 ```
 
-### Error Recovery
+## Type Compatibility Rules
+
+The resolver defines compatibility matrices for dependency types and data types:
+
+### Dependency Type Compatibility
+
 ```python
-try:
-    dependency_graph = resolver.resolve_dependencies(step_names)
-except CircularDependencyError as e:
-    # Attempt to break cycles by removing lowest-scored edges
-    dependency_graph = resolver.resolve_with_cycle_breaking(step_names)
-except IncompatibleSpecificationError as e:
-    # Suggest compatible alternatives
-    suggestions = resolver.suggest_compatible_steps(e.incompatible_step)
-    print(f"Consider using: {suggestions}")
+# Define compatibility matrix
+compatibility_matrix = {
+    DependencyType.MODEL_ARTIFACTS: [DependencyType.MODEL_ARTIFACTS],
+    DependencyType.TRAINING_DATA: [DependencyType.PROCESSING_OUTPUT, DependencyType.TRAINING_DATA],
+    DependencyType.PROCESSING_OUTPUT: [DependencyType.PROCESSING_OUTPUT, DependencyType.TRAINING_DATA],
+    DependencyType.HYPERPARAMETERS: [DependencyType.HYPERPARAMETERS, DependencyType.CUSTOM_PROPERTY],
+    DependencyType.PAYLOAD_SAMPLES: [DependencyType.PAYLOAD_SAMPLES, DependencyType.PROCESSING_OUTPUT],
+    DependencyType.CUSTOM_PROPERTY: [DependencyType.CUSTOM_PROPERTY]
+}
 ```
 
-## Integration Points
+### Data Type Compatibility
 
-### With Pipeline Builder
 ```python
-from src.pipeline_builder import PipelineBuilderTemplate
-
-class PipelineBuilderTemplate:
-    def __init__(self, dependency_resolver: DependencyResolver):
-        self.resolver = dependency_resolver
-        
-    def build_pipeline(self, step_names: List[str]) -> Pipeline:
-        # Resolve dependencies automatically
-        dependencies = self.resolver.resolve_dependencies(step_names)
-        execution_order = self.resolver.build_execution_order(dependencies)
-        
-        # Build pipeline in dependency order
-        return self._build_ordered_pipeline(execution_order, dependencies)
-```
-
-### With Specification Registry
-```python
-# Resolver uses registry for specification lookup
-resolver = DependencyResolver(registry)
-
-# Registry can trigger re-resolution when specifications change
-registry.on_specification_updated = lambda: resolver.invalidate_cache()
-```
-
-## Performance Optimization
-
-### Caching
-```python
-class DependencyResolver:
-    def __init__(self):
-        self._resolution_cache = {}
-        self._compatibility_cache = {}
-        
-    def resolve_dependencies(self, step_names: List[str]) -> DependencyGraph:
-        cache_key = tuple(sorted(step_names))
-        if cache_key in self._resolution_cache:
-            return self._resolution_cache[cache_key]
-            
-        # Perform resolution
-        result = self._resolve_dependencies_impl(step_names)
-        self._resolution_cache[cache_key] = result
-        return result
-```
-
-### Parallel Processing
-```python
-# Compatibility analysis can be parallelized
-from concurrent.futures import ThreadPoolExecutor
-
-def analyze_compatibility_parallel(self, specifications: List[BaseSpecification]):
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = []
-        for source_spec in specifications:
-            for target_spec in specifications:
-                if source_spec != target_spec:
-                    future = executor.submit(
-                        self.semantic_matcher.find_matches,
-                        source_spec.outputs,
-                        target_spec.inputs
-                    )
-                    futures.append(future)
-        
-        # Collect results
-        matches = []
-        for future in futures:
-            matches.extend(future.result())
-        return matches
+# Define data type compatibility
+compatibility_map = {
+    'S3Uri': ['S3Uri', 'String'],  # S3Uri can sometimes be used as String
+    'String': ['String', 'S3Uri'],  # String can sometimes accept S3Uri
+    'Integer': ['Integer', 'Float'],  # Integer can be used as Float
+    'Float': ['Float', 'Integer'],   # Float can accept Integer
+    'Boolean': ['Boolean'],
+}
 ```
 
 ## Best Practices
 
-1. **Specification Quality** - Ensure specifications have rich semantic tags
-2. **Compatibility Thresholds** - Set appropriate thresholds for your use case
-3. **Error Handling** - Implement robust error handling and recovery
-4. **Performance** - Use caching for repeated resolutions
-5. **Validation** - Always validate resolved dependencies before execution
-6. **Monitoring** - Log resolution decisions for debugging and optimization
+1. **Rich Specifications**: Create detailed step specifications with accurate dependency and output information
+2. **Logical Naming**: Use consistent, descriptive names for dependencies and outputs
+3. **Type Accuracy**: Correctly specify dependency types and data types
+4. **Aliases**: Add aliases to outputs for common alternative names
+5. **Semantic Keywords**: Add relevant semantic keywords to improve matching accuracy
+6. **Error Handling**: Check for unresolved dependencies before executing pipelines
+7. **Reporting**: Use resolution reports to identify and fix dependency issues
+
+## Integration with Pipeline Builder
+
+The UnifiedDependencyResolver is a key component of the Pipeline Builder Template:
+
+```python
+from src.pipeline_builder.template import PipelineBuilderTemplate
+from src.pipeline_deps.dependency_resolver import create_dependency_resolver
+
+# Create registry and resolver
+registry = SpecificationRegistry()
+resolver = create_dependency_resolver(registry)
+
+# Register specifications
+for name, spec in specifications.items():
+    registry.register(name, spec)
+
+# Create pipeline template
+template = PipelineBuilderTemplate(
+    dag=dag,
+    config_map=config_map,
+    step_builder_map=step_builder_map,
+    registry=registry,
+    dependency_resolver=resolver
+)
+
+# Generate pipeline with automatic dependency resolution
+pipeline = template.generate_pipeline("my-pipeline")
+```
+
+## Error Handling
+
+```python
+try:
+    # Attempt to resolve dependencies
+    deps = resolver.resolve_step_dependencies(step_name, available_steps)
+    
+    # Use resolved dependencies
+    for dep_name, prop_ref in deps.items():
+        print(f"Resolved {dep_name} to {prop_ref.step_name}.{prop_ref.output_spec.logical_name}")
+        
+except DependencyResolutionError as e:
+    # Handle resolution errors
+    print(f"Failed to resolve dependencies: {e}")
+    
+    # Get resolution report for debugging
+    report = resolver.get_resolution_report(available_steps)
+    
+    # Look for specific unresolved dependencies
+    unresolved_deps = [
+        dep for step in report['step_details'].values()
+        for dep in step.get('unresolved_dependencies', [])
+    ]
+    
+    print(f"Unresolved dependencies: {unresolved_deps}")
