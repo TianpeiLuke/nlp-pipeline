@@ -2,173 +2,276 @@
 
 ## Overview
 
-This document provides an overview of the example pipelines built using the [Pipeline Builder Template](pipeline_builder_template.md). These examples demonstrate how to use the template system to create various types of SageMaker pipelines.
+This document provides an overview of the example pipelines built using the `PipelineTemplateBase` and `PipelineAssembler` classes. These examples demonstrate how to use the specification-driven dependency resolution system to create various types of SageMaker pipelines with automatic step connection.
 
 ## Available Examples
 
-### 1. PyTorch End-to-End Pipeline
-
-**Source**: `src/pipeline_builder/template_pipeline_pytorch_end_to_end.py`
-
-**Description**: This pipeline performs:
-1. Data Loading (for training set)
-2. Tabular Preprocessing (for training set)
-3. PyTorch Model Training
-4. Model Creation
-5. Packaging
-6. Payload Generation
-7. Registration
-8. Data Loading (for calibration set)
-9. Tabular Preprocessing (for calibration set)
-
-**Key Features**:
-- Uses a function-based approach with the template
-- Demonstrates a complete end-to-end ML workflow for PyTorch models
-- Shows how to use the template's message passing algorithm to automatically connect outputs from one step to inputs of subsequent steps
-- Includes helper functions for finding configurations by type and attributes
-
-### 2. PyTorch Model Registration Pipeline
-
-**Source**: `src/pipeline_builder/template_pipeline_pytorch_model_registration.py`
-
-**Description**: This pipeline focuses on the model registration steps:
-1. PyTorch Model Creation (using an existing model artifact)
-2. Packaging
-3. Payload Generation
-4. Registration
-
-**Key Features**:
-- Uses a class-based approach with the template
-- Demonstrates a pipeline focused on model registration without training
-- Shows how to validate and prepare model configurations
-- Includes error handling and validation for model paths
-
-### 3. XGBoost End-to-End Pipeline
+### 1. XGBoost End-to-End Pipeline
 
 **Source**: `src/pipeline_builder/template_pipeline_xgboost_end_to_end.py`
 
-**Description**: This pipeline performs:
-1. Data Loading (for training set)
-2. Tabular Preprocessing (for training set)
+**Description**: Complete end-to-end XGBoost pipeline that performs:
+1. Data Loading (from Cradle)
+2. Tabular Preprocessing
 3. XGBoost Model Training
-4. Model Creation
-5. Packaging
-6. Payload Generation
-7. Registration
-8. Data Loading (for calibration set)
-9. Tabular Preprocessing (for calibration set)
+4. Model Evaluation
+5. Model Registration (MIMS)
+6. Calibration Data Processing
 
 **Key Features**:
-- Uses a function-based approach with the template
-- Demonstrates a complete end-to-end ML workflow for XGBoost models
-- Shows how to create and register a model
+- Extends `PipelineTemplateBase` for consistent structure
+- Uses specification-driven dependency resolution
+- Demonstrates execution document support
+- Shows handling of different data types (training and calibration)
 
-### 4. XGBoost Data Load and Preprocess Pipeline
+### 2. XGBoost Simple Pipeline
+
+**Source**: `src/pipeline_builder/template_pipeline_xgboost_simple.py`
+
+**Description**: Simplified XGBoost pipeline for quick experimentation:
+1. Data Loading (from Cradle)
+2. Tabular Preprocessing
+3. XGBoost Model Training
+
+**Key Features**:
+- Minimal pipeline for rapid iteration
+- Reduced configuration requirements
+- Shows core specification connections
+- Suitable for experimentation environments
+
+### 3. PyTorch End-to-End Pipeline
+
+**Source**: `src/pipeline_builder/template_pipeline_pytorch_end_to_end.py`
+
+**Description**: Complete end-to-end PyTorch pipeline that performs:
+1. Data Loading (from Cradle)
+2. Tabular Preprocessing
+3. PyTorch Model Training
+4. Model Creation
+5. Model Registration (MIMS)
+6. Calibration Data Processing
+
+**Key Features**:
+- Shows specification-driven connections for PyTorch models
+- Demonstrates integration with MIMS packaging and registration
+- Handles deep learning model artifacts
+- Supports proper hyperparameter configuration
+
+### 4. PyTorch Model Registration Pipeline
+
+**Source**: `src/pipeline_builder/template_pipeline_pytorch_model_registration.py`
+
+**Description**: Pipeline focused on PyTorch model registration:
+1. Model Creation (using an existing model artifact)
+2. MIMS Packaging
+3. MIMS Payload Generation
+4. MIMS Registration
+
+**Key Features**:
+- Specialized for model registration workflows
+- Accepts external model artifacts
+- Shows how to validate model paths
+- Demonstrates integration with MIMS components
+
+### 5. XGBoost Data Loading and Preprocessing Pipeline
 
 **Source**: `src/pipeline_builder/template_pipeline_xgboost_dataload_preprocess.py`
 
-**Description**: This pipeline focuses on the data preparation steps:
-1. Data Loading
+**Description**: Pipeline focused on data preparation steps:
+1. Data Loading (from Cradle)
 2. Tabular Preprocessing
 
 **Key Features**:
-- Demonstrates a simpler pipeline focused on data preparation
-- Shows how to use the template for specific parts of the ML workflow
+- Data preparation-only pipeline
+- Shows modular pipeline design
+- Can be used for data exploration
+- Demonstrates preprocessing configuration options
 
-## Common Patterns
+### 6. XGBoost Training and Evaluation Pipeline
 
-Across these examples, several common patterns emerge:
+**Source**: `src/pipeline_builder/template_pipeline_xgboost_train_evaluate_e2e.py`
 
-1. **DAG Definition**: Each example defines a DAG that represents the structure of the pipeline.
-2. **Config Map**: Each example creates a config map that maps step names to configuration instances.
-3. **Step Builder Map**: Each example creates a step builder map that maps step types to step builder classes.
-4. **Template Instantiation**: Each example creates a PipelineBuilderTemplate instance with the DAG, config map, and step builder map.
-5. **Pipeline Generation**: Each example generates a SageMaker pipeline using the template.
+**Description**: Pipeline focused on training and evaluation:
+1. XGBoost Model Training
+2. Model Evaluation
+3. Model Registration (MIMS)
 
-## Implementation Details
+**Key Features**:
+- Uses pre-processed data from S3
+- Focuses on model performance and evaluation
+- Shows evaluation metric handling
+- Demonstrates model quality gates
 
-### DAG Definition
+### 7. XGBoost Training and Evaluation (No Registration)
 
-The DAG can be defined in two ways:
+**Source**: `src/pipeline_builder/template_pipeline_xgboost_train_evaluate_no_registration.py`
 
-1. With a list of nodes and edges:
-   ```python
-   nodes = ["step1", "step2", "step3"]
-   edges = [("step1", "step2"), ("step2", "step3")]
-   dag = PipelineDAG(nodes=nodes, edges=edges)
-   ```
+**Description**: Pipeline for training and evaluation without registration:
+1. XGBoost Model Training
+2. Model Evaluation
 
-2. With incremental addition:
-   ```python
-   dag = PipelineDAG()
-   dag.add_node("step1")
-   dag.add_node("step2")
-   dag.add_edge("step1", "step2")
-   ```
+**Key Features**:
+- Suitable for experimentation and testing
+- No model registration steps
+- Simplified for iteration speed
+- Shows basic evaluation configuration
 
-### Config Map
+### 8. Cradle-Only Pipeline
 
-The config map is a dictionary that maps step names to configuration instances:
+**Source**: `src/pipeline_builder/template_pipeline_cradle_only.py`
+
+**Description**: Pipeline focused on Cradle data operations:
+1. Cradle Data Loading
+2. Optional basic transformations
+
+**Key Features**:
+- Specialized for data exploration workflows
+- Shows Cradle integration details
+- Demonstrates data source configuration
+- Includes execution document generation for Cradle requests
+
+## Implementation Approach
+
+### Abstract Base Class Extension
+
+All examples extend the `PipelineTemplateBase` abstract base class:
 
 ```python
-config_map = {
-    "step1": step1_config,
-    "step2": step2_config,
+class XGBoostEndToEndTemplate(PipelineTemplateBase):
+    # Define the configuration classes expected in the config file
+    CONFIG_CLASSES = {
+        'Base': BasePipelineConfig,
+        'DataLoading': CradleDataLoadingConfig,
+        'Preprocessing': TabularPreprocessingConfig,
+        'Training': XGBoostTrainingConfig,
+        'ModelEvaluation': XGBoostModelEvalConfig,
+        'ModelRegistration': MIMSRegistrationConfig,
+    }
+    
+    def _validate_configuration(self) -> None:
+        # Custom validation logic
+        pass
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        # Create and return the pipeline DAG
+        pass
+    
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        # Map step names to configurations
+        pass
+    
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        # Map step types to builder classes
+        pass
+```
+
+### Configuration File Approach
+
+All examples use JSON configuration files to parameterize the pipeline:
+
+```json
+{
+  "Base": {
+    "pipeline_name": "xgboost-training-pipeline",
+    "pipeline_s3_loc": "s3://my-bucket/pipelines/xgboost"
+  },
+  "DataLoading": {
+    "cradle_endpoint": "https://cradle-endpoint.example.com",
+    "source_type": "EDX",
+    "query_params": {
+      "start_date": "2023-01-01",
+      "end_date": "2023-06-30"
+    }
+  },
+  "Preprocessing": {
+    "processing_instance_type": "ml.m5.xlarge",
+    "processing_instance_count": 1,
+    "categorical_columns": ["category_1", "category_2"],
+    "numerical_columns": ["feature_1", "feature_2"]
+  }
 }
 ```
 
-### Step Builder Map
+### Factory Methods for Creation
 
-The step builder map is a dictionary that maps step types to step builder classes:
+All examples provide factory methods for pipeline creation:
 
 ```python
-step_builder_map = {
-    "Step1Type": Step1Builder,
-    "Step2Type": Step2Builder,
-}
+@classmethod
+def create_pipeline(cls, config_path: str, session=None, role=None) -> Pipeline:
+    """Factory method to create and return a pipeline instance."""
+    return cls.build_with_context(config_path, sagemaker_session=session, role=role)
 ```
 
-### Template Instantiation
+## Usage Examples
 
-The template is instantiated with the DAG, config map, and step builder map:
+### Basic Template Usage
 
 ```python
-template = PipelineBuilderTemplate(
-    dag=dag,
-    config_map=config_map,
-    step_builder_map=step_builder_map,
+from src.pipeline_builder.template_pipeline_xgboost_end_to_end import XGBoostEndToEndTemplate
+
+# Create pipeline with context management
+pipeline = XGBoostEndToEndTemplate.build_with_context(
+    config_path="configs/xgboost_config.json",
     sagemaker_session=sagemaker_session,
-    role=role,
-    pipeline_parameters=pipeline_parameters,
-    notebook_root=notebook_root
+    role=execution_role
 )
+
+# Execute the pipeline
+pipeline.upsert()
+execution = pipeline.start()
 ```
 
-Additional parameters include:
-- `pipeline_parameters`: List of SageMaker pipeline parameters
-- `notebook_root`: Root directory of the notebook (for resolving relative paths)
-
-### Pipeline Generation
-
-The pipeline is generated using the template:
+### Advanced Template Usage with Execution Document
 
 ```python
-pipeline = template.generate_pipeline("my-pipeline")
+from src.pipeline_builder.template_pipeline_xgboost_end_to_end import XGBoostEndToEndTemplate
+
+# Create template instance
+template = XGBoostEndToEndTemplate(
+    config_path="configs/xgboost_config.json",
+    sagemaker_session=sagemaker_session,
+    role=execution_role
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline()
+
+# Create an execution document template
+execution_doc = {
+    "execution": {
+        "name": "XGBoost Training Pipeline",
+        "steps": []
+    }
+}
+
+# Fill execution document with pipeline metadata
+filled_doc = template.fill_execution_document(execution_doc)
+
+# Execute the pipeline
+pipeline.upsert()
+execution = pipeline.start()
 ```
 
-## Benefits of Using Templates
+## Benefits of the Specification-Driven Approach
 
-These examples demonstrate the benefits of using the template system:
+These examples demonstrate the benefits of using the specification-driven dependency resolution system:
 
-1. **Reduced Boilerplate**: The template eliminates the need to write repetitive code for connecting steps.
-2. **Automatic Placeholder Handling**: The template automatically handles placeholder variables, reducing the risk of errors.
-3. **Declarative Pipeline Definition**: The pipeline structure is defined declaratively through the DAG, making it easier to understand and modify.
-4. **Separation of Concerns**: The template separates the pipeline structure (DAG) from the step implementations, making the code more modular and maintainable.
-5. **Reusable Components**: The template can be reused for different pipelines, promoting code reuse.
+1. **Automatic Step Connection**: Dependencies between steps are automatically resolved based on specifications.
+2. **Semantic Matching**: Inputs and outputs are matched based on semantic similarity, not just exact names.
+3. **Type Compatibility**: The system ensures that connected steps have compatible input/output types.
+4. **Configuration-Driven**: Pipelines are configured through JSON files, making them easy to modify.
+5. **Declarative Definition**: Pipeline structure is defined declaratively through the DAG.
+6. **Modular Design**: Pipelines can be composed of reusable components.
+7. **Context Isolation**: Multiple pipelines can run in isolated contexts.
+8. **Thread Safety**: Components can be used safely in multi-threaded environments.
 
-## Related
+## Related Documentation
 
-- [Pipeline DAG](pipeline_dag.md)
-- [Pipeline Builder Template](pipeline_builder_template.md)
+- [Pipeline Template Base](pipeline_template_base.md)
+- [Pipeline Assembler](pipeline_assembler.md)
+- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
 - [Template Implementation](template_implementation.md)
+- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
+- [Pipeline Deps: Registry Manager](../pipeline_deps/registry_manager.md)
 - [Pipeline Steps](../pipeline_steps/README.md)

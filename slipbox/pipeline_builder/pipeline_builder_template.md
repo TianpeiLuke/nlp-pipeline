@@ -2,14 +2,101 @@
 
 ## Overview
 
-The Pipeline Builder Template is a powerful abstraction that simplifies the creation of complex SageMaker pipelines. It uses a declarative approach to define pipeline structure and automatically handles the connections between steps, eliminating the need for manual wiring of inputs and outputs.
+The Pipeline Builder Template is a powerful abstraction that simplifies the creation of complex SageMaker pipelines. It uses a declarative approach with specification-driven dependency resolution to define pipeline structure and automatically handles the connections between steps, eliminating the need for manual wiring of inputs and outputs.
 
-## Class Definition
+The implementation consists of two key classes:
+1. `PipelineTemplateBase`: An abstract base class that provides a consistent structure for all pipeline templates
+2. `PipelineAssembler`: A concrete class that assembles pipeline steps using a DAG structure and specification-based dependency resolution
+
+## PipelineTemplateBase
+
+The `PipelineTemplateBase` provides a standardized approach for creating pipeline templates, reducing code duplication and enforcing best practices.
 
 ```python
-class PipelineBuilderTemplate:
+class PipelineTemplateBase(ABC):
+    """Base class for all pipeline templates."""
+    
+    # This should be overridden by subclasses to specify the config classes
+    # that are expected in the configuration file
+    CONFIG_CLASSES: Dict[str, Type[BasePipelineConfig]] = {}
+    
+    def __init__(
+        self,
+        config_path: str,
+        sagemaker_session: Optional[PipelineSession] = None,
+        role: Optional[str] = None,
+        notebook_root: Optional[Path] = None,
+        registry_manager: Optional[RegistryManager] = None,
+        dependency_resolver: Optional[UnifiedDependencyResolver] = None
+    ):
+        """Initialize base template."""
+```
+
+### Key Methods
+
+#### Configuration Loading
+```python
+def _load_configs(self, config_path: str) -> Dict[str, BasePipelineConfig]:
+    """Load configurations from file."""
+    
+def _get_base_config(self) -> BasePipelineConfig:
+    """Get base configuration."""
+```
+
+#### Component Management
+```python
+def _initialize_components(self) -> None:
+    """Initialize dependency resolution components."""
+```
+
+#### Abstract Methods
+```python
+@abstractmethod
+def _validate_configuration(self) -> None:
+    """Perform lightweight validation of configuration structure and essential parameters."""
+    
+@abstractmethod
+def _create_pipeline_dag(self) -> PipelineDAG:
+    """Create the DAG structure for the pipeline."""
+    
+@abstractmethod
+def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+    """Create a mapping from step names to config instances."""
+    
+@abstractmethod
+def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+    """Create a mapping from step types to builder classes."""
+```
+
+#### Pipeline Generation
+```python
+def generate_pipeline(self) -> Pipeline:
+    """Generate the SageMaker Pipeline."""
+```
+
+#### Factory Methods
+```python
+@classmethod
+def create_with_components(cls, config_path: str, context_name: Optional[str] = None, **kwargs):
+    """Create template with managed dependency components."""
+    
+@classmethod
+def build_with_context(cls, config_path: str, **kwargs) -> Pipeline:
+    """Build pipeline with scoped dependency resolution context."""
+    
+@classmethod
+def build_in_thread(cls, config_path: str, **kwargs) -> Pipeline:
+    """Build pipeline using thread-local component instances."""
+```
+
+## PipelineAssembler
+
+The `PipelineAssembler` is responsible for assembling pipeline steps using a DAG structure and specification-based dependency resolution.
+
+```python
+class PipelineAssembler:
     """
-    Generic pipeline builder using a DAG and step builders.
+    Assembles pipeline steps using a DAG and step builders with specification-based dependency resolution.
     """
     def __init__(
         self,
@@ -20,78 +107,48 @@ class PipelineBuilderTemplate:
         role: Optional[str] = None,
         pipeline_parameters: Optional[List[ParameterString]] = None,
         notebook_root: Optional[Path] = None,
+        registry_manager: Optional[RegistryManager] = None,
+        dependency_resolver: Optional[UnifiedDependencyResolver] = None
     ):
-        """
-        dag: PipelineDAG instance
-        config_map: Mapping from step name to config instance
-        step_builder_map: Mapping from step type to StepBuilderBase subclass
-        """
+        """Initialize the pipeline assembler."""
 ```
 
-## Key Components
+### Key Methods
 
-### 1. Pipeline DAG
-
-The [Pipeline DAG](pipeline_dag.md) defines the structure of the pipeline, including the steps and their dependencies. It is used to determine the order in which steps should be instantiated and connected.
-
-### 2. Config Map
-
-The config map is a dictionary that maps step names to configuration instances. Each configuration instance contains the parameters needed to create a specific step.
-
-### 3. Step Builder Map
-
-The step builder map is a dictionary that maps step types to step builder classes. Each step builder class knows how to create a specific type of step.
-
-## Key Methods
-
-### Collecting Step I/O Requirements
-
+#### Step Builder Initialization
 ```python
-def _collect_step_io_requirements(self) -> None:
-    """
-    Collect input and output requirements from all steps.
-    
-    This method initializes the step builders for all steps in the DAG
-    and collects their input requirements and output properties.
-    """
+def _initialize_step_builders(self) -> None:
+    """Initialize step builders for all steps in the DAG."""
 ```
 
-This method initializes the step builders for all steps in the DAG and collects their input requirements and output properties. This information is used by the message passing algorithm to connect steps.
-
-### Message Propagation
-
+#### Specification-Based Dependency Resolution
 ```python
 def _propagate_messages(self) -> None:
     """
-    Propagate messages between steps based on the DAG topology.
+    Initialize step connections using the dependency resolver.
     
-    This method implements a message passing algorithm where each step:
-    1. Collects messages from its dependencies (previous steps)
-    2. Verifies that its input requirements can be satisfied
-    3. Prepares its own output messages for downstream steps
+    This method analyzes the DAG structure and uses the dependency resolver
+    to intelligently match inputs to outputs based on specifications.
     """
 ```
 
-This method implements a message passing algorithm that propagates information about outputs from one step to inputs of subsequent steps. It is a key part of the automatic connection mechanism.
+#### Output Generation
+```python
+def _generate_outputs(self, step_name: str) -> Dict[str, Any]:
+    """
+    Generate outputs dictionary using step builder's specification.
+    """
+```
 
-### Step Instantiation
-
+#### Step Instantiation
 ```python
 def _instantiate_step(self, step_name: str) -> Step:
     """
     Instantiate a pipeline step with appropriate inputs from dependencies.
-    
-    This method dynamically determines the inputs required by each step based on:
-    1. The step's configuration
-    2. The outputs available from dependency steps
-    3. The step type and its expected input parameters
     """
 ```
 
-This method creates a SageMaker pipeline step with the appropriate inputs from its dependencies. It uses the information collected during the message propagation phase to determine what outputs from previous steps should be passed as inputs to the current step.
-
-### Pipeline Generation
-
+#### Pipeline Generation
 ```python
 def generate_pipeline(self, pipeline_name: str) -> Pipeline:
     """
@@ -99,96 +156,205 @@ def generate_pipeline(self, pipeline_name: str) -> Pipeline:
     """
 ```
 
-This method generates a SageMaker pipeline by:
-1. Collecting input/output requirements from all steps
-2. Propagating messages between steps
-3. Instantiating steps in topological order
-4. Creating a SageMaker Pipeline object with the instantiated steps
-
-## Message Passing Algorithm
-
-The message passing algorithm is a core feature of the Pipeline Builder Template. It automatically connects outputs from one step to inputs of subsequent steps, eliminating the need for manual wiring.
-
-### How It Works
-
-1. **Collection Phase**: The template collects input requirements and output properties from all steps.
-2. **Propagation Phase**: The template propagates messages between steps based on the DAG topology.
-3. **Matching Phase**: The template matches inputs to outputs based on name similarity and common patterns.
-4. **Extraction Phase**: The template extracts the actual output values from previous steps and passes them as inputs to subsequent steps.
-
-### Handling Placeholder Variables
-
-The message passing algorithm automatically handles placeholder variables like:
-
+#### Factory Method
 ```python
-# Example 1: Accessing processing output
-dependency_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
-
-# Example 2: Accessing model artifacts
-dependency_step.properties.ModelArtifacts.S3ModelArtifacts
+@classmethod
+def create_with_components(cls, 
+                         dag: PipelineDAG,
+                         config_map: Dict[str, BasePipelineConfig],
+                         step_builder_map: Dict[str, Type[StepBuilderBase]],
+                         context_name: Optional[str] = None,
+                         **kwargs) -> "PipelineAssembler":
+    """
+    Create pipeline assembler with managed components.
+    """
 ```
 
-It does this through several mechanisms:
+## Specification-Driven Dependency Resolution
 
-1. **Automatic Property Extraction**: The template includes methods that automatically extract common properties from steps.
-2. **Step-Specific Handlers**: The template includes specialized handlers for different step types.
-3. **Pattern Matching**: The template uses pattern matching to connect inputs to outputs when direct name matches aren't available.
+The Pipeline Builder Template now uses specification-driven dependency resolution to automatically connect steps:
 
-## Importance of Topological Ordering
+### Key Components
 
-Topological ordering is crucial for the Pipeline Builder Template because:
+1. **Registry Manager**: Manages multiple isolated specification registries
+2. **Dependency Resolver**: Resolves dependencies between steps using specifications
+3. **Semantic Matcher**: Calculates similarity between dependency names and output names
+4. **Property Reference**: Bridges definition-time and runtime property references
 
-1. **Dependency Resolution**: It ensures that all dependencies of a step are instantiated before the step itself.
-2. **Message Propagation**: It determines the order in which messages are propagated between steps.
-3. **Step Instantiation**: It determines the order in which steps are instantiated.
+### How Dependency Resolution Works
 
-The template uses the topological sort provided by the [Pipeline DAG](pipeline_dag.md) to determine the order in which steps should be processed.
+1. **Step Specification Registration**: Each step builder registers its specification with the registry
+2. **Dependency Analysis**: The dependency resolver analyzes the specifications of all steps
+3. **Compatibility Scoring**: The resolver calculates compatibility scores between dependencies and outputs
+4. **Property Reference Creation**: The resolver creates property references for each resolved dependency
+5. **Runtime Property Resolution**: Property references are converted to SageMaker property references at runtime
 
-## Advantages of the Template-Based Approach
+### Advantages of Specification-Driven Dependency Resolution
 
-1. **Reduced Boilerplate**: The template eliminates the need to write repetitive code for connecting steps.
-2. **Automatic Placeholder Handling**: The template automatically handles placeholder variables, reducing the risk of errors.
-3. **Declarative Pipeline Definition**: The pipeline structure is defined declaratively through the DAG, making it easier to understand and modify.
-4. **Separation of Concerns**: The template separates the pipeline structure (DAG) from the step implementations, making the code more modular and maintainable.
-5. **Reusable Components**: The template can be reused for different pipelines, promoting code reuse.
+1. **Declarative Dependency Definition**: Dependencies are defined declaratively in specifications
+2. **Semantic Matching**: Dependencies can be matched based on semantic similarity, not just exact names
+3. **Type Compatibility**: Dependencies can be matched based on type compatibility
+4. **Intelligent Matching**: Multiple factors are considered when matching dependencies
+5. **Contextual Isolation**: Multiple pipelines can have isolated dependency resolution contexts
+
+## Context Management and Thread Safety
+
+The Pipeline Builder Template now supports context management and thread safety:
+
+### Context Management
+
+```python
+# Build a pipeline with scoped context
+pipeline = MyPipelineTemplate.build_with_context(config_path)
+
+# Or use the context manager directly
+with dependency_resolution_context() as components:
+    template = MyPipelineTemplate(
+        config_path=config_path,
+        registry_manager=components["registry_manager"],
+        dependency_resolver=components["resolver"],
+    )
+    pipeline = template.generate_pipeline()
+```
+
+### Thread Safety
+
+```python
+# Build a pipeline in a thread-safe manner
+pipeline = MyPipelineTemplate.build_in_thread(config_path)
+
+# Or get thread-local components directly
+components = get_thread_components()
+template = MyPipelineTemplate(
+    config_path=config_path,
+    registry_manager=components["registry_manager"],
+    dependency_resolver=components["resolver"],
+)
+```
+
+## Creating a Custom Pipeline Template
+
+To create a custom pipeline template, you should extend the `PipelineTemplateBase` class:
+
+```python
+class MyPipelineTemplate(PipelineTemplateBase):
+    # Define the configuration classes expected in the config file
+    CONFIG_CLASSES = {
+        'Base': BasePipelineConfig,
+        'DataLoading': DataLoadingConfig,
+        'Preprocessing': PreprocessingConfig,
+        'Training': TrainingConfig,
+    }
+    
+    def _validate_configuration(self) -> None:
+        # Validate configuration structure
+        if 'DataLoading' not in self.configs:
+            raise ValueError("DataLoading configuration is required")
+        
+        if 'Training' not in self.configs:
+            raise ValueError("Training configuration is required")
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        # Create the DAG structure
+        dag = PipelineDAG()
+        
+        # Add nodes
+        dag.add_node("data_loading")
+        dag.add_node("preprocessing")
+        dag.add_node("training")
+        
+        # Add edges
+        dag.add_edge("data_loading", "preprocessing")
+        dag.add_edge("preprocessing", "training")
+        
+        return dag
+    
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        # Map step names to configuration instances
+        return {
+            "data_loading": self.configs['DataLoading'],
+            "preprocessing": self.configs['Preprocessing'],
+            "training": self.configs['Training'],
+        }
+    
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        # Map step types to builder classes
+        return {
+            "DataLoadingStep": DataLoadingStepBuilder,
+            "PreprocessingStep": PreprocessingStepBuilder,
+            "TrainingStep": TrainingStepBuilder,
+        }
+```
 
 ## Usage Example
 
+### Using a Pipeline Template
+
 ```python
-# Create the DAG
-dag = PipelineDAG()
-dag.add_node("step1")
-dag.add_node("step2")
-dag.add_edge("step1", "step2")
-
-# Create the config map
-config_map = {
-    "step1": step1_config,
-    "step2": step2_config,
-}
-
-# Create the step builder map
-step_builder_map = {
-    "Step1Type": Step1Builder,
-    "Step2Type": Step2Builder,
-}
-
 # Create the template
-template = PipelineBuilderTemplate(
-    dag=dag,
-    config_map=config_map,
-    step_builder_map=step_builder_map,
+template = MyPipelineTemplate(
+    config_path="config.json",
     sagemaker_session=sagemaker_session,
     role=role,
 )
 
 # Generate the pipeline
-pipeline = template.generate_pipeline("my-pipeline")
+pipeline = template.generate_pipeline()
 ```
 
-## Related
+### Using Factory Methods
 
-- [Pipeline DAG](pipeline_dag.md)
-- [Template Implementation](template_implementation.md)
-- [Pipeline Steps](../pipeline_steps/README.md)
+```python
+# Create with managed components
+template = MyPipelineTemplate.create_with_components(
+    config_path="config.json",
+    context_name="my_pipeline",
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Build with context
+pipeline = MyPipelineTemplate.build_with_context(
+    config_path="config.json",
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+
+# Build in thread
+pipeline = MyPipelineTemplate.build_in_thread(
+    config_path="config.json",
+    sagemaker_session=sagemaker_session,
+    role=role,
+)
+```
+
+## Advanced Features
+
+### Execution Document Support
+
+```python
+def fill_execution_document(self, execution_document: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill in the execution document with pipeline metadata."""
+```
+
+This method can be overridden by template subclasses to fill execution documents with step-specific metadata from the pipeline.
+
+### Cradle Data Loading Integration
+
+The `PipelineAssembler` automatically captures Cradle data loading requests from steps and stores them for later use:
+
+```python
+# Inside PipelineAssembler._instantiate_step:
+if step_type == "CradleDataLoading" and hasattr(builder, "get_request_dict"):
+    self.cradle_loading_requests[step.name] = builder.get_request_dict()
+```
+
+This allows templates to include these requests in execution documents or other metadata.
+
+## Related Documentation
+
+- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
 - [Pipeline Examples](pipeline_examples.md)
+- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
+- [Pipeline Deps: Registry Manager](../pipeline_deps/registry_manager.md)
+- [Pipeline Deps: Semantic Matcher](../pipeline_deps/semantic_matcher.md)

@@ -1,140 +1,278 @@
 # Template-Based Pipeline Implementation
 
-This document explains the template-based implementation of pipelines in the NLP Pipeline framework and how they handle placeholder variables and step connections.
+This document explains the template-based implementation of pipelines in the MODS Pipeline framework and how they use specification-driven dependency resolution to connect pipeline steps.
 
 ## Overview
 
-The template-based implementations in `src/pipeline_builder/` (such as `template_pipeline_pytorch_end_to_end.py`, `template_pipeline_pytorch_model_registration.py`, and `template_pipeline_xgboost_end_to_end.py`) use the `PipelineBuilderTemplate` class to automatically handle connections between pipeline steps. This is in contrast to traditional implementations that directly create and connect pipeline steps, explicitly passing outputs from one step as inputs to subsequent steps.
+The template-based implementations in `src/pipeline_builder/` build on two core abstractions:
 
-## Handling Placeholder Variables
+1. `PipelineTemplateBase`: An abstract base class providing standardized structure for pipeline templates
+2. `PipelineAssembler`: A concrete class that assembles pipeline steps using a DAG and specification-based dependency resolution
 
-In the original implementation, placeholder variables like these are used to pass outputs between steps:
+These components work together to automatically handle connections between pipeline steps, eliminating the need for manual wiring of inputs and outputs.
+
+## Available Template Implementations
+
+The framework provides several ready-to-use template implementations:
+
+| Template File | Purpose |
+|---------------|---------|
+| `template_pipeline_xgboost_end_to_end.py` | End-to-end XGBoost pipeline with data loading, preprocessing, training, evaluation, and registration |
+| `template_pipeline_xgboost_simple.py` | Simplified XGBoost pipeline for quick experimentation |
+| `template_pipeline_pytorch_end_to_end.py` | End-to-end PyTorch pipeline with data loading, preprocessing, training, and registration |
+| `template_pipeline_pytorch_model_registration.py` | PyTorch pipeline focused on model registration |
+| `template_pipeline_xgboost_dataload_preprocess.py` | XGBoost pipeline focused on data loading and preprocessing |
+| `template_pipeline_xgboost_train_evaluate_e2e.py` | XGBoost pipeline focused on training and evaluation |
+| `template_pipeline_xgboost_train_evaluate_no_registration.py` | XGBoost pipeline for training and evaluation without registration |
+| `template_pipeline_cradle_only.py` | Pipeline focused on Cradle data operations |
+
+## Specification-Driven Dependency Resolution
+
+The new template implementations use specification-driven dependency resolution to automatically connect pipeline steps:
+
+### 1. Step Specifications
+
+Each step builder provides a specification that declares its inputs and outputs:
 
 ```python
-# Example 1: Accessing processing output
-dependency_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
-
-# Example 2: Accessing model artifacts
-dependency_step.properties.ModelArtifacts.S3ModelArtifacts
+# In a step builder's __init__ method:
+self.spec = StepSpecification(
+    step_type="XGBoostTrainingStep",
+    node_type=NodeType.INTERNAL,
+    dependencies={
+        "training_data": DependencySpec(
+            logical_name="training_data",
+            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            required=True,
+            compatible_sources=["PreprocessingStep"],
+            semantic_keywords=["data", "training", "processed"],
+            data_type="S3Uri"
+        )
+    },
+    outputs={
+        "model_output": OutputSpec(
+            logical_name="model_output",
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.ModelArtifacts.S3ModelArtifacts",
+            data_type="S3Uri",
+            aliases=["ModelArtifacts", "model_data"]
+        )
+    }
+)
 ```
 
-The template-based implementation handles these placeholders through several mechanisms:
+### 2. DAG-Based Message Propagation
 
-### 1. DAG-Based Message Propagation
-
-The template uses a Directed Acyclic Graph (DAG) to represent the pipeline structure. Steps are connected through edges in the DAG, and the template automatically propagates messages (outputs) from one step to the next based on this structure.
+The `PipelineAssembler` uses the DAG to determine which steps can provide inputs to other steps:
 
 ```python
-def _create_pipeline_dag(self) -> PipelineDAG:
-    """Create the DAG structure for the pipeline."""
-    dag = PipelineDAG()
+# In PipelineAssembler._propagate_messages
+for src_step, dst_step in self.dag.edges:
+    # Skip if builders don't exist
+    if src_step not in self.step_builders or dst_step not in self.step_builders:
+        continue
+        
+    # Get specs
+    src_builder = self.step_builders[src_step]
+    dst_builder = self.step_builders[dst_step]
     
-    # Add nodes
-    dag.add_node("train_data_load")
-    dag.add_node("train_preprocess")
-    # ...
-    
-    # Add edges
-    dag.add_edge("train_data_load", "train_preprocess")
-    dag.add_edge("train_preprocess", "xgboost_train")
-    # ...
-    
-    return dag
+    # Let resolver match outputs to inputs
+    for dep_name, dep_spec in dst_builder.spec.dependencies.items():
+        matches = []
+        
+        # Check if source step can provide this dependency
+        for out_name, out_spec in src_builder.spec.outputs.items():
+            compatibility = resolver._calculate_compatibility(dep_spec, out_spec, src_builder.spec)
+            if compatibility > 0.5:  # Same threshold as resolver
+                matches.append((out_name, out_spec, compatibility))
+        
+        # Use best match if found
+        if matches:
+            # Sort by compatibility score
+            matches.sort(key=lambda x: x[2], reverse=True)
+            best_match = matches[0]
+            
+            # Store in step_messages
+            self.step_messages[dst_step][dep_name] = {
+                'source_step': src_step,
+                'source_output': best_match[0],
+                'match_type': 'specification_match',
+                'compatibility': best_match[2]
+            }
 ```
 
-### 2. Automatic Property Extraction
+### 3. Property Reference Resolution
 
-The template includes methods that automatically extract common properties from steps:
+During step instantiation, the `PipelineAssembler` creates `PropertyReference` objects to bridge definition-time and runtime:
 
 ```python
-# In PipelineBuilderTemplate._extract_common_outputs
-if hasattr(prev_step, "properties") and hasattr(prev_step.properties, "ProcessingOutputConfig"):
+# In PipelineAssembler._instantiate_step
+if output_spec:
     try:
-        # Try to get the first output
-        s3_uri = prev_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri
-        # ...
-    except (AttributeError, IndexError) as e:
-        # ...
+        # Create a PropertyReference object
+        prop_ref = PropertyReference(
+            step_name=src_step,
+            output_spec=output_spec
+        )
+        
+        # Use the enhanced to_runtime_property method to get a SageMaker Properties object
+        runtime_prop = prop_ref.to_runtime_property(self.step_instances)
+        inputs[input_name] = runtime_prop
+    except Exception as e:
+        # Fallback handling...
 ```
 
-### 3. Step-Specific Handlers
+## Creating a Custom Template Implementation
 
-The template includes specialized handlers for different step types:
+To create a custom template implementation, extend the `PipelineTemplateBase` class:
 
 ```python
-# In PipelineBuilderTemplate._extract_inputs_from_dependencies
-if step_type == "TabularPreprocessingStep":
-    self._handle_tabular_preprocessing_step(kwargs, step_name, dependency_steps)
-elif step_type == "PytorchTrainingStep" or step_type == "XGBoostTrainingStep":
-    self._handle_training_step(kwargs, step_name, dependency_steps, step_type)
-# ...
+from src.pipeline_builder.pipeline_template_base import PipelineTemplateBase
+from src.pipeline_dag.base_dag import PipelineDAG
+from src.pipeline_steps.config_data_load_step_cradle import CradleDataLoadingConfig
+from src.pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
+from src.pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
+from src.pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
+from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
+
+class MyCustomXGBoostTemplate(PipelineTemplateBase):
+    CONFIG_CLASSES = {
+        'Base': BasePipelineConfig,
+        'DataLoading': CradleDataLoadingConfig,
+        'Preprocessing': TabularPreprocessingConfig,
+        'Training': XGBoostTrainingConfig
+    }
+    
+    def _validate_configuration(self) -> None:
+        # Validation logic here
+        pass
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        dag = PipelineDAG()
+        
+        # Define steps
+        dag.add_node("data_loading")
+        dag.add_node("preprocessing")
+        dag.add_node("training")
+        
+        # Define dependencies
+        dag.add_edge("data_loading", "preprocessing")
+        dag.add_edge("preprocessing", "training")
+        
+        return dag
+    
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        return {
+            "data_loading": self.configs['DataLoading'],
+            "preprocessing": self.configs['Preprocessing'],
+            "training": self.configs['Training'],
+        }
+    
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        return {
+            "CradleDataLoading": CradleDataLoadingStepBuilder,
+            "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
+            "XGBoostTrainingStep": XGBoostTrainingStepBuilder,
+        }
 ```
-
-### 4. Pattern Matching
-
-The template uses pattern matching to connect inputs to outputs when direct name matches aren't available:
-
-```python
-# In PipelineBuilderTemplate._match_inputs_to_outputs
-common_patterns = {
-    "model": ["model", "model_data", "model_artifacts", "model_path"],
-    "data": ["data", "dataset", "input_data", "training_data"],
-    "output": ["output", "result", "artifacts", "s3_uri"]
-}
-```
-
-## Advantages of the Template-Based Approach
-
-1. **Reduced Boilerplate**: The template eliminates the need to write repetitive code for connecting steps.
-
-2. **Automatic Placeholder Handling**: The template automatically handles placeholder variables, reducing the risk of errors.
-
-3. **Declarative Pipeline Definition**: The pipeline structure is defined declaratively through the DAG, making it easier to understand and modify.
-
-4. **Separation of Concerns**: The template separates the pipeline structure (DAG) from the step implementations, making the code more modular and maintainable.
-
-5. **Reusable Components**: The template can be reused for different pipelines, promoting code reuse.
 
 ## Example Usage
 
-The template-based implementations follow two main patterns:
+There are two main patterns for using template implementations:
 
-### 1. Function-Based Implementation
-
-Used in pipelines like `template_pipeline_pytorch_end_to_end.py` and `template_pipeline_xgboost_end_to_end.py`:
+### 1. Direct Usage
 
 ```python
-# Create the pipeline using the template function
-pipeline = create_pipeline_from_template(
-    config_path="path/to/config.json",
+from src.pipeline_builder.template_pipeline_xgboost_end_to_end import XGBoostEndToEndTemplate
+
+# Create the template
+template = XGBoostEndToEndTemplate(
+    config_path="configs/xgboost_config.json",
     sagemaker_session=pipeline_session,
     role="arn:aws:iam::123456789012:role/SageMakerRole",
-    notebook_root=Path.cwd()
+)
+
+# Generate the pipeline
+pipeline = template.generate_pipeline()
+
+# Optional: Execute the pipeline
+pipeline.upsert()
+execution = pipeline.start()
+```
+
+### 2. Factory Method Usage
+
+```python
+from src.pipeline_builder.template_pipeline_xgboost_end_to_end import XGBoostEndToEndTemplate
+
+# Use factory method with context management
+pipeline = XGBoostEndToEndTemplate.build_with_context(
+    config_path="configs/xgboost_config.json",
+    sagemaker_session=pipeline_session,
+    role="arn:aws:iam::123456789012:role/SageMakerRole",
+)
+
+# Alternative: Thread-safe factory method
+pipeline = XGBoostEndToEndTemplate.build_in_thread(
+    config_path="configs/xgboost_config.json",
+    sagemaker_session=pipeline_session,
+    role="arn:aws:iam::123456789012:role/SageMakerRole",
 )
 ```
 
-### 2. Class-Based Implementation
+## Execution Document Support
 
-Used in pipelines like `template_pipeline_pytorch_model_registration.py`:
+Many template implementations support filling execution documents for external systems:
 
 ```python
-# Create the pipeline builder
-builder = TemplatePytorchPipelineBuilder(
-    config_path="path/to/config.json",
-    sagemaker_session=pipeline_session,
-    role="arn:aws:iam::123456789012:role/SageMakerRole",
-    notebook_root=Path.cwd()
-)
+# Create execution document template
+execution_doc = {
+    "execution": {
+        "name": "My Pipeline Execution",
+        "steps": []
+    }
+}
 
-# Generate the pipeline with a model path
-pipeline = builder.generate_pipeline("s3://bucket/path/to/model.tar.gz")
+# Fill execution document with pipeline metadata
+filled_doc = template.fill_execution_document(execution_doc)
+
+# The document now contains step-specific metadata, such as Cradle data loading requests
 ```
 
-See the individual template implementations in `src/pipeline_builder/` for complete examples.
+## Advantages of Template-Based Implementations
 
-## Related
+1. **Declarative Pipeline Definition**: Pipelines are defined declaratively using configurations, DAGs, and specifications
+2. **Automatic Dependency Resolution**: Step connections are automatically determined using intelligent matching
+3. **Separation of Concerns**: Pipeline structure is separated from step implementations
+4. **Configuration-Driven**: Pipeline variations can be created by changing configuration files
+5. **Reusable Components**: Templates can be composed of reusable step builders
+6. **Context Management**: Templates support proper resource management and isolation
+7. **Thread Safety**: Templates can be used safely in multi-threaded environments
 
-- [Pipeline DAG](pipeline_dag.md)
-- [Pipeline Builder Template](pipeline_builder_template.md)
-- [Pipeline Examples](pipeline_examples.md)
+## Performance Considerations
+
+Creating pipeline templates incurs some overhead due to specification registration and dependency resolution. For most use cases, this overhead is negligible, but there are ways to optimize:
+
+```python
+# Use factory method with manual component management
+components = create_pipeline_components("my_pipeline")
+template = MyCustomTemplate(
+    config_path="config.json",
+    registry_manager=components["registry_manager"],
+    dependency_resolver=components["resolver"],
+)
+
+# Reuse the template for multiple pipeline variations
+pipeline1 = template.generate_pipeline()
+pipeline2 = template.generate_pipeline()  # Reuses cached dependency resolution
+```
+
+## Related Documentation
+
+- [Pipeline Template Base](pipeline_template_base.md)
+- [Pipeline Assembler](pipeline_assembler.md)
+- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
+- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
 - [Pipeline Steps](../pipeline_steps/README.md)
+- [Pipeline Examples](pipeline_examples.md)
