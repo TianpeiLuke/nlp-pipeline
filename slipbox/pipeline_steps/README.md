@@ -185,8 +185,10 @@ This template-based approach automatically handles the connections between steps
 - [Property Reference](../pipeline_deps/property_reference.md): Bridging definition and runtime properties
 
 ### Pipeline Structure
-- [Pipeline DAG](../pipeline_dag/pipeline_dag.md): Directed acyclic graph representation of pipeline structure
+- [Base Pipeline DAG](../pipeline_dag/base_dag.md): Core DAG implementation
+- [Enhanced Pipeline DAG](../pipeline_dag/enhanced_dag.md): Advanced DAG with port-level dependency resolution  
 - [Pipeline DAG Overview](../pipeline_dag/README.md): Introduction to the DAG-based pipeline structure
+- [Edge Types](../pipeline_dag/edge_types.md): Types of edges used in the DAG
 
 ### Script Contracts
 - [Script Contracts Overview](../pipeline_script_contracts/README.md): Introduction to script contracts

@@ -6,14 +6,32 @@ The Pipeline DAG (Directed Acyclic Graph) module provides the core graph structu
 
 ## Key Components
 
-### [Pipeline DAG](pipeline_dag.md)
+### [Base Pipeline DAG](base_dag.md)
 
-The Pipeline DAG is a fundamental component that represents the structure of a pipeline as a directed acyclic graph. It provides methods for:
+The Base Pipeline DAG provides a lightweight, efficient representation of directed acyclic graphs for pipeline construction. It defines the core graph structure and algorithms for:
 
 - Adding nodes and edges
 - Querying dependencies
 - Topological sorting
 - Cycle detection
+
+### [Edge Types](edge_types.md)
+
+The Edge Types module provides rich typing and management capabilities for pipeline DAG edges including:
+
+- Various edge types (dependency, conditional, parallel, sequential)
+- Confidence scoring for auto-resolved edges
+- Edge collection management utilities
+- Edge validation and statistics
+
+### [Enhanced Pipeline DAG](enhanced_dag.md)
+
+The Enhanced Pipeline DAG extends the base Pipeline DAG with port-based dependency management and intelligent resolution:
+
+- Typed input/output ports via step specifications
+- Automatic dependency resolution with confidence scoring
+- Property reference management
+- Enhanced validation and reporting
 
 ## Core Functionality
 

@@ -353,8 +353,19 @@ This allows templates to include these requests in execution documents or other 
 
 ## Related Documentation
 
-- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
-- [Pipeline Examples](pipeline_examples.md)
-- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
-- [Pipeline Deps: Registry Manager](../pipeline_deps/registry_manager.md)
-- [Pipeline Deps: Semantic Matcher](../pipeline_deps/semantic_matcher.md)
+### Pipeline DAG Components
+- [Pipeline DAG Overview](../pipeline_dag/README.md): Introduction to the DAG-based pipeline structure
+- [Base Pipeline DAG](../pipeline_dag/base_dag.md): Core DAG implementation
+- [Enhanced Pipeline DAG](../pipeline_dag/enhanced_dag.md): Advanced DAG with port-level dependency resolution
+- [Edge Types](../pipeline_dag/edge_types.md): Types of edges used in the DAG
+
+### Pipeline Building
+- [Pipeline Template Base](pipeline_template_base.md): Core abstract class for pipeline templates
+- [Pipeline Assembler](pipeline_assembler.md): Assembles steps using specifications
+- [Pipeline Examples](pipeline_examples.md): Example pipeline implementations
+
+### Dependency System
+- [Dependency Resolver](../pipeline_deps/dependency_resolver.md): Resolves step dependencies
+- [Registry Manager](../pipeline_deps/registry_manager.md): Manages specification registries
+- [Semantic Matcher](../pipeline_deps/semantic_matcher.md): Name matching algorithms
+- [Property Reference](../pipeline_deps/property_reference.md): Runtime property bridge

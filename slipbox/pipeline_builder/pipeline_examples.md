@@ -268,10 +268,24 @@ These examples demonstrate the benefits of using the specification-driven depend
 
 ## Related Documentation
 
-- [Pipeline Template Base](pipeline_template_base.md)
-- [Pipeline Assembler](pipeline_assembler.md)
-- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
-- [Template Implementation](template_implementation.md)
-- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
-- [Pipeline Deps: Registry Manager](../pipeline_deps/registry_manager.md)
-- [Pipeline Steps](../pipeline_steps/README.md)
+### Pipeline Building
+- [Pipeline Template Base](pipeline_template_base.md): Core abstract class for templates
+- [Pipeline Assembler](pipeline_assembler.md): Assembles steps using specifications
+- [Template Implementation](template_implementation.md): Implementation details
+- [Pipeline Builder Overview](README.md): Introduction to the template-based system
+
+### Pipeline Structure
+- [Pipeline DAG Overview](../pipeline_dag/README.md): DAG-based pipeline structure
+- [Base Pipeline DAG](../pipeline_dag/base_dag.md): Core DAG implementation
+- [Enhanced Pipeline DAG](../pipeline_dag/enhanced_dag.md): Advanced DAG with port-level dependency
+- [Edge Types](../pipeline_dag/edge_types.md): Types of edges in the DAG
+
+### Dependency System
+- [Dependency Resolver](../pipeline_deps/dependency_resolver.md): Resolves dependencies
+- [Registry Manager](../pipeline_deps/registry_manager.md): Manages specifications
+- [Base Specifications](../pipeline_deps/base_specifications.md): Core specifications
+- [Property Reference](../pipeline_deps/property_reference.md): Runtime property bridge
+
+### Pipeline Components
+- [Pipeline Steps](../pipeline_steps/README.md): Available steps for pipelines
+- [Script Contracts](../pipeline_script_contracts/README.md): Script validation

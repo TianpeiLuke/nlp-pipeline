@@ -270,9 +270,24 @@ pipeline2 = template.generate_pipeline()  # Reuses cached dependency resolution
 
 ## Related Documentation
 
-- [Pipeline Template Base](pipeline_template_base.md)
-- [Pipeline Assembler](pipeline_assembler.md)
-- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
-- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
-- [Pipeline Steps](../pipeline_steps/README.md)
-- [Pipeline Examples](pipeline_examples.md)
+### Pipeline Building
+- [Pipeline Template Base](pipeline_template_base.md): Core abstract class for pipeline templates
+- [Pipeline Assembler](pipeline_assembler.md): Assembles pipeline steps using specifications
+- [Pipeline Builder Overview](README.md): Introduction to the template-based system
+- [Pipeline Examples](pipeline_examples.md): Example pipeline implementations
+
+### Pipeline Structure
+- [Pipeline DAG Overview](../pipeline_dag/README.md): Introduction to the DAG-based pipeline structure
+- [Base Pipeline DAG](../pipeline_dag/base_dag.md): Core DAG implementation
+- [Enhanced Pipeline DAG](../pipeline_dag/enhanced_dag.md): Advanced DAG with port-level dependency resolution
+- [Edge Types](../pipeline_dag/edge_types.md): Types of edges used in the DAG
+
+### Dependency System
+- [Dependency Resolver](../pipeline_deps/dependency_resolver.md): Core resolver for dependencies
+- [Base Specifications](../pipeline_deps/base_specifications.md): Core specification structures
+- [Property Reference](../pipeline_deps/property_reference.md): Runtime property bridge
+- [Semantic Matcher](../pipeline_deps/semantic_matcher.md): Name matching algorithms
+
+### Pipeline Components
+- [Pipeline Steps](../pipeline_steps/README.md): Available steps for pipeline construction
+- [Script Contracts](../pipeline_script_contracts/README.md): Script validation system
