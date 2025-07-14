@@ -239,7 +239,7 @@ Before integrating your new step into the pipeline, use this comprehensive check
 To assist with verifying alignment between script contracts and step specifications, use this command:
 
 ```python
-from src.v2.pipeline_step_specs.your_step_spec import YOUR_STEP_SPEC
+from src.pipeline_step_specs.your_step_spec import YOUR_STEP_SPEC
 
 # Validate alignment
 result = YOUR_STEP_SPEC.validate_contract_alignment()
@@ -255,7 +255,7 @@ if not result.is_valid:
 To check property path consistency in outputs:
 
 ```python
-from src.v2.pipeline_step_specs.your_step_spec import YOUR_STEP_SPEC
+from src.pipeline_step_specs.your_step_spec import YOUR_STEP_SPEC
 
 # Check property paths
 for output_name, output_spec in YOUR_STEP_SPEC.outputs.items():
@@ -271,8 +271,8 @@ for output_name, output_spec in YOUR_STEP_SPEC.outputs.items():
 To check environment variables:
 
 ```python
-from src.v2.pipeline_steps.builder_your_step import YourStepBuilder
-from src.v2.pipeline_steps.config_your_step import YourStepConfig
+from src.pipeline_steps.builder_your_step import YourStepBuilder
+from src.pipeline_steps.config_your_step import YourStepConfig
 
 # Create config and builder
 config = YourStepConfig(

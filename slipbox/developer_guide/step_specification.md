@@ -174,7 +174,7 @@ To ensure proper alignment with upstream steps:
 
 ```python
 # Load the upstream step's specification
-from src.v2.pipeline_step_specs.upstream_step_spec import UPSTREAM_STEP_SPEC
+from src.pipeline_step_specs.upstream_step_spec import UPSTREAM_STEP_SPEC
 
 # Examine its outputs
 for output_name, output_spec in UPSTREAM_STEP_SPEC.outputs.items():
@@ -209,7 +209,7 @@ Similarly, analyze downstream steps to ensure your outputs match their needs:
 
 ```python
 # Load the downstream step's specification
-from src.v2.pipeline_step_specs.downstream_step_spec import DOWNSTREAM_STEP_SPEC
+from src.pipeline_step_specs.downstream_step_spec import DOWNSTREAM_STEP_SPEC
 
 # Examine its dependencies
 for dep_name, dep_spec in DOWNSTREAM_STEP_SPEC.dependencies.items():
@@ -282,7 +282,7 @@ Validate compatibility with connected steps:
 
 ```python
 # Validate upstream compatibility
-from src.v2.pipeline_deps.validation import validate_step_compatibility
+from src.pipeline_deps.validation import validate_step_compatibility
 result = validate_step_compatibility(UPSTREAM_STEP_SPEC, YOUR_STEP_SPEC)
 if not result.is_valid:
     print(f"Upstream compatibility issues: {result.errors}")

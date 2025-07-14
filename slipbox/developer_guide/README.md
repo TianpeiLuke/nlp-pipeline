@@ -26,6 +26,7 @@ The developer guide is organized into several interconnected documents:
 
 - **[Design Principles](design_principles.md)** - Core design principles to follow
 - **[Best Practices](best_practices.md)** - Recommended best practices for development
+- **[Standardization Rules](standardization_rules.md)** - Enhanced architectural constraints for universal patterns
 - **[Common Pitfalls](common_pitfalls.md)** - Common mistakes to avoid
 - **[Alignment Rules](alignment_rules.md)** - Centralized alignment guidance across scripts, specifications, and builders
 - **[Validation Checklist](validation_checklist.md)** - Comprehensive checklist for validating implementations

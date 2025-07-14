@@ -14,7 +14,7 @@ input_path = "/opt/ml/processing/input/data"  # Hardcoded path
 output_path = "/opt/ml/processing/output/results"  # Hardcoded path
 ```
 
-**Solution**: Use the script contract to get paths. See [Script Contract Development](script_contract.md) for details.
+**Solution**: Use the script contract to get paths. See [Script Contract Development](script_contract.md) for details and [Path Handling Best Practices](best_practices.md#path-handling) for examples.
 
 ```python
 # CORRECT ✅
@@ -32,7 +32,7 @@ output_path = contract.expected_output_paths["output_data"]
 learning_rate = float(os.environ["LEARNING_RATE"])  # Will fail if not set
 ```
 
-**Solution**: Validate environment variables or provide defaults.
+**Solution**: Validate environment variables or provide defaults. For best practices on environment variable handling, see [Environment Variable Documentation](best_practices.md#environment-variable-documentation).
 
 ```python
 # CORRECT ✅
@@ -56,7 +56,7 @@ with open(output_path, 'w') as f:  # Trying to open a directory as a file
     json.dump(data, f)
 ```
 
-**Solution**: Be explicit about directory vs. file paths.
+**Solution**: Be explicit about directory vs. file paths. See [Path Handling Best Practices](best_practices.md#path-handling) for recommended patterns.
 
 ```python
 # CORRECT ✅
@@ -79,7 +79,7 @@ def process_data():
     result.to_csv(output_path)
 ```
 
-**Solution**: Add comprehensive error handling and logging.
+**Solution**: Add comprehensive error handling and logging. See [Error Handling Best Practices](best_practices.md#error-handling) for detailed examples and patterns.
 
 ```python
 # CORRECT ✅
@@ -119,7 +119,7 @@ with open(os.path.join(output_path, "output.csv"), 'w') as f:  # May fail if dir
     csv_writer.writerows(data)
 ```
 
-**Solution**: Always create directories before writing files.
+**Solution**: Always create directories before writing files. See [Path Handling Best Practices](best_practices.md#path-handling) for more examples.
 
 ```python
 # CORRECT ✅
@@ -149,7 +149,7 @@ dependencies={
 }
 ```
 
-**Solution**: Use consistent logical names across contract and specification. See [Alignment Rules](alignment_rules.md) for detailed guidance.
+**Solution**: Use consistent logical names across contract and specification. See [Alignment Rules](alignment_rules.md) for detailed guidance and [Logical Name Clarity](best_practices.md#logical-name-clarity) for best practices.
 
 ```python
 # CORRECT ✅
@@ -542,7 +542,7 @@ def _get_inputs(self, inputs):
     ]
 ```
 
-**Solution**: Use specification-driven methods. See [Step Builder Implementation](step_builder.md) for details.
+**Solution**: Use specification-driven methods. See [Step Builder Implementation](step_builder.md) for details and follow [Standardization Rules](standardization_rules.md) for consistency.
 
 ```python
 # CORRECT ✅
@@ -564,7 +564,7 @@ def _get_processor_env_vars(self):
     }
 ```
 
-**Solution**: Convert all values to strings.
+**Solution**: Convert all values to strings. See [Environment Variable Setting](best_practices.md#environment-variable-setting) for best practices.
 
 ```python
 # CORRECT ✅
@@ -775,7 +775,7 @@ dag.add_edge("step_a", "step_b")  # Incompatible connection
 # No tests for contract alignment
 ```
 
-**Solution**: Add contract alignment tests.
+**Solution**: Add contract alignment tests. See [Unit Testing Strategy](best_practices.md#unit-testing-strategy) for recommended test patterns and [Standardization Rules](standardization_rules.md#testing-standards) for testing standards.
 
 ```python
 # CORRECT ✅
@@ -922,5 +922,6 @@ By being aware of these common pitfalls, you can avoid many of the issues that o
 3. **Handle Edge Cases**: Consider and test for edge cases and error conditions
 4. **Complete Registration**: Register your step in all required places
 5. **Provide Rich Documentation**: Document your step comprehensively
+6. **Follow Standardization Rules**: Apply [standardization rules](standardization_rules.md) for consistent implementation
 
-When in doubt, refer to the [validation checklist](validation_checklist.md) to verify your implementation and consult the [best practices](best_practices.md) for guidance on recommended approaches.
+When in doubt, refer to the [validation checklist](validation_checklist.md) to verify your implementation, follow the [standardization rules](standardization_rules.md) for universal patterns, and consult the [best practices](best_practices.md) for guidance on recommended approaches.

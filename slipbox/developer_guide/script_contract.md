@@ -127,7 +127,7 @@ This can cause issues if your script expects to create a file at a path where Sa
 Define your contract in a new file:
 
 ```python
-# src/v2/pipeline_script_contracts/your_script_contract.py
+# src/pipeline_script_contracts/your_script_contract.py
 from .base_script_contract import ScriptContract
 
 YOUR_SCRIPT_CONTRACT = ScriptContract(

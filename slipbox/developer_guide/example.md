@@ -25,7 +25,7 @@ First, let's ensure we have all the required information:
 
 First, let's create the script contract that defines the interface between our script and the SageMaker container environment.
 
-**File**: `src/v2/pipeline_script_contracts/feature_selection_contract.py`
+**File**: `src/pipeline_script_contracts/feature_selection_contract.py`
 
 ```python
 from .base_script_contract import ScriptContract
@@ -63,7 +63,7 @@ FEATURE_SELECTION_CONTRACT = ScriptContract(
 
 Now, let's create the step specification that defines how our step connects with other steps in the pipeline.
 
-**File**: `src/v2/pipeline_step_specs/feature_selection_spec.py`
+**File**: `src/pipeline_step_specs/feature_selection_spec.py`
 
 ```python
 from typing import Dict, List, Optional
@@ -180,7 +180,7 @@ def get_feature_selection_spec(job_type: str = None):
 
 Now, let's register our step in the central registry.
 
-**File to Update**: `src/v2/pipeline_registry/step_names.py`
+**File to Update**: `src/pipeline_registry/step_names.py`
 
 ```python
 STEP_NAMES = {
@@ -199,7 +199,7 @@ STEP_NAMES = {
 
 Let's create the configuration class for our step.
 
-**File**: `src/v2/pipeline_steps/config_feature_selection.py`
+**File**: `src/pipeline_steps/config_feature_selection.py`
 
 ```python
 from typing import List, Optional
@@ -278,7 +278,7 @@ class FeatureSelectionConfig(BasePipelineConfig):
 
 Now, let's implement the builder class that creates the SageMaker step.
 
-**File**: `src/v2/pipeline_steps/builder_feature_selection.py`
+**File**: `src/pipeline_steps/builder_feature_selection.py`
 
 ```python
 from typing import Dict, List, Any, Optional
@@ -399,21 +399,21 @@ class FeatureSelectionStepBuilder(StepBuilderBase):
 
 Now, let's update the necessary registry files to expose our components.
 
-**File**: `src/v2/pipeline_steps/__init__.py`
+**File**: `src/pipeline_steps/__init__.py`
 
 ```python
 # Add to existing imports
 from .builder_feature_selection import FeatureSelectionStepBuilder
 ```
 
-**File**: `src/v2/pipeline_step_specs/__init__.py`
+**File**: `src/pipeline_step_specs/__init__.py`
 
 ```python
 # Add to existing imports
 from .feature_selection_spec import FEATURE_SELECTION_SPEC, get_feature_selection_spec
 ```
 
-**File**: `src/v2/pipeline_script_contracts/__init__.py`
+**File**: `src/pipeline_script_contracts/__init__.py`
 
 ```python
 # Add to existing imports
@@ -424,7 +424,7 @@ from .feature_selection_contract import FEATURE_SELECTION_CONTRACT
 
 Let's create the feature selection script that implements the business logic.
 
-**File**: `src/v2/pipeline_scripts/feature_selection.py`
+**File**: `src/pipeline_scripts/feature_selection.py`
 
 ```python
 #!/usr/bin/env python3
@@ -450,7 +450,7 @@ logger = logging.getLogger(__name__)
 
 def get_script_contract():
     """Get the contract for this script."""
-    from src.v2.pipeline_script_contracts.feature_selection_contract import FEATURE_SELECTION_CONTRACT
+    from src.pipeline_script_contracts.feature_selection_contract import FEATURE_SELECTION_CONTRACT
     return FEATURE_SELECTION_CONTRACT
 
 def parse_args():
@@ -768,10 +768,10 @@ Let's create unit tests for our step components.
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.v2.pipeline_steps.builder_feature_selection import FeatureSelectionStepBuilder
-from src.v2.pipeline_steps.config_feature_selection import FeatureSelectionConfig
-from src.v2.pipeline_step_specs.feature_selection_spec import FEATURE_SELECTION_SPEC
-from src.v2.pipeline_deps.base_specifications import NodeType, DependencyType
+from src.pipeline_steps.builder_feature_selection import FeatureSelectionStepBuilder
+from src.pipeline_steps.config_feature_selection import FeatureSelectionConfig
+from src.pipeline_step_specs.feature_selection_spec import FEATURE_SELECTION_SPEC
+from src.pipeline_deps.base_specifications import NodeType, DependencyType
 
 class TestFeatureSelectionStepBuilder(unittest.TestCase):
     def setUp(self):
@@ -803,4 +803,5 @@ class TestFeatureSelectionStepBuilder(unittest.TestCase):
         
         # Verify inputs
         self.assertEqual(len(processing_inputs), 2)
-        self.assertEqual(processing_inputs
+        self.assertEqual(processing_inputs[0].source, "s3://bucket/input/data")
+        self.assertEqual(processing_inputs[1].source
