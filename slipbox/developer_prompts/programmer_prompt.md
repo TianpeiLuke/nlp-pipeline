@@ -50,12 +50,12 @@ Based on the provided implementation plan, create the code for all required comp
 ## Instructions
 
 1. Implement each component following the architecture patterns:
-   - Create the script contract
-   - Create the step specification
-   - Create the configuration class
-   - Create the step builder
-   - Create the processing script
-   - Update registry files
+   - Create the script contract defining explicit paths and environment variables
+   - Create the step specification with appropriate node type and port definitions
+   - Create the configuration class with all required parameters and access methods
+   - Create the step builder that connects specification and contract via SageMaker
+   - Create the processing script that implements the actual business logic
+   - Update registry files to make your step discoverable
 
 2. Follow these specific guidelines for each component:
 
@@ -93,11 +93,30 @@ Based on the provided implementation plan, create the code for all required comp
    - Register the step name in step_names.py
    - Add imports to appropriate __init__.py files
 
-3. Ensure all components are aligned:
+3. Ensure all components are aligned and follow our standardization rules:
    - Contract input/output paths must match script usage
    - Specification dependency and output names must match contract logical names
    - Builder must set all environment variables required by the contract
    - Property paths must follow standard formats
+   - Naming conventions must be consistent across all components
+   - Use specification-driven methods for input/output handling
+   - Document all parameters, methods, and classes thoroughly
+   - Implement proper error handling and logging in all components
+
+4. Implement robust error handling:
+   - Use try/except blocks with specific exception types
+   - Add meaningful error messages with context
+   - Create proper error classes for common failure modes
+   - Log errors at appropriate levels (ERROR vs WARNING vs INFO)
+   - Validate inputs before processing
+   - Create proper directory structures before writing files
+   - Add runtime validation of environment variables
+
+5. Include comprehensive testing support:
+   - Add validation methods for each component
+   - Include doctest examples in key functions
+   - Ensure components are testable in isolation
+   - Add comments for expected behavior in edge cases
 
 Remember to incorporate best practices from the documentation, such as using specification-driven methods, handling edge cases, and following SageMaker conventions.
 
@@ -106,36 +125,36 @@ Remember to incorporate best practices from the documentation, such as using spe
 Provide all the code files needed to implement the step, following our naming conventions and directory structure:
 
 ```
-# src/v2/pipeline_script_contracts/[name]_contract.py
+# src/pipeline_script_contracts/[name]_contract.py
 from .base_script_contract import ScriptContract
 
 [NAME]_CONTRACT = ScriptContract(
     # Your implementation here
 )
 
-# src/v2/pipeline_step_specs/[name]_spec.py
+# src/pipeline_step_specs/[name]_spec.py
 from ..pipeline_deps.base_specifications import StepSpecification, NodeType, DependencySpec, OutputSpec, DependencyType
 
 # Your implementation here
 
-# src/v2/pipeline_steps/config_[name].py
+# src/pipeline_steps/config_[name].py
 from .config_base import BasePipelineConfig
 
 class [Name]Config(BasePipelineConfig):
     # Your implementation here
 
-# src/v2/pipeline_steps/builder_[name].py
+# src/pipeline_steps/builder_[name].py
 from .builder_step_base import StepBuilderBase
 
 class [Name]StepBuilder(StepBuilderBase):
     # Your implementation here
 
-# src/v2/pipeline_scripts/[name].py
+# src/pipeline_scripts/[name].py
 #!/usr/bin/env python3
 
 # Your implementation here
 
-# Update src/v2/pipeline_registry/step_names.py
+# Update src/pipeline_registry/step_names.py
 STEP_NAMES = {
     # ... existing steps ...
     "[StepName]": {
@@ -143,11 +162,11 @@ STEP_NAMES = {
     }
 }
 
-# Update src/v2/pipeline_steps/__init__.py
+# Update src/pipeline_steps/__init__.py
 # Add: from .builder_[name] import [Name]StepBuilder
 
-# Update src/v2/pipeline_step_specs/__init__.py
+# Update src/pipeline_step_specs/__init__.py
 # Add: from .[name]_spec import [NAME]_SPEC
 
-# Update src/v2/pipeline_script_contracts/__init__.py
+# Update src/pipeline_script_contracts/__init__.py
 # Add: from .[name]_contract import [NAME]_CONTRACT

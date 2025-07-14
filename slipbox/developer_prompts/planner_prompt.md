@@ -17,11 +17,13 @@ Our pipeline architecture follows a specification-driven approach with a four-la
 
 Based on the provided requirements, create a detailed plan for implementing a new pipeline step. Your plan should include:
 
-1. Analysis of the requirements
+1. Analysis of the requirements and their architectural implications
 2. List of components to create (script contract, step specification, configuration, step builder, processing script)
 3. List of existing files to update (registries, imports, etc.)
 4. Dependency analysis (upstream and downstream steps)
 5. Job type variants to consider (if any)
+6. Edge cases and error handling considerations
+7. Alignment strategy between script contract, specification, and builder
 
 ## Requirements for the New Step
 
@@ -53,40 +55,58 @@ Present your plan in the following format:
 - Inputs: [List of required inputs]
 - Outputs: [List of produced outputs]
 - Position in pipeline: [Where this step fits in the pipeline]
+- Architectural considerations: [Key design decisions and their rationale]
+- Alignment with design principles: [How this step follows our architectural patterns]
 
 ## 2. Components to Create
-- Script Contract: src/v2/pipeline_script_contracts/[name]_contract.py
+- Script Contract: src/pipeline_script_contracts/[name]_contract.py
   - Input paths: [List logical names and container paths]
   - Output paths: [List logical names and container paths]
   - Environment variables: [List required and optional env vars]
   
-- Step Specification: src/v2/pipeline_step_specs/[name]_spec.py
+- Step Specification: src/pipeline_step_specs/[name]_spec.py
   - Dependencies: [List dependency specs with compatible sources]
   - Outputs: [List output specs with property paths]
   - Job type variants: [List any variants needed]
   
-- Configuration: src/v2/pipeline_steps/config_[name].py
+- Configuration: src/pipeline_steps/config_[name].py
   - Step-specific parameters: [List parameters with defaults]
   - SageMaker parameters: [List instance type, count, etc.]
   
-- Step Builder: src/v2/pipeline_steps/builder_[name].py
+- Step Builder: src/pipeline_steps/builder_[name].py
   - Special handling: [Any special logic needed]
   
-- Processing Script: src/v2/pipeline_scripts/[name].py
+- Processing Script: src/pipeline_scripts/[name].py
   - Algorithm: [Brief description of algorithm]
   - Main functions: [List of main functions]
 
 ## 3. Files to Update
-- src/v2/pipeline_registry/step_names.py
-- src/v2/pipeline_steps/__init__.py
-- src/v2/pipeline_step_specs/__init__.py
-- src/v2/pipeline_script_contracts/__init__.py
+- src/pipeline_registry/step_names.py
+- src/pipeline_steps/__init__.py
+- src/pipeline_step_specs/__init__.py
+- src/pipeline_script_contracts/__init__.py
 - [Any template files that need updating]
 
 ## 4. Integration Strategy
 - Upstream steps: [List steps that can provide inputs]
 - Downstream steps: [List steps that can consume outputs]
 - DAG updates: [How to update the pipeline DAG]
+
+## 5. Contract-Specification Alignment
+- Input alignment: [How contract input paths map to specification dependency names]
+- Output alignment: [How contract output paths map to specification output names]
+- Validation strategy: [How to ensure alignment during development]
+
+## 6. Error Handling Strategy
+- Input validation: [How to validate inputs]
+- Script robustness: [How to handle common failure modes]
+- Logging strategy: [What to log and at what levels]
+- Error reporting: [How errors are communicated to the pipeline]
+
+## 7. Testing and Validation Plan
+- Unit tests: [Tests for individual components]
+- Integration tests: [Tests for step in pipeline context]
+- Validation criteria: [How to verify step is working correctly]
 ```
 
-Remember to follow the Step Creation Process outlined in the documentation and ensure your plan adheres to our design principles.
+Remember to follow the Step Creation Process outlined in the documentation and ensure your plan adheres to our design principles and standardization rules.

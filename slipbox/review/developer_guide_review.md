@@ -62,10 +62,10 @@ The guide is organized into the following primary sections:
 ## Areas for Improvement
 
 1. **Consolidate Alignment Guidance**  
-   - The rules for script↔contract↔specification alignment appear in multiple places (component guide, creation process). Consider centralizing or cross-referencing a single “Alignment Rules” section.
+   - The rules for script↔contract↔specification alignment appear in multiple places (component guide, creation process). Consider centralizing or cross-referencing a single "Alignment Rules" section. ✅ *Done - Created alignment_rules.md*
 
 2. **Update Registry Path Examples**  
-   - Some code examples reference `src/v2/...`; ensure paths match the current project structure (e.g., `src/pipeline_step_specs/`).
+   - Some code examples reference `src/v2/...`; ensure paths match the current project structure (e.g., `src/pipeline_step_specs/`). ✅ *Done - All path references updated to use src/ instead of src/v2/*
 
 3. **Cross-Link Common Pitfalls**  
    - Enhance the `common_pitfalls.md` doc with direct links to relevant code snippets in `best_practices.md` or `creation_process.md` for faster troubleshooting.
@@ -74,7 +74,10 @@ The guide is organized into the following primary sections:
    - Align naming conventions in `example.md` with those used in the step registry and codebase (e.g., snake_case vs. CamelCase).
 
 5. **Add Quick-Start Summary**  
-   - Consider adding a one-page quick-start summary or flowchart to the README for rapid orientation.
+   - Consider adding a one-page quick-start summary or flowchart to the README for rapid orientation. ✅ *Done - Added Quick Start Summary section to README*
+
+6. **Incorporate Standardization Rules**  
+   - ✅ *Done - Created standardization_rules.md to enforce universal patterns*
 
 ---
 
@@ -90,6 +93,7 @@ The guide is organized into the following primary sections:
 - [Step Builder Implementation](../developer_guide/step_builder.md)  
 - [Design Principles](../developer_guide/design_principles.md)  
 - [Best Practices](../developer_guide/best_practices.md)  
+- [Standardization Rules](../developer_guide/standardization_rules.md)  
 - [Common Pitfalls](../developer_guide/common_pitfalls.md)  
 - [Validation Checklist](../developer_guide/validation_checklist.md)  
 - [Alignment Rules](../developer_guide/alignment_rules.md)  

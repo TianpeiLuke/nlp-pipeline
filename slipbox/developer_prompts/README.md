@@ -76,17 +76,17 @@ For each role, include the most relevant documentation:
 When preparing the prompts, replace these placeholders with the actual content:
 
 - `[INJECT STEP REQUIREMENTS HERE]`: Your specific requirements for the new step
-- `[INJECT CREATION_PROCESS DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/creation_process.md`
-- `[INJECT PREREQUISITES DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/prerequisites.md`
-- `[INJECT COMPONENT_GUIDE DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/component_guide.md`
-- `[INJECT SCRIPT_CONTRACT DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/script_contract.md`
-- `[INJECT STEP_SPECIFICATION DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/step_specification.md`
-- `[INJECT STEP_BUILDER DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/step_builder.md`
-- `[INJECT BEST_PRACTICES DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/best_practices.md`
-- `[INJECT DESIGN_PRINCIPLES DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/design_principles.md`
-- `[INJECT COMMON_PITFALLS DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/common_pitfalls.md`
-- `[INJECT VALIDATION_CHECKLIST DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/validation_checklist.md`
-- `[INJECT EXAMPLE DOCUMENT HERE]`: Content from `slipbox/v2/developer_guide/example.md`
+- `[INJECT CREATION_PROCESS DOCUMENT HERE]`: Content from `slipbox/developer_guide/creation_process.md`
+- `[INJECT PREREQUISITES DOCUMENT HERE]`: Content from `slipbox/developer_guide/prerequisites.md`
+- `[INJECT COMPONENT_GUIDE DOCUMENT HERE]`: Content from `slipbox/developer_guide/component_guide.md`
+- `[INJECT SCRIPT_CONTRACT DOCUMENT HERE]`: Content from `slipbox/developer_guide/script_contract.md`
+- `[INJECT STEP_SPECIFICATION DOCUMENT HERE]`: Content from `slipbox/developer_guide/step_specification.md`
+- `[INJECT STEP_BUILDER DOCUMENT HERE]`: Content from `slipbox/developer_guide/step_builder.md`
+- `[INJECT BEST_PRACTICES DOCUMENT HERE]`: Content from `slipbox/developer_guide/best_practices.md`
+- `[INJECT DESIGN_PRINCIPLES DOCUMENT HERE]`: Content from `slipbox/developer_guide/design_principles.md`
+- `[INJECT COMMON_PITFALLS DOCUMENT HERE]`: Content from `slipbox/developer_guide/common_pitfalls.md`
+- `[INJECT VALIDATION_CHECKLIST DOCUMENT HERE]`: Content from `slipbox/developer_guide/validation_checklist.md`
+- `[INJECT EXAMPLE DOCUMENT HERE]`: Content from `slipbox/developer_guide/example.md`
 - `[INJECT RELEVANT EXAMPLES HERE]`: Relevant example implementations from codebase
 - `[INJECT PLANNER OUTPUT HERE]`: Output from the Planning phase
 - `[INJECT PROGRAMMER OUTPUT HERE]`: Output from the Implementation phase
