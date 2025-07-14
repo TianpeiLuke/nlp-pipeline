@@ -2,139 +2,157 @@
 
 This module provides dependency resolution and specification management for pipeline components. It enables automatic dependency resolution between pipeline steps based on their input/output specifications.
 
+## Overview
+
+The Pipeline Dependencies module is a key component of the specification-driven pipeline building system. It provides the infrastructure for automatic dependency resolution, which allows pipeline steps to be connected based on their specifications rather than manual wiring.
+
 ## Core Components
 
 ### Base Specifications
-- **base_specifications.py** - Foundation classes for dependency specifications
-- **specification_registry.py** - Registry for managing step specifications
-- **registry_manager.py** - High-level registry management interface
+- **[Base Specifications](base_specifications.md)** - Foundation classes for dependency specifications using Pydantic V2 models
+- **[Specification Registry](specification_registry.md)** - Registry for managing step specifications with context awareness
+- **[Registry Manager](registry_manager.md)** - Multi-context registry management with complete isolation
 
 ### Dependency Resolution
-- **dependency_resolver.py** - Core dependency resolution algorithms
-- **semantic_matcher.py** - Semantic matching for compatible specifications
+- **[Dependency Resolver](dependency_resolver.md)** - Core dependency resolution algorithms with compatibility scoring
+- **[Semantic Matcher](semantic_matcher.md)** - Multi-metric semantic matching for compatible specifications
+- **[Factory](factory.md)** - Factory functions for creating and managing dependency resolution components
 
 ## Key Features
 
-1. **Automatic Dependency Resolution** - Resolves step dependencies based on I/O specifications
-2. **Semantic Matching** - Intelligent matching of compatible data types and formats
-3. **Specification Registry** - Centralized management of step specifications
-4. **Validation Framework** - Ensures dependency consistency and completeness
-5. **Script Contract Integration** - Automated script validation against step specifications
-6. **Output Aliases System** - Multiple names for outputs with backward compatibility
-7. **Contract Alignment Validation** - Built-in verification of specification-contract alignment
-8. **Job Type Variant Handling** - Support for training vs calibration workflow differentiation
+1. **Specification-Driven Dependency Resolution** - Automatically connects pipeline steps based on their declared specifications
+2. **Semantic Matching** - Intelligent matching of dependencies and outputs using multiple similarity metrics
+3. **Context Isolation** - Registry isolation for multiple pipelines with independent dependency resolution
+4. **Thread Safety** - Thread-local component management for concurrent pipeline building
+5. **Property Reference System** - Bridges between definition-time and runtime property references
+6. **Compatibility Scoring** - Multi-factor compatibility scoring for optimal dependency matching
+7. **Step Type Awareness** - Recognizes compatible step types for more intelligent matching
+8. **Data Type Compatibility** - Ensures matched dependencies have compatible data types
 
-## Usage Pattern
+## How Specification-Driven Dependency Resolution Works
+
+The dependency resolution process follows these steps:
+
+1. **Specification Registration**:
+   - Each step builder registers its specification with the registry
+   - Specifications declare dependencies (inputs) and outputs
+
+2. **Dependency Analysis**:
+   - The dependency resolver analyzes the specifications of all steps
+   - It identifies required inputs and available outputs
+
+3. **Compatibility Scoring**:
+   - For each dependency, the resolver calculates compatibility scores with all available outputs
+   - Factors include name similarity, type compatibility, and explicit compatibility declarations
+
+4. **Optimal Matching**:
+   - The resolver selects the best match for each dependency based on compatibility score
+   - It ensures all required dependencies are satisfied
+
+5. **Property Reference Creation**:
+   - The resolver creates property references to bridge definition-time and runtime
+   - These references are converted to SageMaker property references during pipeline assembly
+
+## Dependency Resolution Example
 
 ```python
-from src.pipeline_deps import SpecificationRegistry, DependencyResolver
+from src.pipeline_deps.registry_manager import RegistryManager
+from src.pipeline_deps.dependency_resolver import create_dependency_resolver
+
+# Create a registry manager and get a registry
+registry_manager = RegistryManager()
+registry = registry_manager.get_registry("my_pipeline")
+
+# Create a dependency resolver
+resolver = create_dependency_resolver(registry)
 
 # Register step specifications
-registry = SpecificationRegistry()
-registry.register_specification("data_loading", data_loading_spec)
-registry.register_specification("preprocessing", preprocessing_spec)
+resolver.register_specification("preprocessing", preprocessing_spec)
+resolver.register_specification("training", training_spec)
 
-# Resolve dependencies
-resolver = DependencyResolver(registry)
-dependencies = resolver.resolve_dependencies(["data_loading", "preprocessing"])
+# Resolve dependencies between steps
+dependencies = resolver.resolve_dependencies(source_step="preprocessing", target_step="training")
+
+# Output: {
+#    "training_data": PropertyReference(step_name="preprocessing", output_name="processed_data"),
+#    "validation_data": PropertyReference(step_name="preprocessing", output_name="validation_data")
+# }
 ```
 
-## New Features Examples
+## Using the Factory Module
 
-### Output Aliases System
+The factory module provides convenient functions for creating and managing dependency resolution components:
+
 ```python
-from src.pipeline_deps.base_specifications import OutputSpec, DependencyType
+from src.pipeline_deps.factory import create_pipeline_components, dependency_resolution_context
 
-# Create output with aliases for backward compatibility
-model_output = OutputSpec(
-    logical_name="model_output",
-    output_type=DependencyType.MODEL_ARTIFACTS,
-    property_path="properties.ModelArtifacts.S3ModelArtifacts",
-    aliases=["ModelArtifacts", "model_data", "output_path"]
-)
+# Create components with a named context
+components = create_pipeline_components("my_pipeline")
+registry_manager = components["registry_manager"]
+resolver = components["resolver"]
 
-# Access by primary name or any alias
-primary = step_spec.get_output("model_output")
-legacy = step_spec.get_output_by_name_or_alias("ModelArtifacts")
-assert primary == legacy  # Same output object
+# Or use a context manager for scoped components
+with dependency_resolution_context("my_pipeline") as components:
+    registry_manager = components["registry_manager"]
+    resolver = components["resolver"]
+    
+    # Use components to build pipeline
+    # ...
+
+# Components are cleaned up when context exits
 ```
 
-### Script Contract Validation
+## Thread Safety
+
+The module provides thread-safe component management for concurrent pipeline building:
+
 ```python
-from src.pipeline_script_contracts.base_script_contract import ScriptContract
+from src.pipeline_deps.factory import get_thread_components
 
-# Define contract matching actual script behavior
-contract = ScriptContract(
-    script_name="train.py",
-    expected_input_paths={
-        "input_path": "/opt/ml/input/data",
-        "config": "/opt/ml/input/config/hyperparameters.json"
-    },
-    expected_output_paths={
-        "model_output": "/opt/ml/model",
-        "data_output": "/opt/ml/output/data"
-    }
-)
+# In Thread 1
+components1 = get_thread_components()
+resolver1 = components1["resolver"]
 
-# Create specification with contract reference
-step_spec = StepSpecification(
-    step_type="TrainingStep",
-    script_contract=contract,
-    dependencies=[...],
-    outputs=[...]
-)
+# In Thread 2
+components2 = get_thread_components()
+resolver2 = components2["resolver"]
 
-# Validate alignment
-result = step_spec.validate_contract_alignment()
-if result.is_valid:
-    print("✅ Perfect alignment!")
-else:
-    print("❌ Alignment issues:", result.errors)
+# Each thread gets its own isolated components
+assert resolver1 is not resolver2
 ```
 
-## Integration
+## Integration with Pipeline Builder
 
-This module integrates with:
-- **Pipeline Step Specs** - Provides specifications for dependency resolution
-- **Pipeline Builder** - Uses resolved dependencies for pipeline construction
-- **Step Builders** - Validates step compatibility during configuration
+This module integrates directly with the Pipeline Builder system:
+
+```python
+from src.pipeline_builder.pipeline_template_base import PipelineTemplateBase
+
+class MyPipelineTemplate(PipelineTemplateBase):
+    # Template definition...
+    pass
+
+# The template automatically uses dependency resolution components
+template = MyPipelineTemplate.build_with_context(config_path="config.json")
+```
 
 ## File Structure
 
 ```
-slipbox/pipeline_deps/
+slipbox/v2/pipeline_deps/
 ├── README.md                    # This overview document
-├── base_specifications.md       # Core specification data structures (Pydantic V2)
-├── dependency_resolver.md       # Dependency resolution algorithms and patterns
+├── base_specifications.md       # Core specification data structures
+├── dependency_resolver.md       # Dependency resolution algorithms
+├── factory.md                   # Component factory functions
 ├── registry_manager.md          # Multi-context registry management
-├── semantic_matcher.md          # Intelligent semantic similarity matching
-└── specification_registry.md    # Context-aware specification storage
+├── semantic_matcher.md          # Semantic similarity matching
+└── specification_registry.md    # Context-aware specification registry
 ```
 
-## Documentation Coverage
+## Related Documentation
 
-### Core Data Structures
-- **[Base Specifications](base_specifications.md)** - Pydantic V2 models for step specifications, dependencies, and outputs
-- **[Specification Registry](specification_registry.md)** - Context-aware storage and retrieval with compatibility checking
-- **[Registry Manager](registry_manager.md)** - Multi-context registry management with complete isolation
-
-### Advanced Features
-- **[Dependency Resolver](dependency_resolver.md)** - Intelligent dependency resolution algorithms and patterns
-- **[Semantic Matcher](semantic_matcher.md)** - Multi-metric similarity scoring for automatic component matching
-
-## Related Design Documentation
-
-For architectural context and design decisions, see:
-- **[Specification Driven Design](../pipeline_design/specification_driven_design.md)** - Overall design philosophy
-- **[Dependency Resolver Design](../pipeline_design/dependency_resolver.md)** - Dependency resolution architecture
-- **[Step Specification Design](../pipeline_design/step_specification.md)** - Step specification patterns
-- **[Registry Manager Design](../pipeline_design/registry_manager.md)** - Registry management approach
-- **[Design Principles](../pipeline_design/design_principles.md)** - Core design principles
-
-## Related Script Contract Documentation
-
-For script contract implementation and validation details, see:
-- **[Base Script Contract](../pipeline_script_contracts/base_script_contract.md)** - Foundation classes for script contracts
-- **[Contract Validator](../pipeline_script_contracts/contract_validator.md)** - Contract validation mechanisms
-- **[PyTorch Train Contract](../pipeline_script_contracts/pytorch_train_contract.md)** - PyTorch training contract example
-- **[Script Contracts Overview](../pipeline_script_contracts/README.md)** - Complete script contracts documentation
+- [Pipeline Builder Template](../pipeline_builder/pipeline_template_base.md)
+- [Pipeline Assembler](../pipeline_builder/pipeline_assembler.md)
+- [Pipeline DAG](../pipeline_dag/pipeline_dag.md)
+- [Pipeline Steps](../pipeline_steps/README.md)
+- [Pipeline Examples](../pipeline_builder/pipeline_examples.md)
