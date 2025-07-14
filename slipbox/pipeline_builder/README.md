@@ -200,11 +200,25 @@ execution = pipeline.start()
 
 ## Related Documentation
 
-- [Pipeline Builder Template](pipeline_builder_template.md)
-- [Pipeline DAG](pipeline_dag.md)
-- [Template Implementation](template_implementation.md)
-- [Pipeline Examples](pipeline_examples.md)
-- [Pipeline Steps](../pipeline_steps/README.md)
-- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
-- [Pipeline Deps: Registry Manager](../pipeline_deps/registry_manager.md)
-- [Pipeline Deps: Semantic Matcher](../pipeline_deps/semantic_matcher.md)
+### Pipeline Builder Components
+- [Pipeline Template Base](pipeline_template_base.md): Core abstract class for pipeline templates
+- [Pipeline Assembler](pipeline_assembler.md): Assembles steps using specifications
+- [Template Implementation](template_implementation.md): How templates are implemented
+- [Pipeline Examples](pipeline_examples.md): Example pipeline implementations
+
+### Pipeline Structure
+- [Pipeline DAG](../pipeline_dag/pipeline_dag.md): DAG structure for pipeline steps
+- [Pipeline DAG Overview](../pipeline_dag/README.md): DAG-based pipeline structure concepts
+
+### Dependency Resolution
+- [Pipeline Dependencies](../pipeline_deps/README.md): Overview of dependency resolution
+- [Dependency Resolver](../pipeline_deps/dependency_resolver.md): Resolves step dependencies
+- [Base Specifications](../pipeline_deps/base_specifications.md): Core specification structures
+- [Semantic Matcher](../pipeline_deps/semantic_matcher.md): Name matching algorithms
+- [Property Reference](../pipeline_deps/property_reference.md): Runtime property bridge
+- [Registry Manager](../pipeline_deps/registry_manager.md): Multi-context registry management
+
+### Pipeline Components
+- [Pipeline Steps](../pipeline_steps/README.md): Available steps and their specifications
+- [Script Contracts](../pipeline_script_contracts/README.md): Script contracts and validation
+- [Base Script Contract](../pipeline_script_contracts/base_script_contract.md): Foundation for script contracts

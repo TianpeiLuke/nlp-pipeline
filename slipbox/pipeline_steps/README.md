@@ -1,8 +1,8 @@
 # Pipeline Steps Documentation
 
-This directory contains documentation for each step in the MODS_BSM pipeline. Each markdown file provides a detailed description of a specific pipeline step, including its purpose, inputs, outputs, configuration parameters, and usage examples.
+This directory contains documentation for each step in the MODS pipeline. Each markdown file provides a detailed description of a specific pipeline step, including its purpose, inputs, outputs, configuration parameters, and usage examples.
 
-> **New Feature**: These pipeline steps can now be used with the [Pipeline Builder Template](../pipeline_builder/README.md) system, which provides a declarative approach to defining pipeline structure and automatically handles the connections between steps.
+> **New Feature**: These pipeline steps can now be used with the [Pipeline Builder Template](../pipeline_builder/README.md) system, which provides a declarative approach to defining pipeline structure and automatically handles the connections between steps using specification-driven dependency resolution.
 
 ## Available Pipeline Steps
 
@@ -25,6 +25,7 @@ This directory contains documentation for each step in the MODS_BSM pipeline. Ea
 
 ### Model Packaging and Registration
 - [XGBoost Model Step](model_step_xgboost.md): Creates a SageMaker model artifact from a trained XGBoost model
+- [PyTorch Model Step](model_step_pytorch.md): Creates a SageMaker model artifact from a trained PyTorch model
 - [MIMS Packaging Step](mims_packaging_step.md): Prepares a trained model for deployment in MIMS
 - [MIMS Payload Step](mims_payload_step.md): Generates and uploads test payloads for model testing
 - [MIMS Registration Step](mims_registration_step.md): Registers a packaged model with MIMS
@@ -34,6 +35,43 @@ This directory contains documentation for each step in the MODS_BSM pipeline. Ea
 Each step in the pipeline follows a consistent pattern:
 - **Config Class (`config_xxx_step.py`)**: Defines the configuration parameters for the step using Pydantic models
 - **Builder Class (`builder_xxx_step.py`)**: Implements the logic to create a SageMaker Pipeline step using the configuration
+- **Step Specification**: Declares the step's inputs (dependencies) and outputs for automated connection
+
+## Specification-Driven Dependency Resolution
+
+Each step builder now includes a specification that declares its inputs and outputs:
+
+```python
+self.spec = StepSpecification(
+    step_type="XGBoostTrainingStep",
+    node_type=NodeType.INTERNAL,
+    dependencies={
+        "training_data": DependencySpec(
+            logical_name="training_data",
+            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            required=True,
+            compatible_sources=["PreprocessingStep"],
+            semantic_keywords=["data", "training", "processed"],
+            data_type="S3Uri"
+        )
+    },
+    outputs={
+        "model_output": OutputSpec(
+            logical_name="model_output",
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.ModelArtifacts.S3ModelArtifacts",
+            data_type="S3Uri",
+            aliases=["ModelArtifacts", "model_data"]
+        )
+    }
+)
+```
+
+These specifications enable the automatic connection of steps based on:
+- Semantic matching of dependency and output names
+- Type compatibility
+- Explicit compatibility declarations
+- Context-aware resolution
 
 ## Common Base Classes
 - **BasePipelineConfig**: Base configuration class with common parameters
@@ -82,37 +120,75 @@ With the new [Pipeline Builder Template](../pipeline_builder/README.md) system, 
 
 Example:
 ```python
-# Create the DAG
-dag = PipelineDAG()
-dag.add_node("data_load")
-dag.add_node("preprocess")
-dag.add_edge("data_load", "preprocess")
+from src.pipeline_builder.pipeline_template_base import PipelineTemplateBase
+from src.pipeline_dag.base_dag import PipelineDAG
 
-# Create the config map
-config_map = {
-    "data_load": data_load_config,
-    "preprocess": preprocess_config,
-}
+class MyPipelineTemplate(PipelineTemplateBase):
+    # Define configuration classes
+    CONFIG_CLASSES = {
+        'Base': BasePipelineConfig,
+        'DataLoading': CradleDataLoadingConfig,
+        'Preprocessing': TabularPreprocessingConfig,
+        'Training': XGBoostTrainingConfig
+    }
+    
+    def _validate_configuration(self) -> None:
+        # Validation logic
+        pass
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        # Create DAG
+        dag = PipelineDAG()
+        dag.add_node("data_loading")
+        dag.add_node("preprocessing")
+        dag.add_edge("data_loading", "preprocessing")
+        return dag
+    
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        # Map steps to configurations
+        return {
+            "data_loading": self.configs['DataLoading'],
+            "preprocessing": self.configs['Preprocessing']
+        }
+    
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        # Map step types to builder classes
+        return {
+            "CradleDataLoading": CradleDataLoadingStepBuilder,
+            "TabularPreprocessingStep": TabularPreprocessingStepBuilder
+        }
 
-# Create the step builder map
-step_builder_map = {
-    "DataLoadStep": DataLoadStepBuilder,
-    "PreprocessStep": PreprocessStepBuilder,
-}
-
-# Create the template
-template = PipelineBuilderTemplate(
-    dag=dag,
-    config_map=config_map,
-    step_builder_map=step_builder_map,
+# Create the template and generate pipeline
+template = MyPipelineTemplate(
+    config_path="configs/pipeline_config.json",
     sagemaker_session=sagemaker_session,
-    role=role,
+    role=role
 )
-
-# Generate the pipeline
-pipeline = template.generate_pipeline("my-pipeline")
+pipeline = template.generate_pipeline()
 ```
 
-This template-based approach automatically handles the connections between steps, eliminating the need for manual wiring of inputs and outputs. It's particularly valuable for handling placeholder variables like `dependency_step.properties.ProcessingOutputConfig.Outputs[0].S3Output.S3Uri`.
+This template-based approach automatically handles the connections between steps using specification-driven dependency resolution, eliminating the need for manual wiring of inputs and outputs. It's particularly valuable for handling complex SageMaker property references.
 
-See the [Pipeline Builder](../pipeline_builder/README.md) documentation for more details.
+## Related Documentation
+
+### Pipeline Building
+- [Pipeline Template Base](../pipeline_builder/pipeline_template_base.md): Core abstract class for pipeline templates
+- [Pipeline Assembler](../pipeline_builder/pipeline_assembler.md): Assembles pipeline steps using a DAG and specifications
+- [Pipeline Builder Overview](../pipeline_builder/README.md): Introduction to the template-based pipeline building system
+- [Template Implementation](../pipeline_builder/template_implementation.md): How templates are implemented using specifications
+- [Pipeline Examples](../pipeline_builder/pipeline_examples.md): Example pipeline implementations
+
+### Dependency Resolution
+- [Dependency Resolver](../pipeline_deps/dependency_resolver.md): Resolves dependencies between steps using specifications
+- [Base Specifications](../pipeline_deps/base_specifications.md): Core specification data structures
+- [Semantic Matcher](../pipeline_deps/semantic_matcher.md): Multi-metric semantic matching for step connections
+- [Property Reference](../pipeline_deps/property_reference.md): Bridging definition and runtime properties
+
+### Pipeline Structure
+- [Pipeline DAG](../pipeline_dag/pipeline_dag.md): Directed acyclic graph representation of pipeline structure
+- [Pipeline DAG Overview](../pipeline_dag/README.md): Introduction to the DAG-based pipeline structure
+
+### Script Contracts
+- [Script Contracts Overview](../pipeline_script_contracts/README.md): Introduction to script contracts
+- [Base Script Contract](../pipeline_script_contracts/base_script_contract.md): Foundation for script contracts
+- [Contract Validator](../pipeline_script_contracts/contract_validator.md): Validation of script implementations

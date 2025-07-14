@@ -98,7 +98,18 @@ print(f"Build order: {build_order}")
 
 ## Related Documentation
 
-- [Pipeline Builder Template](../pipeline_builder/pipeline_builder_template.md)
-- [Pipeline Examples](../pipeline_builder/pipeline_examples.md)
-- [Pipeline Deps: Dependency Resolver](../pipeline_deps/dependency_resolver.md)
-- [Pipeline Steps](../pipeline_steps/README.md)
+### Pipeline Building
+- [Pipeline Template Base](../pipeline_builder/pipeline_template_base.md): Core abstract class for templates
+- [Pipeline Assembler](../pipeline_builder/pipeline_assembler.md): Assembles steps using DAGs
+- [Pipeline Builder Overview](../pipeline_builder/README.md): Complete pipeline building system
+- [Template Implementation](../pipeline_builder/template_implementation.md): Template implementation details
+- [Pipeline Examples](../pipeline_builder/pipeline_examples.md): Example pipelines using DAGs
+
+### Dependency Resolution
+- [Dependency Resolver](../pipeline_deps/dependency_resolver.md): Uses DAG structure for resolution
+- [Base Specifications](../pipeline_deps/base_specifications.md): Core specification structures
+- [Property Reference](../pipeline_deps/property_reference.md): Runtime property bridge
+
+### Pipeline Components
+- [Pipeline Steps](../pipeline_steps/README.md): Steps connected via DAG
+- [Pipeline Dependencies](../pipeline_deps/README.md): Dependency resolution system
