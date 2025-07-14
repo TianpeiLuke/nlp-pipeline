@@ -8,12 +8,16 @@ The Batch Transform Step creates a SageMaker Batch Transform job to generate pre
 3. Creates a TransformStep in the SageMaker pipeline with appropriate dependencies
 4. Validates the configuration parameters before execution
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies, with different specifications based on job type (training, testing, validation, or calibration).
+
 ## Input and Output Format
 
 ### Input
 - **Model Name**: Name or Properties reference to a trained SageMaker model
 - **Input Data**: CSV or other formatted data in S3 that needs predictions
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract inputs from dependencies using the dependency resolver.
 
 ### Output
 - **Predictions**: Model predictions stored in the specified S3 output location
@@ -24,8 +28,6 @@ The Batch Transform Step creates a SageMaker Batch Transform job to generate pre
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | job_type | Dataset slice to transform ('training', 'testing', 'validation', 'calibration') | Required |
-| batch_input_location | S3 URI for input data | Required |
-| batch_output_location | S3 URI for transform outputs | Required |
 | transform_instance_type | Instance type for the transform job | ml.m5.large |
 | transform_instance_count | Number of instances for the transform job | 1 |
 | content_type | MIME type of input data | text/csv |
@@ -38,9 +40,18 @@ The Batch Transform Step creates a SageMaker Batch Transform job to generate pre
 
 ## Validation Rules
 - job_type must be one of: 'training', 'testing', 'validation', 'calibration'
-- batch_input_location and batch_output_location must be valid S3 URIs
-- transform_instance_type must start with 'ml.'
+- transform_instance_type and transform_instance_count must be provided
 - When join_source='Input', assemble_with must equal split_type
+
+## Specification and Contract Support
+
+The Batch Transform Step uses different specifications based on job type:
+- **BATCH_TRANSFORM_TRAINING_SPEC**: For transform jobs on training data
+- **BATCH_TRANSFORM_TESTING_SPEC**: For transform jobs on testing data
+- **BATCH_TRANSFORM_VALIDATION_SPEC**: For transform jobs on validation data
+- **BATCH_TRANSFORM_CALIBRATION_SPEC**: For transform jobs on calibration data
+
+These specifications define input/output relationships and dependencies, helping standardize integration with the Pipeline Builder Template.
 
 ## Usage Example
 ```python
@@ -50,17 +61,22 @@ from src.pipeline_steps.builder_batch_transform_step import BatchTransformStepBu
 # Create configuration
 config = BatchTransformStepConfig(
     job_type="testing",
-    batch_input_location="s3://my-bucket/test-data/",
-    batch_output_location="s3://my-bucket/test-predictions/",
     transform_instance_type="ml.c5.xlarge",
-    transform_instance_count=1
+    transform_instance_count=1,
+    content_type="text/csv",
+    accept="text/csv",
+    split_type="Line",
+    assemble_with="Line",
+    input_filter="$[1:]",
+    output_filter="$[-1]",
+    join_source="Input"
 )
 
 # Create builder and step
 builder = BatchTransformStepBuilder(config=config)
 transform_step = builder.create_step(
-    model_name=model_step.properties.ModelName,
-    dependencies=[preprocessing_step]
+    # The step can extract inputs from dependencies automatically
+    dependencies=[model_step, preprocessing_step]
 )
 
 # Add to pipeline
@@ -76,7 +92,7 @@ The `BatchTransformStepBuilder` defines the following input arguments that can b
 | Argument | Description | Required | Source |
 |----------|-------------|----------|--------|
 | model_name | Model name or ARN to use for transform | Yes | Previous step's ModelName property |
-| batch_input | Input data location | Yes | Previous step's processed_data output |
+| processed_data | Input data location | Yes | Previous step's processed_data output |
 
 ### Output Properties
 

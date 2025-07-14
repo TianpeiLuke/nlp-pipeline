@@ -8,21 +8,12 @@ The MIMS Payload Step generates and uploads test payloads for a model to be regi
 3. Uploads the archive to an S3 location
 4. Provides the S3 URI for use in model testing and registration
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies.
+
 This step is a key component in the MIMS registration workflow:
 - It generates sample payloads based on the model's input and output schema
 - Its output (payload S3 URI) is a required input for the [MIMS Registration Step](mims_registration_step.md)
-- It typically runs after the [MIMS Packaging Step](mims_packaging_step.md) and before the registration step
-
-In the pipeline templates (e.g., `template_pipeline_pytorch_model_registration.py`), this step is positioned between the packaging step and the registration step, as seen in the DAG configuration:
-```python
-# Define the DAG structure
-nodes = ["CreatePytorchModelStep", "PackagingStep", "PayloadStep", "RegistrationStep"]
-edges = [
-    ("CreatePytorchModelStep", "PackagingStep"),
-    ("PackagingStep", "PayloadStep"),
-    ("PayloadStep", "RegistrationStep")
-]
-```
+- It typically runs after model training and before or in parallel with the packaging step
 
 ## Input and Output Format
 
@@ -30,39 +21,66 @@ edges = [
 - **Model Schema**: Input and output variable definitions from the model configuration
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
 
+Note: The step can automatically extract necessary information from dependencies using the dependency resolver.
+
 ### Output
-- **Payload S3 URI**: S3 URI of the generated payload archive
-- **Payload S3 Key**: S3 key of the generated payload archive
-- **LambdaStep**: A configured SageMaker pipeline step that can be added to a pipeline
+- **Payload Archive**: Generated payloads packaged in a tar.gz archive, stored in S3
+- **ProcessingStep**: A configured SageMaker pipeline step that can be added to a pipeline
 
 ## Configuration Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
+| pipeline_name | Name of the pipeline | Required |
+| bucket | S3 bucket for output storage | Required |
+| region | AWS region | Inherited from base |
 | expected_tps | Expected transactions per second | 2 |
 | max_latency_in_millisecond | Maximum acceptable latency in milliseconds | 800 |
 | max_acceptable_error_rate | Maximum acceptable error rate (0-1) | 0.2 |
 | sample_payload_s3_key | S3 key for sample payload file | Auto-generated if not provided |
 | default_numeric_value | Default value for numeric fields | 0.0 |
-| default_text_value | Default value for text fields | "DEFAULT_TEXT" |
+| default_string_value | Default value for text fields | "DEFAULT_TEXT" |
+| processing_entry_point | Entry point script for payload generation | mims_payload.py |
+| processing_source_dir | Directory containing processing scripts | Required |
+| processing_framework_version | SKLearn framework version | 1.0-1 |
+| processing_instance_type_small | Instance type for small processing | Inherited from base |
+| processing_instance_type_large | Instance type for large processing | Inherited from base |
+| processing_instance_count | Number of instances for processing | Inherited from base |
+| processing_volume_size | EBS volume size for processing | Inherited from base |
+| use_large_processing_instance | Whether to use large instance type | Inherited from base |
 | special_field_values | Optional dictionary of special TEXT fields and their template values | None |
-| payload_script_path | Optional path to a custom payload generation script | None |
-| payload_script_arguments | Optional arguments for the custom payload generation script | None |
-| model_registration_objective | Objective of model registration | Required |
+| processing_script_arguments | Optional arguments for the payload generation script | None |
 | source_model_inference_content_types | Content type for model inference input | ["text/csv"] |
 | source_model_inference_response_types | Response type for model inference output | ["application/json"] |
 | source_model_inference_output_variable_list | Dictionary of output variables and their types | Required |
 | source_model_inference_input_variable_list | Input variables and their types | Required |
 
+## Environment Variables
+The payload step sets the following environment variables for the processing job:
+- **PIPELINE_NAME**: Name of the pipeline from configuration
+- **REGION**: AWS region from configuration
+- **CONTENT_TYPES**: Comma-separated list of content types from configuration
+- **DEFAULT_NUMERIC_VALUE**: Default value for numeric fields (if provided)
+- **DEFAULT_STRING_VALUE**: Default value for text fields (if provided)
+- **PAYLOAD_S3_KEY**: S3 key for sample payload file (if provided)
+- **BUCKET_NAME**: S3 bucket name (if provided)
+
 ## Validation Rules
-- model_registration_objective must be provided
-- source_model_inference_content_types must be exactly ["text/csv"] or ["application/json"]
-- source_model_inference_response_types must be exactly ["text/csv"] or ["application/json"]
-- source_model_inference_input_variable_list must be provided
+- pipeline_name and bucket must be provided
+- source_model_inference_content_types must be specified
+- processing_instance_count and processing_volume_size must be provided
 - If special_field_values is provided, all fields must exist in source_model_inference_input_variable_list and be of type TEXT
 - expected_tps must be >= 1
 - max_latency_in_millisecond must be between 100 and 10000
 - max_acceptable_error_rate must be between 0.0 and 1.0
+
+## Specification and Contract Support
+
+The MIMS Payload Step uses:
+- **Step Specification**: Defines input/output relationships and dependencies
+- **Script Contract**: Defines expected container paths for script inputs/outputs
+
+These help standardize integration with the Pipeline Builder Template and ensure consistent handling of inputs and outputs.
 
 ## Usage Example
 ```python
@@ -91,12 +109,16 @@ config = PayloadConfig(
     },
     bucket="my-bucket",
     pipeline_name="fraud-detection",
-    pipeline_version="1.0.0"
+    processing_source_dir="s3://my-bucket/scripts/",
+    processing_entry_point="mims_payload.py"
 )
 
 # Create builder and step
 builder = MIMSPayloadStepBuilder(config=config)
-payload_step = builder.create_step(dependencies=[previous_step])
+payload_step = builder.create_step(
+    # The step can extract needed information from dependencies
+    dependencies=[training_step]
+)
 
 # Add to pipeline
 pipeline.add_step(payload_step)
@@ -136,7 +158,9 @@ The `MIMSPayloadStepBuilder` defines the following input arguments that can be a
 
 | Argument | Description | Required | Source |
 |----------|-------------|----------|--------|
-| dependencies | List of dependent steps | No | Previous steps in the pipeline |
+| model_schema | Model schema information | Optional | Previous step's schema output |
+
+Note: Most payload generation is based on configuration rather than inputs from previous steps.
 
 ### Output Properties
 
@@ -144,8 +168,7 @@ The `MIMSPayloadStepBuilder` provides the following output properties that can b
 
 | Property | Description | Access Pattern |
 |----------|-------------|---------------|
-| payload_s3_uri | S3 URI of the generated payload archive | `step.properties.payload_s3_uri` |
-| payload_s3_key | S3 key of the generated payload archive | `step.properties.payload_s3_key` |
+| payload_output | S3 URI of the generated payload archive | `step.properties.ProcessingOutputConfig.Outputs["payload_output"].S3Output.S3Uri` |
 
 ### Usage with Pipeline Builder Template
 

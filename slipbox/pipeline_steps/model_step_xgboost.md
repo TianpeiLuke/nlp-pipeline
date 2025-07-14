@@ -8,11 +8,15 @@ The XGBoost Model Step creates a SageMaker model artifact from a trained XGBoost
 3. Configures the model with appropriate environment variables and resource limits
 4. Prepares the model for deployment or batch transformation
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies.
+
 ## Input and Output Format
 
 ### Input
 - **Model Data**: S3 path to trained XGBoost model artifacts
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract model data input from dependencies using the dependency resolver.
 
 ### Output
 - **Model**: SageMaker model artifact that can be deployed to an endpoint or used for batch transformation
@@ -22,56 +26,71 @@ The XGBoost Model Step creates a SageMaker model artifact from a trained XGBoost
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| inference_instance_type | Instance type for inference endpoint/transform job | ml.m5.large |
-| inference_entry_point | Entry point script for inference | inference.py |
+| instance_type | Instance type for inference endpoint/transform job | ml.m5.large |
+| entry_point | Entry point script for inference | inference.py |
 | source_dir | Directory containing inference scripts | Required |
 | framework_version | XGBoost framework version | Inherited from base |
-| initial_instance_count | Initial instance count for endpoint | 1 |
-| container_startup_health_check_timeout | Container startup health check timeout (seconds) | 300 |
-| container_memory_limit | Container memory limit (MB) | 6144 |
-| data_download_timeout | Model data download timeout (seconds) | 900 |
-| inference_memory_limit | Inference memory limit (MB) | 6144 |
-| max_concurrent_invocations | Max concurrent invocations per instance | 10 |
-| max_payload_size | Max payload size (MB) for inference | 6 |
+| py_version | Python version for the SageMaker XGBoost container | py3 |
+| use_xgboost_framework | Whether to use XGBoost framework or custom image | True |
+| image_uri | Custom image URI for inference (when not using XGBoost framework) | None (Required when use_xgboost_framework=False) |
+| accelerator_type | Optional accelerator type for the endpoint | None |
+| tags | Optional tags for the model | None |
 
 ## Validation Rules
-- inference_entry_point must be provided
-- inference_instance_type must start with 'ml.'
-- inference_memory_limit cannot exceed container_memory_limit
-- container_startup_health_check_timeout should not exceed data_download_timeout
-- If source_dir is provided and not an S3 URI, the inference entry point script must exist
+- entry_point must be provided
+- instance_type must be a valid SageMaker instance type
+- When use_xgboost_framework is False, image_uri must be provided
+- If source_dir is provided and not an S3 URI, the entry point script must exist
 
 ## Environment Variables
-The model step sets the following environment variables for the model container:
+The model step can set custom environment variables for the model container via the `env` configuration dictionary. These variables can be used to control the behavior of the inference code.
 
-| Environment Variable | Description | Value |
-|---------------------|-------------|-------|
-| MMS_DEFAULT_RESPONSE_TIMEOUT | Container startup health check timeout | From config |
-| SAGEMAKER_CONTAINER_LOG_LEVEL | Log level | 20 |
-| SAGEMAKER_PROGRAM | Entry point script | From config |
-| SAGEMAKER_SUBMIT_DIRECTORY | Code directory | /opt/ml/model/code |
-| SAGEMAKER_CONTAINER_MEMORY_LIMIT | Container memory limit | From config |
-| SAGEMAKER_MODEL_DATA_DOWNLOAD_TIMEOUT | Data download timeout | From config |
-| SAGEMAKER_INFERENCE_MEMORY_LIMIT | Inference memory limit | From config |
-| SAGEMAKER_MAX_CONCURRENT_INVOCATIONS | Max concurrent invocations | From config |
-| SAGEMAKER_MAX_PAYLOAD_IN_MB | Max payload size | From config |
-| AWS_REGION | AWS region | From session |
+## Specification and Contract Support
+
+The XGBoost Model Step uses:
+- **Step Specification**: Defines input/output relationships and dependencies
+- **Script Contract**: Defines expected container paths for script inputs/outputs
+
+These help standardize integration with the Pipeline Builder Template and ensure consistent handling of inputs and outputs.
 
 ## Usage Example
 ```python
-from src.pipeline_steps.config_model_step_xgboost import XGBoostModelCreationConfig
+from src.pipeline_steps.config_model_step_xgboost import XGBoostModelStepConfig
 from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
 
 # Create configuration
-config = XGBoostModelCreationConfig(
-    inference_instance_type="ml.m5.large",
-    inference_entry_point="inference.py",
+config = XGBoostModelStepConfig(
+    instance_type="ml.m5.large",
+    entry_point="inference.py",
     source_dir="s3://my-bucket/inference-scripts/",
     framework_version="1.5-1",
-    container_memory_limit=8192,
-    inference_memory_limit=6144,
-    max_concurrent_invocations=5,
-    max_payload_size=10
+    py_version="py3",
+    use_xgboost_framework=True
+)
+
+# Create builder and step
+builder = XGBoostModelStepBuilder(config=config)
+model_step = builder.create_step(
+    # The step can extract model_data from dependencies automatically
+    dependencies=[training_step]
+)
+
+# Add to pipeline
+pipeline.add_step(model_step)
+```
+
+## Custom Image Usage Example
+```python
+from src.pipeline_steps.config_model_step_xgboost import XGBoostModelStepConfig
+from src.pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
+
+# Create configuration using custom image
+config = XGBoostModelStepConfig(
+    instance_type="ml.m5.large",
+    entry_point="inference.py",
+    source_dir="s3://my-bucket/inference-scripts/",
+    use_xgboost_framework=False,
+    image_uri="123456789012.dkr.ecr.us-west-2.amazonaws.com/my-custom-image:latest"
 )
 
 # Create builder and step

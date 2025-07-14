@@ -8,11 +8,15 @@ The Currency Conversion Step performs currency normalization on monetary values 
 3. Optionally splits the data into training/validation/testing sets after conversion
 4. Outputs the converted data to S3 for use in subsequent pipeline steps
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies, with different specifications based on job type (training, testing, validation, or calibration).
+
 ## Input and Output Format
 
 ### Input
 - **Data Input**: Processed tabular data from a previous step (typically TabularPreprocessingStep)
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract inputs from dependencies using the dependency resolver.
 
 ### Output
 - **Converted Data**: Dataset with monetary values converted to a standard currency
@@ -28,6 +32,11 @@ The Currency Conversion Step performs currency normalization on monetary values 
 | test_val_ratio | Test vs val split within holdout | 0.5 |
 | label_field | Label column name for stratified splitting | Required |
 | processing_entry_point | Entry point script for currency conversion | currency_conversion.py |
+| processing_instance_type_small | Instance type for small processing | Inherited from base |
+| processing_instance_type_large | Instance type for large processing | Inherited from base |
+| processing_instance_count | Number of instances for processing | Inherited from base |
+| processing_volume_size | EBS volume size for processing | Inherited from base |
+| processing_framework_version | SKLearn framework version for processing | Required |
 | use_large_processing_instance | Whether to use large instance type | False |
 | marketplace_id_col | Column with marketplace IDs | Required |
 | currency_col | Optional column with currency codes | None (infer from marketplace_info) |
@@ -37,19 +46,35 @@ The Currency Conversion Step performs currency normalization on monetary values 
 | enable_currency_conversion | Turn off conversion if False | True |
 | default_currency | Fallback currency code | USD |
 | skip_invalid_currencies | If True, fill invalid codes with default_currency | False |
-| input_names | Input channel names | {"data_input": "ProcessedTabularData"} |
-| output_names | Output channel names | {"converted_data": "ConvertedCurrencyData"} |
+
+## Environment Variables
+The currency conversion step sets the following environment variables for the processing job:
+- **CURRENCY_CONVERSION_VARS**: JSON-serialized list of variables to convert
+- **CURRENCY_CONVERSION_DICT**: JSON-serialized dictionary of conversion rates
+- **MARKETPLACE_INFO**: JSON-serialized dictionary of marketplace information
+- **LABEL_FIELD**: Name of the label field
+- **TRAIN_RATIO**: Train split ratio
+- **TEST_VAL_RATIO**: Test vs validation split ratio
 
 ## Validation Rules
 - job_type must be one of: 'training', 'validation', 'testing', 'calibration'
 - mode must be one of: 'per_split', 'split_after_conversion'
-- currency_conversion_dict cannot be empty and must include a rate of 1.0
-- All conversion rates must be positive
+- Processing attributes (instance count, volume size, etc.) must be provided
 - When currency conversion is enabled:
   - marketplace_id_col is required
   - currency_conversion_var_list cannot be empty
   - marketplace_info must be provided
   - For split_after_conversion mode, label_field is required for stratification
+
+## Specification and Contract Support
+
+The Currency Conversion Step uses different specifications based on job type:
+- **CURRENCY_CONVERSION_TRAINING_SPEC**: For conversion jobs on training data
+- **CURRENCY_CONVERSION_TESTING_SPEC**: For conversion jobs on testing data
+- **CURRENCY_CONVERSION_VALIDATION_SPEC**: For conversion jobs on validation data
+- **CURRENCY_CONVERSION_CALIBRATION_SPEC**: For conversion jobs on calibration data
+
+These specifications define input/output relationships and dependencies, helping standardize integration with the Pipeline Builder Template.
 
 ## Usage Example
 ```python
@@ -73,19 +98,32 @@ config = CurrencyConversionConfig(
         "UK": {"currency_code": "GBP"},
         "DE": {"currency_code": "EUR"},
         "JP": {"currency_code": "JPY"}
-    }
+    },
+    processing_framework_version="1.0-1",
+    processing_instance_count=1,
+    processing_volume_size=30
 )
 
 # Create builder and step
 builder = CurrencyConversionStepBuilder(config=config)
 conversion_step = builder.create_step(
-    data_input=preprocessing_step.properties.ProcessingOutputConfig.Outputs["ProcessedTabularData"].S3Output.S3Uri,
+    # The step can extract inputs from dependencies automatically
     dependencies=[preprocessing_step]
 )
 
 # Add to pipeline
 pipeline.add_step(conversion_step)
 ```
+
+## Command-line Arguments
+The currency conversion step passes the following command-line arguments to the processing script:
+- `--job-type`: Dataset type (training, validation, testing, calibration)
+- `--mode`: Processing mode (per_split, split_after_conversion)
+- `--marketplace-id-col`: Column name containing marketplace IDs
+- `--default-currency`: Default currency code
+- `--enable-conversion`: Whether to enable currency conversion (true/false)
+- `--currency-col`: Optional column containing currency codes
+- `--skip-invalid-currencies`: Flag to skip invalid currencies
 
 ## Integration with Pipeline Builder Template
 

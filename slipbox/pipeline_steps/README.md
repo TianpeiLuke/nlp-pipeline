@@ -12,6 +12,9 @@ This directory contains documentation for each step in the MODS_BSM pipeline. Ea
 - [Risk Table Mapping Step](risk_table_map_step.md): Processes raw data and applies risk table mappings
 - [Currency Conversion Step](currency_conversion_step.md): Performs currency normalization on monetary values
 
+### Model Configuration
+- [Hyperparameter Preparation Step](hyperparameter_prep_step.md): Serializes model hyperparameters to JSON and uploads them to S3
+
 ### Model Training
 - [PyTorch Training Step](training_step_pytorch.md): Configures and executes a PyTorch model training job
 - [XGBoost Training Step](training_step_xgboost.md): Configures and executes an XGBoost model training job

@@ -8,6 +8,8 @@ The Cradle Data Load Step loads data from various sources (MDS, EDX, or ANDES) u
 3. Outputs the processed data to S3 in the specified format
 4. Optionally splits large jobs into smaller chunks for better performance
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies, with different specifications based on job type (training, testing, validation, or calibration).
+
 ## Input and Output Format
 
 ### Input
@@ -87,6 +89,26 @@ The Cradle Data Load Step loads data from various sources (MDS, EDX, or ANDES) u
 - output_save_mode must be one of: 'ERRORIFEXISTS', 'OVERWRITE', 'APPEND', 'IGNORE'
 - cluster_type must be one of: 'STANDARD', 'SMALL', 'MEDIUM', 'LARGE'
 
+## Specification and Contract Support
+
+The Cradle Data Loading Step uses different specifications based on job type:
+- **DATA_LOADING_TRAINING_SPEC**: For data loading jobs for training data
+- **DATA_LOADING_TESTING_SPEC**: For data loading jobs for testing data
+- **DATA_LOADING_VALIDATION_SPEC**: For data loading jobs for validation data
+- **DATA_LOADING_CALIBRATION_SPEC**: For data loading jobs for calibration data
+
+These specifications define input/output relationships and dependencies, helping standardize integration with the Pipeline Builder Template.
+
+## Request Building
+The CradleDataLoadingStepBuilder can build a `CreateCradleDataLoadJobRequest` from the configuration, which can be:
+1. Converted to a dictionary using the `get_request_dict()` method for logging or debugging
+2. Used by the underlying step to execute the data loading job
+
+## Output Access
+The builder provides helper methods to access the outputs of the step:
+- `get_output_location(step, output_type)`: Get a specific output location (DATA, METADATA, SIGNATURE)
+- `get_step_outputs(step)`: Get all output locations as a dictionary
+
 ## Integration with Pipeline Builder Template
 
 ### Input Arguments
@@ -103,9 +125,9 @@ The `CradleDataLoadingStepBuilder` provides the following output properties that
 
 | Property | Description | Access Pattern |
 |----------|-------------|---------------|
-| DATA | Processed data location | `step.properties.ProcessingOutputConfig.Outputs["data"].S3Output.S3Uri` |
-| METADATA | Metadata location | `step.properties.ProcessingOutputConfig.Outputs["metadata"].S3Output.S3Uri` |
-| SIGNATURE | Signature location | `step.properties.ProcessingOutputConfig.Outputs["signature"].S3Output.S3Uri` |
+| DATA | Processed data location | Through step specification property paths |
+| METADATA | Metadata location | Through step specification property paths |
+| SIGNATURE | Signature location | Through step specification property paths |
 
 ### Usage with Pipeline Builder Template
 
@@ -218,4 +240,3 @@ pipeline.add_step(data_load_step)
 # Get output locations
 outputs = builder.get_step_outputs(data_load_step)
 data_location = outputs["DATA"]
-```

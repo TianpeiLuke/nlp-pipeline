@@ -3,11 +3,13 @@
 ## Task Summary
 The XGBoost Training Step configures and executes an XGBoost model training job in SageMaker. This step:
 
-1. Uploads hyperparameters as a JSON file to S3
+1. Automatically serializes and uploads hyperparameters as a JSON file to S3
 2. Creates an XGBoost estimator with the specified configuration
 3. Configures input channels for training, validation, and test data
 4. Executes the training job with the specified instance type and count
 5. Outputs the trained model artifacts to S3
+
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies.
 
 ## Input and Output Format
 
@@ -15,8 +17,10 @@ The XGBoost Training Step configures and executes an XGBoost model training job 
 - **Train Data**: Training dataset from S3 (train/ subfolder)
 - **Validation Data**: Validation dataset from S3 (val/ subfolder)
 - **Test Data**: Test dataset from S3 (test/ subfolder)
-- **Config**: Hyperparameters JSON file uploaded to S3
+- **Config**: Hyperparameters JSON file automatically generated and uploaded to S3
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract inputs from dependencies using the dependency resolver.
 
 ### Output
 - **Model Artifacts**: Trained XGBoost model artifacts stored in S3
@@ -49,6 +53,7 @@ The XGBoost Training Step configures and executes an XGBoost model training job 
 ## Environment Variables
 The training step sets the following environment variables for the training job:
 - **CA_REPOSITORY_ARN**: ARN for the secure PyPI repository
+- Additional environment variables can be specified in the config.env dictionary
 
 ## Usage Example
 ```python
@@ -83,6 +88,7 @@ config = XGBoostTrainingConfig(
 # Create builder and step
 builder = XGBoostTrainingStepBuilder(config=config)
 training_step = builder.create_step(
+    # The step can extract inputs from dependencies automatically
     dependencies=[preprocessing_step]
 )
 
@@ -97,6 +103,14 @@ The training step configures the following input channels for the XGBoost estima
 - **test**: Test data from {input_path}/test/
 - **config**: Hyperparameters JSON file from {hyperparameters_s3_uri}/hyperparameters.json
 
+## Specification and Contract Support
+
+The XGBoost Training Step now uses:
+- **Step Specification**: Defines input/output relationships and dependencies
+- **Script Contract**: Defines expected container paths for script inputs/outputs
+
+These help standardize integration with the Pipeline Builder Template and ensure consistent handling of inputs and outputs.
+
 ## Integration with Pipeline Builder Template
 
 ### Input Arguments
@@ -105,9 +119,8 @@ The `XGBoostTrainingStepBuilder` defines the following input arguments that can 
 
 | Argument | Description | Required | Source |
 |----------|-------------|----------|--------|
-| train_data | Training data location | Yes | Previous step's processed_data output |
-| validation_data | Validation data location | No | Previous step's processed_data output |
-| test_data | Test data location | No | Previous step's processed_data output |
+| input_path | Path to preprocessed data | Yes | Previous step's processed_data output |
+| hyperparameters_s3_uri | S3 URI for hyperparameters | No | Generated internally (previous hyperparameter prep step ignored) |
 
 ### Output Properties
 
@@ -115,7 +128,7 @@ The `XGBoostTrainingStepBuilder` provides the following output properties that c
 
 | Property | Description | Access Pattern |
 |----------|-------------|---------------|
-| model_artifacts | Trained model artifacts | `step.properties.ModelArtifacts.S3ModelArtifacts` |
+| model_artifacts | Trained model artifacts | `step.properties.ModelArtifacts` |
 
 ### Usage with Pipeline Builder Template
 

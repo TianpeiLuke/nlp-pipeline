@@ -8,12 +8,12 @@ The MIMS Packaging Step prepares a trained model for deployment in the Model Inv
 3. Outputs the packaged model to an S3 location
 4. Prepares the model for subsequent registration with MIMS
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies.
+
 This step is a critical part of the MIMS registration workflow:
 - It receives model artifacts from a previous training or model creation step
 - Its output (packaged model) is a required input for the [MIMS Registration Step](mims_registration_step.md)
 - It typically runs in parallel with the [MIMS Payload Step](mims_payload_step.md), which generates test payloads for the model
-
-In the pipeline templates (e.g., `template_pipeline_pytorch_model_registration.py`), this step is positioned between the model creation step and the payload/registration steps.
 
 ## Input and Output Format
 
@@ -21,6 +21,8 @@ In the pipeline templates (e.g., `template_pipeline_pytorch_model_registration.p
 - **Model Artifacts**: Trained model artifacts from a previous training or model step
 - **Inference Scripts**: Scripts needed for model inference (inference.py, etc.)
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract model artifacts from dependencies using the dependency resolver, but it will always use the local inference scripts path from configuration rather than any dependency-provided values.
 
 ### Output
 - **Packaged Model**: Model packaged according to MIMS requirements, stored in S3
@@ -32,22 +34,39 @@ In the pipeline templates (e.g., `template_pipeline_pytorch_model_registration.p
 |-----------|-------------|---------|
 | processing_entry_point | Entry point script for packaging | mims_package.py |
 | processing_source_dir | Directory containing processing scripts | Required |
-| source_dir | Directory containing inference scripts | Required |
-| processing_framework_version | SKLearn framework version | Inherited from base |
+| source_dir | Directory containing inference scripts | Required (falls back to "inference" in notebook root) |
+| processing_framework_version | SKLearn framework version | 1.0-1 |
 | processing_instance_type_small | Instance type for small processing | Inherited from base |
 | processing_instance_type_large | Instance type for large processing | Inherited from base |
 | processing_instance_count | Number of instances for processing | Inherited from base |
 | processing_volume_size | EBS volume size for processing | Inherited from base |
 | use_large_processing_instance | Whether to use large instance type | Inherited from base |
-| input_names | Dictionary mapping input names to descriptions | Default dictionary |
-| output_names | Dictionary mapping output names to descriptions | Default dictionary |
-| enable_caching_package_step | Whether to enable caching for the step | True |
+| pipeline_name | Name of the pipeline | Required |
+| region | AWS region | Inherited from base |
+| model_type | Type of model being packaged | Optional |
+| pipeline_version | Version of the pipeline | Optional |
+| model_registration_objective | Registration objective | Optional |
+
+## Environment Variables
+The packaging step sets the following environment variables for the processing job:
+- **PIPELINE_NAME**: Name of the pipeline from configuration
+- **REGION**: AWS region from configuration
+- **MODEL_TYPE**: Type of model (if provided)
+- **BUCKET_NAME**: S3 bucket name (if provided)
+- **PIPELINE_VERSION**: Pipeline version (if provided)
+- **MODEL_OBJECTIVE**: Model registration objective (if provided)
 
 ## Validation Rules
-- Either processing_source_dir or source_dir must be set
-- Required input names 'model_input' and 'inference_scripts_input' must be defined
-- Required output name 'packaged_model_output' must be defined
 - processing_entry_point must be provided
+- Required attributes: processing_instance_count, processing_volume_size, processing_instance_type_large, processing_instance_type_small, pipeline_name
+
+## Specification and Contract Support
+
+The MIMS Packaging Step uses:
+- **Step Specification**: Defines input/output relationships and dependencies
+- **Script Contract**: Defines expected container paths for script inputs/outputs
+
+These help standardize integration with the Pipeline Builder Template and ensure consistent handling of inputs and outputs.
 
 ## Usage Example
 ```python
@@ -57,16 +76,19 @@ from src.pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuil
 # Create configuration
 config = PackageStepConfig(
     processing_entry_point="mims_package.py",
-    source_dir="s3://my-bucket/inference-scripts/",
+    source_dir="inference/",  # Local path, always preferred over dependency inputs
     processing_source_dir="s3://my-bucket/processing-scripts/",
     pipeline_name="MyModelPipeline",
-    pipeline_s3_loc="s3://my-bucket/pipeline-outputs/"
+    pipeline_s3_loc="s3://my-bucket/pipeline-outputs/",
+    model_type="XGBoost",
+    pipeline_version="1.0.0",
+    model_registration_objective="fraud_detection"
 )
 
 # Create builder and step
 builder = MIMSPackagingStepBuilder(config=config)
 packaging_step = builder.create_step(
-    model_artifacts_input_source=training_step.properties.ModelArtifacts.S3ModelArtifacts,
+    # The step can extract model artifacts from dependencies automatically
     dependencies=[training_step]
 )
 
@@ -74,14 +96,14 @@ packaging_step = builder.create_step(
 pipeline.add_step(packaging_step)
 ```
 
-## Default Input/Output Names
+## Special Input Handling
 
-### Default Input Names
-- **model_input**: Input name for model artifacts
-- **inference_scripts_input**: Input name for inference scripts
+The MIMS Packaging Step has special handling for inference scripts:
+- It will **always** use the local inference scripts path from the configuration (`source_dir`)
+- Any inference scripts input from dependencies will be ignored
+- If no `source_dir` is provided, it falls back to an "inference" directory in the notebook root
 
-### Default Output Names
-- **packaged_model_output**: Output name for the packaged model
+This ensures that packaging always uses the correct inference scripts from the local environment.
 
 ## Integration with Pipeline Builder Template
 
@@ -91,8 +113,9 @@ The `MIMSPackagingStepBuilder` defines the following input arguments that can be
 
 | Argument | Description | Required | Source |
 |----------|-------------|----------|--------|
-| model_artifacts_input_source | Model artifacts location | Yes | Previous step's model_artifacts output |
-| inference_scripts_input_source | Inference scripts location | No | Configured in the step builder |
+| model_input | Model artifacts location | Yes | Previous step's model_artifacts output |
+
+Note: inference_scripts_input is always taken from the local `source_dir` configuration and ignores any dependency-provided values.
 
 ### Output Properties
 

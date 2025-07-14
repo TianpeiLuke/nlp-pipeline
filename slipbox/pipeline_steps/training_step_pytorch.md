@@ -4,49 +4,38 @@
 The PyTorch Training Step configures and executes a PyTorch model training job in SageMaker. This step:
 
 1. Creates a PyTorch estimator with the specified configuration and hyperparameters
-2. Configures input channels for training, validation, and test data
-3. Sets up checkpointing for model state saving during training
-4. Configures profiling and metric monitoring
-5. Executes the training job with the specified instance type and count
-6. Outputs the trained model artifacts to S3
+2. Configures a single data channel containing training, validation, and test data
+3. Sets up metric monitoring for tracking training progress
+4. Executes the training job with the specified instance type and count
+5. Outputs the trained model artifacts to S3
+
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies.
 
 ## Input and Output Format
 
 ### Input
-- **Train Data**: Training dataset from S3 (train/train.parquet)
-- **Validation Data**: Validation dataset from S3 (val/val.parquet)
-- **Test Data**: Test dataset from S3 (test/test.parquet)
+- **Input Data**: Directory containing train, val, and test subdirectories
 - **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract inputs from dependencies using the dependency resolver.
 
 ### Output
 - **Model Artifacts**: Trained PyTorch model artifacts stored in S3
-- **Checkpoints**: Model checkpoints saved during training
 - **TrainingStep**: A configured SageMaker pipeline step that can be added to a pipeline
 
 ## Configuration Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| input_path | S3 path for input data | Generated from bucket and current date |
-| output_path | S3 path for output data | Generated from bucket and current date |
-| checkpoint_path | Optional S3 path for model checkpoints | Generated from bucket and current date |
 | training_instance_type | Instance type for training job | ml.g5.12xlarge |
 | training_instance_count | Number of instances for training job | 1 |
 | training_volume_size | Volume size (GB) for training instances | 30 |
 | training_entry_point | Entry point script for training | train.py |
-| source_dir | Directory containing training scripts | Inherited from base |
-| framework_version | PyTorch framework version | Inherited from base |
-| py_version | Python version | Inherited from base |
-| hyperparameters | Model hyperparameters | Required |
-
-## Validation Rules
-- input_path, output_path, and checkpoint_path must be valid S3 URIs
-- All paths (input, output, checkpoint) must be different
-- Paths must have at least 2 levels of hierarchy
-- training_instance_type must be one of the valid instances
-- hyperparameters must be provided
-- All fields in tab_field_list and cat_field_list must be in full_field_list
-- label_name and id_name must be in full_field_list
+| source_dir | Directory containing training scripts | Required |
+| framework_version | PyTorch framework version | Required |
+| py_version | Python version | Required |
+| hyperparameters | Model hyperparameters | Optional |
+| env | Environment variables for the training job | {} |
 
 ## Metrics Monitoring
 The training step monitors the following metrics during training:
@@ -55,13 +44,24 @@ The training step monitors the following metrics during training:
 - **Validation F1 Score**: F1 score on validation data
 - **Validation AUC ROC**: Area under ROC curve on validation data
 
-## Environment Variables
-The training step sets the following environment variables for the training job:
-- **CA_REPOSITORY_ARN**: ARN for the secure PyPI repository
+## Validation Rules
+- training_instance_type must be a valid SageMaker instance type
+- training_entry_point must be provided
+- source_dir must be provided
+- framework_version must be provided
+- py_version must be provided
+
+## Specification and Contract Support
+
+The PyTorch Training Step uses:
+- **Step Specification**: Defines input/output relationships and dependencies
+- **Script Contract**: Defines expected container paths for script inputs/outputs
+
+These help standardize integration with the Pipeline Builder Template and ensure consistent handling of inputs and outputs.
 
 ## Usage Example
 ```python
-from src.pipeline_steps.config_training_step_pytorch import PytorchTrainingConfig
+from src.pipeline_steps.config_training_step_pytorch import PyTorchTrainingConfig
 from src.pipeline_steps.builder_training_step_pytorch import PyTorchTrainingStepBuilder
 from src.pipeline_steps.hyperparameters_base import ModelHyperparameters
 
@@ -78,18 +78,24 @@ hyperparams = ModelHyperparameters(
 )
 
 # Create configuration
-config = PytorchTrainingConfig(
-    input_path="s3://my-bucket/preprocessed-data/",
-    output_path="s3://my-bucket/model-artifacts/",
-    checkpoint_path="s3://my-bucket/checkpoints/",
+config = PyTorchTrainingConfig(
     training_instance_type="ml.g5.12xlarge",
     training_instance_count=1,
-    hyperparameters=hyperparams
+    training_volume_size=30,
+    training_entry_point="train.py",
+    source_dir="s3://my-bucket/scripts/",
+    framework_version="1.13.1",
+    py_version="py39",
+    hyperparameters=hyperparams,
+    env={
+        "CA_REPOSITORY_ARN": "arn:aws:codeartifact:us-east-1:123456789012:repository/my-domain/my-repo"
+    }
 )
 
 # Create builder and step
 builder = PyTorchTrainingStepBuilder(config=config)
 training_step = builder.create_step(
+    # The step can extract inputs from dependencies automatically
     dependencies=[preprocessing_step]
 )
 
@@ -97,11 +103,18 @@ training_step = builder.create_step(
 pipeline.add_step(training_step)
 ```
 
-## Input Channels
-The training step configures the following input channels for the PyTorch estimator:
-- **train**: Training data from {input_path}/train/train.parquet
-- **val**: Validation data from {input_path}/val/val.parquet
-- **test**: Test data from {input_path}/test/test.parquet
+## Data Channel Structure
+
+Unlike the XGBoost training step which uses separate channels for train/val/test data, the PyTorch training step expects:
+1. A single "data" channel pointing to a directory
+2. This directory should contain train/, val/, and test/ subdirectories
+3. The PyTorch training script is responsible for loading data from these subdirectories
+
+This structure allows for more flexibility in data loading within the PyTorch script.
+
+## Environment Variables
+The training step can set custom environment variables for the training job via the `env` configuration dictionary. Common environment variables include:
+- **CA_REPOSITORY_ARN**: ARN for a secure PyPI repository
 
 ## Integration with Pipeline Builder Template
 
@@ -111,9 +124,7 @@ The `PyTorchTrainingStepBuilder` defines the following input arguments that can 
 
 | Argument | Description | Required | Source |
 |----------|-------------|----------|--------|
-| train_data | Training data location | Yes | Previous step's processed_data output |
-| validation_data | Validation data location | No | Previous step's processed_data output |
-| test_data | Test data location | No | Previous step's processed_data output |
+| input_path | Path containing train/val/test data | Yes | Previous step's processed_data output |
 
 ### Output Properties
 
@@ -121,7 +132,7 @@ The `PyTorchTrainingStepBuilder` provides the following output properties that c
 
 | Property | Description | Access Pattern |
 |----------|-------------|---------------|
-| model_artifacts | Trained model artifacts | `step.properties.ModelArtifacts.S3ModelArtifacts` |
+| model_artifacts | Trained model artifacts | `step.properties.ModelArtifacts` |
 
 ### Usage with Pipeline Builder Template
 
@@ -151,7 +162,7 @@ step_builder_map = {
     "CradleDataLoadStep": CradleDataLoadingStepBuilder,
     "TabularPreprocessingStep": TabularPreprocessingStepBuilder,
     "PyTorchTrainingStep": PyTorchTrainingStepBuilder,
-    "PytorchModelStep": PytorchModelStepBuilder,
+    "PyTorchModelStep": PyTorchModelStepBuilder,
 }
 
 # Create the template

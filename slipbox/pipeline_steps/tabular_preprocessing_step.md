@@ -8,12 +8,17 @@ The Tabular Preprocessing Step prepares tabular data for model training by perfo
 3. Optionally splits the data into training, validation, and testing sets
 4. Outputs the processed data to S3 for use in subsequent pipeline steps
 
+The step now uses step specifications and script contracts to standardize input/output paths and dependencies, with different specifications based on job type (training, testing, validation, or calibration).
+
 ## Input and Output Format
 
 ### Input
 - **Raw Data**: Raw tabular data from a previous step or S3 location
 - **Optional Metadata**: Metadata about the dataset (optional)
 - **Optional Signature**: Data signatures for verification (optional)
+- **Optional Dependencies**: List of pipeline steps that must complete before this step runs
+
+Note: The step can automatically extract inputs from dependencies using the dependency resolver.
 
 ### Output
 - **Processed Data**: Preprocessed tabular data ready for model training
@@ -26,27 +31,47 @@ The Tabular Preprocessing Step prepares tabular data for model training by perfo
 |-----------|-------------|---------|
 | processing_entry_point | Relative path to preprocessing script | tabular_preprocess.py |
 | processing_source_dir | Directory containing processing scripts | Required |
+| processing_instance_type_small | Instance type for small processing | Inherited from base |
+| processing_instance_type_large | Instance type for large processing | Inherited from base |
+| processing_instance_count | Number of instances for processing | Inherited from base |
+| processing_volume_size | EBS volume size for processing | Inherited from base |
+| processing_framework_version | SKLearn framework version for processing | Required |
+| use_large_processing_instance | Whether to use large instance type | False |
 | hyperparameters | Model hyperparameters (only label_name is used) | ModelHyperparameters() |
 | job_type | Dataset type ('training', 'validation', 'testing', 'calibration') | training |
 | train_ratio | Fraction of data for training set | 0.7 |
 | test_val_ratio | Fraction of holdout for test vs validation | 0.5 |
-| input_names | Dictionary mapping input names | {"data_input": "RawData", "metadata_input": "Metadata", "signature_input": "Signature"} |
-| output_names | Dictionary mapping output names | {"processed_data": "ProcessedTabularData", "full_data": "FullTabularData"} |
-
-## Validation Rules
-- processing_entry_point must be a non-empty relative path
-- job_type must be one of: 'training', 'validation', 'testing', 'calibration'
-- train_ratio and test_val_ratio must be strictly between 0 and 1
-- hyperparameters.label_name must be provided and non-empty
-- input_names must contain key 'data_input'
-- output_names must contain keys 'processed_data' and 'full_data'
-- Input channel names must be one of: 'data_input', 'metadata_input', 'signature_input'
+| categorical_columns | List of categorical column names | [] |
+| numerical_columns | List of numerical column names | [] |
+| text_columns | List of text column names | [] |
+| date_columns | List of date column names | [] |
 
 ## Environment Variables
 The preprocessing step sets the following environment variables for the processing job:
 - **LABEL_FIELD**: The name of the label field from hyperparameters
 - **TRAIN_RATIO**: The fraction of data to allocate to the training set
 - **TEST_VAL_RATIO**: The fraction of the holdout to allocate to the test set vs. validation
+- **CATEGORICAL_COLUMNS**: Comma-separated list of categorical column names (if provided)
+- **NUMERICAL_COLUMNS**: Comma-separated list of numerical column names (if provided)
+- **TEXT_COLUMNS**: Comma-separated list of text column names (if provided)
+- **DATE_COLUMNS**: Comma-separated list of date column names (if provided)
+
+## Validation Rules
+- processing_entry_point must be provided
+- job_type must be one of: 'training', 'validation', 'testing', 'calibration'
+- train_ratio and test_val_ratio must be strictly between 0 and 1
+- hyperparameters.label_name must be provided and non-empty
+- Processing attributes (instance count, volume size, etc.) must be provided
+
+## Specification and Contract Support
+
+The Tabular Preprocessing Step uses different specifications based on job type:
+- **PREPROCESSING_TRAINING_SPEC**: For preprocessing jobs on training data
+- **PREPROCESSING_TESTING_SPEC**: For preprocessing jobs on testing data
+- **PREPROCESSING_VALIDATION_SPEC**: For preprocessing jobs on validation data
+- **PREPROCESSING_CALIBRATION_SPEC**: For preprocessing jobs on calibration data
+
+These specifications define input/output relationships and dependencies, helping standardize integration with the Pipeline Builder Template.
 
 ## Usage Example
 ```python
@@ -64,46 +89,33 @@ hyperparams = ModelHyperparameters(
 config = TabularPreprocessingConfig(
     processing_entry_point="tabular_preprocess.py",
     processing_source_dir="s3://my-bucket/scripts/",
+    processing_framework_version="1.0-1",
+    processing_instance_count=1,
+    processing_volume_size=30,
+    processing_instance_type_small="ml.m5.xlarge",
+    processing_instance_type_large="ml.m5.2xlarge",
     hyperparameters=hyperparams,
     job_type="training",
     train_ratio=0.8,
-    test_val_ratio=0.5
+    test_val_ratio=0.5,
+    categorical_columns=["category1", "category2"],
+    numerical_columns=["numeric1", "numeric2"]
 )
 
-# Create builder
+# Create builder and step
 builder = TabularPreprocessingStepBuilder(config=config)
-
-# Define input and output locations
-inputs = {
-    "data_input": "s3://my-bucket/raw-data/"
-}
-
-outputs = {
-    "processed_data": "s3://my-bucket/processed-data/",
-    "full_data": "s3://my-bucket/full-data/"
-}
-
-# Create step
 preprocessing_step = builder.create_step(
-    inputs=inputs,
-    outputs=outputs,
-    enable_caching=True
+    # The step can extract inputs from dependencies automatically
+    dependencies=[data_loading_step]
 )
 
 # Add to pipeline
 pipeline.add_step(preprocessing_step)
 ```
 
-## Processing Inputs and Outputs
-
-### Processing Inputs
-- **data_input**: Raw data input (destination: /opt/ml/processing/input/data)
-- **metadata_input**: Optional metadata input
-- **signature_input**: Optional signature input
-
-### Processing Outputs
-- **processed_data**: Processed data output (source: /opt/ml/processing/output)
-- **full_data**: Full data output before splitting
+## Command-line Arguments
+The preprocessing step passes the following command-line arguments to the processing script:
+- `--job_type`: Dataset type (training, validation, testing, calibration)
 
 ## Integration with Pipeline Builder Template
 
@@ -113,9 +125,9 @@ The `TabularPreprocessingStepBuilder` defines the following input arguments that
 
 | Argument | Description | Required | Source |
 |----------|-------------|----------|--------|
-| data_input | Raw data input location | Yes | Previous step's data output |
-| metadata_input | Metadata input location | No | Previous step's metadata output |
-| signature_input | Signature input location | No | Previous step's signature output |
+| DATA | Raw data input location | Yes | Previous step's DATA output |
+| METADATA | Metadata input location | No | Previous step's METADATA output |
+| SIGNATURE | Signature input location | No | Previous step's SIGNATURE output |
 
 ### Output Properties
 
