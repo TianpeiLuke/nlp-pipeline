@@ -292,7 +292,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
                 destination = outputs[logical_name]
             else:
                 # Generate destination from config with specific file name
-                destination = f"{self.config.pipeline_s3_loc}/packaging/{logical_name}/model.tar.gz"
+                destination = f"{self.config.pipeline_s3_loc}/packaging/{logical_name}"
                 self.log_info("Using generated destination for '%s': %s", logical_name, destination)
             
             processing_outputs.append(

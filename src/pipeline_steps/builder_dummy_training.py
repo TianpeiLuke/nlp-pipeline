@@ -1,0 +1,384 @@
+"""
+MIMS DummyTraining Step Builder.
+
+This module defines the builder that creates SageMaker processing steps
+for the DummyTraining component, which copies a pretrained model to
+make it available for downstream packaging and registration steps.
+"""
+
+import logging
+import os
+from pathlib import Path
+from typing import Dict, Optional, Any, List
+
+from sagemaker.processing import ProcessorBase, ScriptProcessor, ProcessingInput, ProcessingOutput
+from sagemaker.workflow.steps import ProcessingStep
+from sagemaker.workflow.functions import Join
+from sagemaker.s3 import S3Uploader
+
+from .config_dummy_training import DummyTrainingConfig
+from .builder_step_base import StepBuilderBase
+from ..pipeline_step_specs.dummy_training_spec import DUMMY_TRAINING_SPEC
+
+logger = logging.getLogger(__name__)
+
+class DummyTrainingStepBuilder(StepBuilderBase):
+    """Builder for DummyTraining processing step."""
+    
+    def __init__(
+        self, 
+        config: DummyTrainingConfig,
+        sagemaker_session=None, 
+        role=None, 
+        notebook_root=None,
+        registry_manager=None,
+        dependency_resolver=None
+    ):
+        """Initialize the DummyTraining step builder.
+        
+        Args:
+            config: Configuration for the DummyTraining step
+            sagemaker_session: SageMaker session to use
+            role: IAM role for SageMaker execution
+            notebook_root: Root directory for notebook execution
+            registry_manager: Registry manager for dependency injection
+            dependency_resolver: Dependency resolver for dependency injection
+            
+        Raises:
+            ValueError: If config is not a DummyTrainingConfig instance
+        """
+        if not isinstance(config, DummyTrainingConfig):
+            raise ValueError("DummyTrainingStepBuilder requires a DummyTrainingConfig instance.")
+        
+        super().__init__(
+            config=config,
+            spec=DUMMY_TRAINING_SPEC,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root,
+            registry_manager=registry_manager,
+            dependency_resolver=dependency_resolver
+        )
+        self.config: DummyTrainingConfig = config
+    
+    def validate_configuration(self):
+        """
+        Validate the provided configuration.
+        
+        Raises:
+            ValueError: If pretrained_model_path is not provided
+            FileNotFoundError: If the pretrained model file doesn't exist
+        """
+        self.log_info("Validating DummyTrainingConfig...")
+        
+        # Check for required local file
+        if not self.config.pretrained_model_path:
+            raise ValueError("pretrained_model_path is required in DummyTrainingConfig")
+        
+        # Check if file exists (if path is concrete and not a variable)
+        if not hasattr(self.config.pretrained_model_path, 'expr'):
+            model_path = Path(self.config.pretrained_model_path)
+            if not model_path.exists():
+                raise FileNotFoundError(f"Pretrained model not found at {model_path}")
+            
+            # Additional validation: check file extension
+            if not model_path.suffix == '.tar.gz' and not str(model_path).endswith('.tar.gz'):
+                self.log_warning(f"Model file {model_path} does not have .tar.gz extension")
+        
+        self.log_info("DummyTrainingConfig validation succeeded.")
+    
+    def _normalize_s3_uri(self, uri: str, description: str = "S3 URI") -> str:
+        """
+        Normalizes an S3 URI to ensure it has no trailing slashes and is properly formatted.
+        
+        Args:
+            uri: The S3 URI to normalize
+            description: Description for logging purposes
+            
+        Returns:
+            Normalized S3 URI
+        """
+        # Handle PipelineVariable objects
+        if hasattr(uri, 'expr'):
+            uri = str(uri.expr)
+            self.log_info(f"Normalizing PipelineVariable URI: {uri}")
+        
+        # Handle Pipeline step references with Get key
+        if isinstance(uri, dict) and 'Get' in uri:
+            self.log_info("Found Pipeline step reference: %s", uri)
+            return uri
+        
+        if not isinstance(uri, str):
+            self.log_warning("Invalid %s URI type: %s", description, type(uri).__name__)
+            return str(uri)
+            
+        if not uri.startswith('s3://'):
+            self.log_warning("URI does not start with s3://: %s", uri)
+        
+        # Remove trailing slashes
+        while uri.endswith('/'):
+            uri = uri[:-1]
+        
+        return uri
+    
+    def _validate_s3_uri(self, uri: str, description: str = "S3 URI") -> bool:
+        """
+        Validates that a string is a properly formatted S3 URI.
+        
+        Args:
+            uri: The URI to validate
+            description: Description for error messages
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        # Handle PipelineVariable objects
+        if hasattr(uri, 'expr'):
+            self.log_info(f"Validating PipelineVariable URI: {uri.expr}")
+            return True
+        
+        # Handle Pipeline step references
+        if isinstance(uri, dict) and 'Get' in uri:
+            self.log_info(f"Validating Pipeline reference URI: {uri}")
+            return True
+        
+        if not isinstance(uri, str):
+            self.log_warning("Invalid %s URI: type %s", description, type(uri).__name__)
+            return False
+        
+        if not uri.startswith('s3://'):
+            self.log_warning("Invalid %s URI: does not start with s3://", description)
+            return False
+        
+        return True
+    
+    def _get_s3_directory_path(self, uri: str, filename: str = None) -> str:
+        """
+        Gets the directory part of an S3 URI, handling special cases correctly.
+        
+        Args:
+            uri: The S3 URI which may or may not contain a filename
+            filename: Optional filename to check for at the end of the URI
+            
+        Returns:
+            The directory part of the URI without trailing slash
+        """
+        # Handle PipelineVariable objects
+        if hasattr(uri, 'expr'):
+            uri = str(uri.expr)
+            self.log_info(f"Getting directory path for PipelineVariable URI: {uri}")
+        
+        # Handle Pipeline step references
+        if isinstance(uri, dict) and 'Get' in uri:
+            self.log_info(f"Cannot extract directory from Pipeline reference URI: {uri}")
+            return uri
+        
+        # Remove trailing slashes
+        uri = self._normalize_s3_uri(uri)
+        
+        # If a filename is provided and the URI ends with it, remove it
+        if filename and uri.endswith(f"/{filename}"):
+            uri = uri[:-len(filename)-1]
+        
+        return uri
+    
+    def _upload_model_to_s3(self) -> str:
+        """
+        Upload the pretrained model to S3.
+        
+        Returns:
+            S3 URI where the model was uploaded
+            
+        Raises:
+            Exception: If upload fails
+        """
+        self.log_info(f"Uploading pretrained model from {self.config.pretrained_model_path}")
+        
+        # Construct target S3 URI
+        target_s3_uri = f"{self.config.pipeline_s3_loc}/dummy_training/input/model.tar.gz"
+        target_s3_uri = self._normalize_s3_uri(target_s3_uri)
+        
+        try:
+            # Upload the file
+            S3Uploader.upload(
+                self.config.pretrained_model_path,
+                target_s3_uri,
+                sagemaker_session=self.session
+            )
+            
+            self.log_info(f"Uploaded model to {target_s3_uri}")
+            return target_s3_uri
+        except Exception as e:
+            self.log_error(f"Failed to upload model to S3: {e}")
+            import traceback
+            self.log_error(traceback.format_exc())
+            raise
+    
+    def _get_processor(self):
+        """
+        Get the processor for the step.
+        
+        Returns:
+            ScriptProcessor: Configured processor for running the step
+        """
+        return ScriptProcessor(
+            image_uri="137112412989.dkr.ecr.us-west-2.amazonaws.com/sagemaker-scikit-learn:0.23-1-cpu-py3",
+            command=["python3"],
+            instance_type=self.config.get_instance_type(),
+            instance_count=self.config.processing_instance_count,
+            volume_size_in_gb=self.config.processing_volume_size,
+            max_runtime_in_seconds=3600,  # 1 hour should be plenty for this simple operation
+            role=self.role,
+            sagemaker_session=self.session,
+            base_job_name=self._sanitize_name_for_sagemaker(
+                f"{self._get_step_name('DummyTraining')}"
+            )
+        )
+    
+    def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+        """
+        Get inputs for the processor using the specification and contract.
+        
+        Args:
+            inputs: Dictionary of input sources keyed by logical name
+            
+        Returns:
+            List of ProcessingInput objects for the processor
+            
+        Raises:
+            ValueError: If no specification or contract is available
+        """
+        if not self.spec:
+            raise ValueError("Step specification is required")
+            
+        if not self.contract:
+            raise ValueError("Script contract is required for input mapping")
+        
+        processing_inputs = []
+        
+        # Use either the uploaded model or one provided through dependencies
+        model_s3_uri = inputs.get("pretrained_model_path")
+        if not model_s3_uri:
+            # Upload the local model file if no S3 path is provided
+            model_s3_uri = self._upload_model_to_s3()
+        
+        # Handle PipelineVariable objects
+        if hasattr(model_s3_uri, 'expr'):
+            self.log_info(f"Processing PipelineVariable for model_s3_uri: {model_s3_uri.expr}")
+        
+        # Get container path from contract
+        container_path = self.contract.expected_input_paths.get("pretrained_model_path",
+                          "/opt/ml/processing/input/model/model.tar.gz")
+        
+        # Add model input
+        processing_inputs.append(
+            ProcessingInput(
+                source=model_s3_uri,
+                destination=container_path,
+                input_name="model"
+            )
+        )
+        
+        return processing_inputs
+    
+    def _get_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+        """
+        Get outputs for the processor using the specification and contract.
+        
+        Args:
+            outputs: Dictionary of output destinations keyed by logical name
+            
+        Returns:
+            List of ProcessingOutput objects for the processor
+            
+        Raises:
+            ValueError: If no specification or contract is available
+        """
+        if not self.spec:
+            raise ValueError("Step specification is required")
+            
+        if not self.contract:
+            raise ValueError("Script contract is required for output mapping")
+        
+        # Use the pipeline S3 location to construct output path
+        default_output_path = f"{self.config.pipeline_s3_loc}/dummy_training/output"
+        output_path = outputs.get("model_input", default_output_path)
+        
+        # Handle PipelineVariable objects in output_path
+        if hasattr(output_path, 'expr'):
+            self.log_info(f"Processing PipelineVariable for output_path: {output_path.expr}")
+        
+        # Get source path from contract
+        source_path = self.contract.expected_output_paths.get("model_input",
+                       "/opt/ml/processing/output/model")
+        
+        return [
+            ProcessingOutput(
+                output_name="model_input",  # Using consistent name matching specification
+                source=source_path,
+                destination=output_path
+            )
+        ]
+    
+    def create_step(self, **kwargs) -> ProcessingStep:
+        """
+        Create the processing step.
+        
+        Args:
+            **kwargs: Additional keyword arguments for step creation.
+                     Should include 'dependencies' list if step has dependencies.
+                     
+        Returns:
+            ProcessingStep: The configured processing step
+            
+        Raises:
+            ValueError: If inputs cannot be extracted
+            Exception: If step creation fails
+        """
+        try:
+            # Extract inputs from dependencies using the resolver
+            dependencies = kwargs.get('dependencies', [])
+            inputs = {}
+            if dependencies:
+                inputs = self.extract_inputs_from_dependencies(dependencies)
+            
+            # Create processor
+            processor = self._get_processor()
+            
+            # Get processor inputs and outputs
+            processing_inputs = self._get_inputs(inputs)
+            processing_outputs = self._get_outputs({})
+            
+            # Create the step
+            step_name = kwargs.get('step_name', 'DummyTraining')
+            
+            # Generate script arguments
+            script_args = [
+                "--pretrained-model-path", "/opt/ml/processing/input/model/model.tar.gz",
+                "--output-dir", "/opt/ml/processing/output/model"
+            ]
+            
+            # Get cache configuration
+            cache_config = self._get_cache_config(kwargs.get('enable_caching', True))
+            
+            # Create the step
+            step = processor.run(
+                code=self.config.get_script_path(),
+                inputs=processing_inputs,
+                outputs=processing_outputs,
+                arguments=script_args,
+                job_name=self._generate_job_name(step_name),
+                wait=False,
+                cache_config=cache_config
+            )
+            
+            # Store specification in step for future reference
+            setattr(step, '_spec', self.spec)
+            
+            return step
+        
+        except Exception as e:
+            self.log_error(f"Error creating DummyTraining step: {e}")
+            import traceback
+            self.log_error(traceback.format_exc())
+            raise ValueError(f"Failed to create DummyTraining step: {str(e)}") from e

@@ -1,110 +1,101 @@
-# Pipeline Step Development with AI Prompts
+# ML Pipeline Development Workflow Prompts
 
-This directory contains a set of AI prompt templates designed to assist with developing new pipeline steps using Claude v3. These prompts follow a structured workflow with three distinct roles: Planner, Programmer, and Validator.
+This directory contains the specialized prompts used in our agentic ML pipeline development workflow. These prompts support an iterative development process focused on high-quality, compatible pipeline components.
 
-## Overview of the Workflow
+## Workflow Overview
 
-The workflow is divided into three main phases, each with its own prompt template and role:
+Our ML pipeline development follows a structured workflow using specialized AI agents:
 
-1. **Planning Phase (Planner)**: Design the new step and create a detailed implementation plan
-2. **Implementation Phase (Programmer)**: Write the code for all components based on the plan
-3. **Validation Phase (Validator)**: Verify the implementation against design principles and best practices
+1. **Planning Phase** (Initial Planner)
+   - Takes requirements and creates an initial implementation plan
+   - Incorporates architectural principles, design patterns, and integration considerations
 
-## How to Use These Prompts
+2. **Plan Validation Phase** (Plan Validator)
+   - Evaluates the plan for architectural correctness and alignment with standards
+   - Identifies issues with special focus on compatibility with other pipeline components
+   - Provides a detailed validation report
 
-### 1. Planning Phase
+3. **Plan Revision Phase** (Revision Planner)
+   - Takes validation feedback and produces an improved implementation plan
+   - Addresses all identified issues and implements suggested improvements
+   - This cycle can repeat until the plan passes validation
 
-Use the `planner_prompt.md` template with Claude to generate a detailed implementation plan:
+4. **Implementation Phase** (Programmer)
+   - Takes the validated plan and creates the actual code
+   - Follows the plan's architecture and implementation details precisely
 
-1. Copy the content of `planner_prompt.md`
-2. Replace the placeholder `[INJECT STEP REQUIREMENTS HERE]` with your specific requirements
-3. Replace other `[INJECT X DOCUMENT HERE]` placeholders with relevant documentation from our developer guide
-4. Submit the prompt to Claude
-5. Review and refine the implementation plan
+5. **Code Validation Phase** (Validator)
+   - Evaluates the implemented code against our architectural standards
+   - Verifies that all requirements are met and integration works correctly
+   - Provides a detailed validation report on the implementation
 
-The Planner will analyze requirements and produce a comprehensive plan covering all necessary components and files to update.
+## Prompt Files
 
-### 2. Implementation Phase
+### [Initial Planner Prompt](initial_planner_prompt.md)
+- **Purpose**: Create an initial implementation plan for a new pipeline step
+- **Input**: Step requirements, architectural documentation
+- **Output**: Comprehensive implementation plan with all required components
+- **Key Focus**: Understanding requirements and designing an architecturally sound approach
 
-Use the `programmer_prompt.md` template with Claude to generate the code:
+### [Plan Validator Prompt](plan_validator_prompt.md)
+- **Purpose**: Validate implementation plans against architectural standards
+- **Input**: Implementation plan, architectural documentation
+- **Output**: Detailed validation report with issues and recommendations
+- **Key Focus**: Alignment rules, cross-component compatibility, standardization compliance
 
-1. Copy the content of `programmer_prompt.md`
-2. Replace `[INJECT PLANNER OUTPUT HERE]` with the plan from the previous phase
-3. Replace other `[INJECT X DOCUMENT HERE]` placeholders with relevant documentation
-4. Submit the prompt to Claude
-5. Review the generated code for correctness
+### [Revision Planner Prompt](revision_planner_prompt.md)
+- **Purpose**: Update implementation plans based on validation feedback
+- **Input**: Current implementation plan, validation report
+- **Output**: Revised implementation plan addressing all issues
+- **Key Focus**: Addressing compatibility issues, especially integration with other components
 
-The Programmer will implement all components required by the plan, following our architectural patterns and best practices.
+### [Programmer Prompt](programmer_prompt.md)
+- **Purpose**: Implement code based on the validated implementation plan
+- **Input**: Validated implementation plan, architectural documentation, example implementations
+- **Output**: Complete code files in the correct project structure locations
+- **Key Focus**: Following the plan precisely while ensuring alignment across components
 
-### 3. Validation Phase
+### [Validator Prompt](validator_prompt.md)
+- **Purpose**: Validate code implementation against architectural standards
+- **Input**: Implementation code, implementation plan
+- **Output**: Detailed validation report with issues and recommendations
+- **Key Focus**: Verifying alignment across all components, cross-component compatibility
 
-Use the `validator_prompt.md` template with Claude to validate the implementation:
+## Priority Assessment Areas
 
-1. Copy the content of `validator_prompt.md`
-2. Replace `[INJECT PLANNER OUTPUT HERE]` with the original plan
-3. Replace `[INJECT PROGRAMMER OUTPUT HERE]` with the implementation code
-4. Replace other `[INJECT X DOCUMENT HERE]` placeholders with relevant documentation
-5. Submit the prompt to Claude
-6. Address any issues identified in the validation report
+All validation prompts focus on these key areas, with special emphasis on:
 
-The Validator will thoroughly review the implementation against our design principles, common pitfalls, and validation checklist.
+1. **Alignment Rules Adherence** (40% weight)
+   - Contract-to-specification alignment
+   - Script-to-contract alignment
+   - Builder-to-configuration alignment
+   - Property path correctness
 
-## Recommended Documentation to Include
+2. **Cross-Component Compatibility** (30% weight)
+   - Dependency resolver compatibility scores
+   - Output to input type matching
+   - Logical name consistency
+   - Semantic keyword effectiveness
 
-For each role, include the most relevant documentation:
+3. **Standardization Rules Compliance** (30% weight)
+   - Naming conventions
+   - Interface standardization
+   - Documentation standards
+   - Error handling standards
 
-### Planner
-- `creation_process.md`: Step-by-step process for adding a new step
-- `prerequisites.md`: What's needed before starting development
-- Example implementations of similar steps
+## Example Usage
 
-### Programmer
-- `component_guide.md`: Overview of component relationships
-- `script_contract.md`: Guidelines for script contract development
-- `step_specification.md`: Guidelines for specification development
-- `step_builder.md`: Guidelines for builder implementation
-- `best_practices.md`: Coding best practices
-- `example.md`: Complete example implementation
+A typical workflow might proceed as:
 
-### Validator
-- `design_principles.md`: Core design principles to follow
-- `common_pitfalls.md`: Common mistakes to avoid
-- `validation_checklist.md`: Comprehensive validation checklist
+1. Initial requirements provided to the Initial Planner
+2. Implementation plan created and passed to Plan Validator
+3. Validation report identifies issues in cross-component compatibility
+4. Implementation plan sent to Revision Planner with validation report
+5. Revised plan created with fixes for compatibility issues
+6. Revised plan validated and approved by Plan Validator
+7. Approved plan implemented by Programmer
+8. Implementation validated by Validator
+9. Any implementation issues fixed by Programmer
+10. Final implementation approved for production use
 
-## Placeholder Injection Guide
-
-When preparing the prompts, replace these placeholders with the actual content:
-
-- `[INJECT STEP REQUIREMENTS HERE]`: Your specific requirements for the new step
-- `[INJECT CREATION_PROCESS DOCUMENT HERE]`: Content from `slipbox/developer_guide/creation_process.md`
-- `[INJECT PREREQUISITES DOCUMENT HERE]`: Content from `slipbox/developer_guide/prerequisites.md`
-- `[INJECT COMPONENT_GUIDE DOCUMENT HERE]`: Content from `slipbox/developer_guide/component_guide.md`
-- `[INJECT SCRIPT_CONTRACT DOCUMENT HERE]`: Content from `slipbox/developer_guide/script_contract.md`
-- `[INJECT STEP_SPECIFICATION DOCUMENT HERE]`: Content from `slipbox/developer_guide/step_specification.md`
-- `[INJECT STEP_BUILDER DOCUMENT HERE]`: Content from `slipbox/developer_guide/step_builder.md`
-- `[INJECT BEST_PRACTICES DOCUMENT HERE]`: Content from `slipbox/developer_guide/best_practices.md`
-- `[INJECT DESIGN_PRINCIPLES DOCUMENT HERE]`: Content from `slipbox/developer_guide/design_principles.md`
-- `[INJECT COMMON_PITFALLS DOCUMENT HERE]`: Content from `slipbox/developer_guide/common_pitfalls.md`
-- `[INJECT VALIDATION_CHECKLIST DOCUMENT HERE]`: Content from `slipbox/developer_guide/validation_checklist.md`
-- `[INJECT EXAMPLE DOCUMENT HERE]`: Content from `slipbox/developer_guide/example.md`
-- `[INJECT RELEVANT EXAMPLES HERE]`: Relevant example implementations from codebase
-- `[INJECT PLANNER OUTPUT HERE]`: Output from the Planning phase
-- `[INJECT PROGRAMMER OUTPUT HERE]`: Output from the Implementation phase
-
-## Best Practices for Working with These Prompts
-
-1. **Progressive Disclosure**: Don't overwhelm Claude with too much context at once. Provide the most relevant documentation for each role.
-2. **Chunking**: If documentation is too large, break it into logical chunks and provide the most relevant sections.
-3. **Iteration**: Iterate between phases as needed. If validation reveals issues, return to implementation.
-4. **Human Review**: Always review AI-generated plans and code before implementing them.
-5. **Examples**: Include relevant examples from your codebase to help Claude understand your specific patterns.
-6. **Focused Requirements**: Make your step requirements as clear and specific as possible.
-7. **Token Management**: Be mindful of Claude's context window limits and prioritize the most important content.
-
-## Expected Outputs
-
-- **Planner**: A structured implementation plan with all components to create/update
-- **Programmer**: Complete code for all required components and file updates
-- **Validator**: A comprehensive validation report with issues and recommendations
-
-By following this workflow, you can leverage Claude's capabilities to assist with developing new pipeline steps that align with your architecture and best practices.
+This approach ensures high-quality, compatible pipeline components that integrate seamlessly into the existing architecture.

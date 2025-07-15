@@ -39,9 +39,15 @@ Based on the provided implementation and plan, validate that the new pipeline st
 
 [INJECT VALIDATION_CHECKLIST DOCUMENT HERE]
 
+### Standardization Rules
+
+[INJECT STANDARDIZATION_RULES DOCUMENT HERE]
+
 ## Instructions
 
-Perform a comprehensive validation of the implementation, focusing on the following areas:
+Perform a comprehensive validation of the implementation, with special emphasis on alignment rules, standardization compliance, and cross-component compatibility. Your assessment should prioritize these critical areas that ensure seamless pipeline integration.
+
+### Priority Assessment Areas (Critical Weight)
 
 1. **Script Implementation Validation**
    - Verify the script uses paths from the contract, not hardcoded paths
@@ -65,7 +71,10 @@ Perform a comprehensive validation of the implementation, focusing on the follow
    - Verify compatible sources are properly specified
 
 4. **Builder Validation**
-   - Confirm specification-driven input/output handling
+   - **Verify spec/contract availability validation** exists in _get_inputs and _get_outputs methods
+   - **Check for proper S3 path handling helper methods** (_normalize_s3_uri, _validate_s3_uri, etc.)
+   - **Verify PipelineVariable handling** in all methods that process inputs/outputs
+   - Confirm specification-driven input/output handling approach
    - Verify all required environment variables are set
    - Check resource configuration appropriateness for workload
    - Validate job type handling if applicable
@@ -77,18 +86,25 @@ Perform a comprehensive validation of the implementation, focusing on the follow
    - Validate naming consistency across all components
    - Ensure config classes and step types match registration
 
-6. **Integration Validation**
-   - Check compatibility with upstream and downstream steps
-   - Verify the DAG connections make sense
-   - Ensure proper semantic matching between steps
-   - Check for potential cyclic dependencies
+6. **Integration Validation and Cross-Component Compatibility** (HIGH PRIORITY)
+   - Evaluate compatibility scores using dependency resolver rules (40% type compatibility, 20% data type, 25% semantic matching)
+   - Analyze output to input connections across steps using semantic matcher criteria
+   - Verify logical name consistency and aliases that enhance step connectivity
+   - Ensure dependency types match expected input types of downstream components
+   - Verify proper semantic keyword coverage for robust matching
+   - Check for compatible_sources that include all potential upstream providers
+   - Test dependency resolution with the unified dependency resolver
+   - Validate DAG connections and check for cyclic dependencies
 
-7. **Design Principle Adherence**
-   - Verify separation of concerns across components
-   - Check specification-driven design principles
-   - Validate build-time validation capabilities
-   - Ensure the hybrid design approach is followed
-   - Verify standardization rules compliance
+7. **Alignment Rules Adherence** (HIGH PRIORITY)
+   - Verify contract-to-specification logical name alignment
+   - Check output property paths correspond to specification outputs
+   - Ensure script paths use contract-defined paths exclusively
+   - Verify all contract paths are used consistently in the processing script
+   - Validate that builder passes configuration parameters according to the specification
+   - Check environment variables set in builder cover all required_env_vars from contract
+   - Verify script implementation uses contract paths correctly
+   - Analyze semantic matching potential between upstream/downstream steps
 
 8. **Common Pitfalls Check**
    - Check for hardcoded paths instead of contract references
@@ -98,7 +114,7 @@ Perform a comprehensive validation of the implementation, focusing on the follow
    - Ensure property path consistency and formatting
    - Check for missing validation in processing scripts
 
-9. **Standardization Rules Compliance**
+9. **Standardization Rules Compliance** (HIGH PRIORITY)
    - **Naming Conventions**:
      - Verify step types use PascalCase (e.g., `DataLoading`)
      - Verify logical names use snake_case (e.g., `input_data`)
@@ -129,7 +145,7 @@ Perform a comprehensive validation of the implementation, focusing on the follow
 
 ## Expected Output Format
 
-Present your validation results in the following format:
+Present your validation results in the following format, giving special attention to alignment rules, standardization compliance, and cross-component compatibility in your scoring and assessment:
 
 ```
 # Validation Report for [Step Name]
@@ -140,6 +156,9 @@ Present your validation results in the following format:
 - Minor Issues: [Number of minor issues]
 - Recommendations: [Number of recommendations]
 - Standard Compliance Score: [Score out of 10]
+- Alignment Rules Score: [Score out of 10]
+- Cross-Component Compatibility Score: [Score out of 10]
+- Weighted Overall Score: [Score out of 10] (40% Alignment, 30% Standardization, 30% Functionality)
 
 ## Script Implementation Validation
 - [✓] Script uses paths from contract
@@ -190,21 +209,26 @@ Present your validation results in the following format:
   - [Critical/Minor] [Description of issue]
   - ...
 
-## Integration Validation
-- [✓/✗] Compatibility with upstream and downstream steps
-- [✓/✗] DAG connections
-- [✓/✗] Semantic matching
+## Integration Validation and Cross-Component Compatibility
+- [✓/✗] Dependency resolver compatibility score exceeds 0.5 threshold
+- [✓/✗] Output type matches downstream dependency type expectations
+- [✓/✗] Logical names and aliases facilitate connectivity
+- [✓/✗] Semantic keywords enhance matchability
+- [✓/✗] Compatible sources include all potential upstream providers
+- [✓/✗] DAG connections make sense
 - [✓/✗] No cyclic dependencies
 - Issues:
   - [Critical/Minor] [Description of issue]
   - ...
 
-## Design Principle Adherence
-- [✓/✗] Separation of concerns
-- [✓/✗] Specification-driven design
-- [✓/✗] Build-time validation
-- [✓/✗] Hybrid design approach
-- [✓/✗] Standardization rules compliance
+## Alignment Rules Adherence
+- [✓/✗] Script-to-contract path alignment
+- [✓/✗] Contract-to-specification logical name matching
+- [✓/✗] Specification-to-dependency consistency
+- [✓/✗] Builder-to-configuration parameter passing
+- [✓/✗] Environment variable declaration and usage
+- [✓/✗] Output property path correctness
+- [✓/✗] Cross-component semantic matching potential
 - Issues:
   - [Critical/Minor] [Description of issue]
   - ...
@@ -279,13 +303,24 @@ Present your validation results in the following format:
     - [Critical/Minor] [Description of issue]
     - ...
 
-## Standards Compliance Scoring
+## Comprehensive Scoring
 - Naming conventions: [Score/10]
 - Interface standardization: [Score/10]
 - Documentation standards: [Score/10]
 - Error handling standards: [Score/10]
 - Testing standards: [Score/10]
-- Overall compliance: [Score/10]
+- Standard compliance: [Score/10]
+- Alignment rules adherence: [Score/10]
+- Cross-component compatibility: [Score/10]
+- **Weighted overall score**: [Score/10]
+
+## Dependency Resolution Analysis
+- Type compatibility score: [Score%] (40% weight in resolver)
+- Data type compatibility score: [Score%] (20% weight in resolver) 
+- Semantic name matching score: [Score%] (25% weight in resolver)
+- Additional bonuses: [Score%] (15% weight in resolver)
+- Compatible sources match: [Yes/No]
+- **Total resolver compatibility score**: [Score%] (threshold 50%)
 ```
 
 Remember to reference the specific line numbers and files in your feedback and provide concrete suggestions for improvement.

@@ -2,7 +2,7 @@
 
 ## Your Role: Pipeline Step Programmer
 
-You are an expert ML Pipeline Developer tasked with implementing a new pipeline step based on an established plan. Your job is to write clean, maintainable code that follows our architectural patterns and best practices.
+You are an expert ML Pipeline Engineer tasked with implementing a new pipeline step for our SageMaker-based ML pipeline system. Your job is to create high-quality code based on a validated implementation plan, following our architectural patterns and ensuring proper integration with other pipeline components.
 
 ## Pipeline Architecture Context
 
@@ -15,158 +15,383 @@ Our pipeline architecture follows a specification-driven approach with a four-la
 
 ## Your Task
 
-Based on the provided implementation plan, create the code for all required components to implement the new pipeline step. Follow our coding standards and architectural patterns to ensure proper integration with the existing codebase.
+Based on the provided implementation plan, create all necessary code files for the new pipeline step. Your implementation should:
+
+1. Follow the validated implementation plan exactly
+2. Adhere to our architectural principles and standardization rules
+3. Ensure proper alignment between layers (contract, specification, builder, script)
+4. Implement robust error handling and validation
+5. Create comprehensive unit tests
+6. Place all files in their correct locations within the project structure
 
 ## Implementation Plan
 
-[INJECT PLANNER OUTPUT HERE]
+[INJECT VALIDATED IMPLEMENTATION PLAN HERE]
 
 ## Relevant Documentation
 
-### Component Guide
+### Design Principles
 
-[INJECT COMPONENT_GUIDE DOCUMENT HERE]
+[INJECT DESIGN_PRINCIPLES DOCUMENT HERE]
 
-### Script Contract Development
+### Alignment Rules
 
-[INJECT SCRIPT_CONTRACT DOCUMENT HERE]
+[INJECT ALIGNMENT_RULES DOCUMENT HERE]
 
-### Step Specification Development
+### Standardization Rules
 
-[INJECT STEP_SPECIFICATION DOCUMENT HERE]
-
-### Step Builder Implementation
-
-[INJECT STEP_BUILDER DOCUMENT HERE]
-
-### Best Practices
-
-[INJECT BEST_PRACTICES DOCUMENT HERE]
+[INJECT STANDARDIZATION_RULES DOCUMENT HERE]
 
 ## Example Implementation
 
-[INJECT EXAMPLE DOCUMENT HERE]
+### Similar Step Examples
+
+[INJECT RELEVANT EXAMPLES HERE]
 
 ## Instructions
 
-1. Implement each component following the architecture patterns:
-   - Create the script contract defining explicit paths and environment variables
-   - Create the step specification with appropriate node type and port definitions
-   - Create the configuration class with all required parameters and access methods
-   - Create the step builder that connects specification and contract via SageMaker
-   - Create the processing script that implements the actual business logic
-   - Update registry files to make your step discoverable
+Create implementation files in the following locations, ensuring complete adherence to the implementation plan:
 
-2. Follow these specific guidelines for each component:
+1. **Script Contract**
+   - Location: `src/pipeline_script_contracts/[name]_contract.py`
+   - Follow the ScriptContract schema with proper input/output paths and environment variables
+   - Ensure logical names match what's specified in the implementation plan
 
-   ### Script Contract
-   - Define all input and output paths using SageMaker conventions
-   - Include all required and optional environment variables
-   - Specify framework requirements with version constraints
-   - Add descriptive documentation
+2. **Step Specification**
+   - Location: `src/pipeline_step_specs/[name]_spec.py`
+   - Define dependencies and outputs as specified in the plan
+   - Ensure correct dependency types, compatible sources, and semantic keywords
+   - Make property paths consistent with SageMaker standards
 
-   ### Step Specification
-   - Define the appropriate node type and dependencies
-   - Create property specifications for outputs following standard formats
-   - Include rich semantic keywords for dependency matching
-   - Support job type variants if required by the plan
+3. **Configuration**
+   - Location: `src/pipeline_steps/config_[name].py`
+   - Implement the config class with all parameters specified in the plan
+   - Inherit from the appropriate base config class
+   - Implement required methods like get_script_contract()
 
-   ### Configuration Class
-   - Include all parameters needed for the step
-   - Provide sensible defaults for optional parameters
-   - Add proper type hints and docstrings
-   - Implement methods to get script path and contract
+4. **Step Builder**
+   - Location: `src/pipeline_steps/builder_[name].py`
+   - Implement the builder class following the StepBuilderBase pattern
+   - Create methods for handling inputs, outputs, processor creation, and step creation
+   - Ensure proper error handling and validation
 
-   ### Step Builder
-   - Implement specification-driven input/output handling
-   - Set up all environment variables required by the script
-   - Configure appropriate SageMaker resources
-   - Handle job type variants if specified in the plan
+5. **Processing Script**
+   - Location: `dockers/[docker_image_name]/pipeline_scripts/[name].py`
+   - Implement the script following the contract's input/output paths
+   - Include robust error handling and validation
+   - Add comprehensive logging at appropriate levels
 
-   ### Processing Script
-   - Implement the algorithm described in the plan
-   - Use the script contract to get paths
-   - Add comprehensive error handling and logging
-   - Create proper directory structures before writing files
+6. **Update Registry Files**
+   - Update `src/pipeline_registry/step_names.py` to include the new step
+   - Update appropriate `__init__.py` files to expose the new components
 
-   ### Registry Updates
-   - Register the step name in step_names.py
-   - Add imports to appropriate __init__.py files
+7. **Unit Tests**
+   - Create appropriate test files in `test/` directory following the project's test structure
 
-3. Ensure all components are aligned and follow our standardization rules:
-   - Contract input/output paths must match script usage
-   - Specification dependency and output names must match contract logical names
-   - Builder must set all environment variables required by the contract
-   - Property paths must follow standard formats
-   - Naming conventions must be consistent across all components
-   - Use specification-driven methods for input/output handling
-   - Document all parameters, methods, and classes thoroughly
-   - Implement proper error handling and logging in all components
+## Key Implementation Requirements
 
-4. Implement robust error handling:
-   - Use try/except blocks with specific exception types
-   - Add meaningful error messages with context
-   - Create proper error classes for common failure modes
-   - Log errors at appropriate levels (ERROR vs WARNING vs INFO)
-   - Validate inputs before processing
-   - Create proper directory structures before writing files
-   - Add runtime validation of environment variables
+1. **Strict Path Adherence**: Always use paths from contracts, never hardcode paths
+2. **Alignment Consistency**: Ensure logical names are consistent across all components
+3. **Dependency Types**: Use correct dependency types to ensure compatibility with upstream/downstream steps
+4. **Error Handling**: Implement comprehensive error handling with meaningful messages
+5. **Documentation**: Add thorough docstrings to all classes and methods
+6. **Type Hints**: Use proper Python type hints for all parameters and return values
+7. **Standardization**: Follow naming conventions and interface standards precisely
+8. **Validation**: Add validation for all inputs, configuration, and runtime conditions
+9. **Spec/Contract Validation**: Always verify spec and contract availability in builder methods:
+   ```python
+   if not self.spec:
+       raise ValueError("Step specification is required")
+           
+   if not self.contract:
+       raise ValueError("Script contract is required for input mapping")
+   ```
+10. **S3 Path Handling**: Implement helper methods for S3 path handling:
+    ```python
+    def _normalize_s3_uri(self, uri: str, description: str = "S3 URI") -> str:
+        # Handle PipelineVariable objects
+        if hasattr(uri, 'expr'):
+            uri = str(uri.expr)
+        
+        # Handle Pipeline step references
+        if isinstance(uri, dict) and 'Get' in uri:
+            self.log_info("Found Pipeline step reference: %s", uri)
+            return uri
+        
+        return S3PathHandler.normalize(uri, description)
+    ```
+11. **PipelineVariable Handling**: Always handle PipelineVariable objects in inputs/outputs
+12. **Configuration Validation**: Add comprehensive validation in validate_configuration:
+    ```python
+    required_attrs = ['attribute1', 'attribute2', ...]
+    for attr in required_attrs:
+        if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
+            raise ValueError(f"Config missing required attribute: {attr}")
+    ```
 
-5. Include comprehensive testing support:
-   - Add validation methods for each component
-   - Include doctest examples in key functions
-   - Ensure components are testable in isolation
-   - Add comments for expected behavior in edge cases
+## Required Builder Methods
 
-Remember to incorporate best practices from the documentation, such as using specification-driven methods, handling edge cases, and following SageMaker conventions.
+Ensure your step builder implementation includes these essential methods:
 
-## Expected Output
+### 1. Base Methods
 
-Provide all the code files needed to implement the step, following our naming conventions and directory structure:
+```python
+def __init__(self, config: CustomConfig, sagemaker_session=None, role=None, 
+             notebook_root=None, registry_manager=None, dependency_resolver=None):
+    """Initialize the step builder with configuration and dependencies."""
+    if not isinstance(config, CustomConfig):
+        raise ValueError("Builder requires a CustomConfig instance.")
+    
+    super().__init__(
+        config=config,
+        spec=CUSTOM_SPEC,  # Always pass the specification
+        sagemaker_session=sagemaker_session,
+        role=role,
+        notebook_root=notebook_root,
+        registry_manager=registry_manager,
+        dependency_resolver=dependency_resolver
+    )
+    self.config: CustomConfig = config  # Type hint for IDE support
+
+def validate_configuration(self) -> None:
+    """
+    Validate the configuration thoroughly before any step creation.
+    This should check all required attributes and validate file paths.
+    """
+    self.log_info("Validating CustomConfig...")
+    
+    # Check required attributes
+    required_attrs = ['attribute1', 'attribute2', 'attribute3']
+    for attr in required_attrs:
+        if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
+            raise ValueError(f"CustomConfig missing required attribute: {attr}")
+    
+    # Validate paths if needed
+    if not hasattr(self.config.some_path, 'expr'):  # Skip validation for PipelineVariables
+        path = Path(self.config.some_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Path not found: {path}")
+    
+    self.log_info("CustomConfig validation succeeded.")
+
+def create_step(self, **kwargs) -> ProcessingStep:
+    """
+    Create the SageMaker step with full error handling and dependency extraction.
+    
+    Args:
+        **kwargs: Keyword args including dependencies and optional params
+    
+    Returns:
+        ProcessingStep: The configured processing step
+        
+    Raises:
+        ValueError: If inputs cannot be extracted or config is invalid
+    """
+    try:
+        # Extract inputs from dependencies
+        dependencies = kwargs.get('dependencies', [])
+        inputs = {}
+        if dependencies:
+            inputs = self.extract_inputs_from_dependencies(dependencies)
+        
+        # Get processor inputs and outputs
+        processing_inputs = self._get_inputs(inputs)
+        processing_outputs = self._get_outputs({})
+        
+        # Create processor
+        processor = self._get_processor()
+        
+        # Get cache configuration
+        cache_config = self._get_cache_config(kwargs.get('enable_caching', True))
+        
+        # Create the step
+        step = processor.run(
+            code=self.config.get_script_path(),
+            inputs=processing_inputs,
+            outputs=processing_outputs,
+            arguments=self._get_script_arguments(),
+            job_name=self._generate_job_name('CustomStep'),
+            wait=False,
+            cache_config=cache_config
+        )
+        
+        # Store specification in step for future reference
+        setattr(step, '_spec', self.spec)
+        
+        return step
+    
+    except Exception as e:
+        self.log_error(f"Error creating CustomStep: {e}")
+        import traceback
+        self.log_error(traceback.format_exc())
+        raise ValueError(f"Failed to create CustomStep: {str(e)}") from e
+```
+
+### 2. Input/Output Methods
+
+```python
+def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
+    """
+    Get inputs for the processor using spec and contract for mapping.
+    
+    Args:
+        inputs: Dictionary of input sources keyed by logical name
+        
+    Returns:
+        List of ProcessingInput objects for the processor
+    """
+    if not self.spec:
+        raise ValueError("Step specification is required")
+        
+    if not self.contract:
+        raise ValueError("Script contract is required for input mapping")
+        
+    processing_inputs = []
+    
+    # Process each dependency in the specification
+    for logical_name, dependency_spec in self.spec.dependencies.items():
+        # Skip if optional and not provided
+        if not dependency_spec.required and logical_name not in inputs:
+            continue
+            
+        # Check required inputs
+        if dependency_spec.required and logical_name not in inputs:
+            raise ValueError(f"Required input '{logical_name}' not provided")
+        
+        # Get container path from contract
+        if logical_name in self.contract.expected_input_paths:
+            container_path = self.contract.expected_input_paths[logical_name]
+            
+            # Add input to processing inputs
+            processing_inputs.append(
+                ProcessingInput(
+                    source=inputs[logical_name],
+                    destination=container_path,
+                    input_name=logical_name
+                )
+            )
+        else:
+            raise ValueError(f"No container path found for input: {logical_name}")
+            
+    return processing_inputs
+
+def _get_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
+    """
+    Get outputs for the processor using spec and contract for mapping.
+    
+    Args:
+        outputs: Dictionary of output destinations keyed by logical name
+        
+    Returns:
+        List of ProcessingOutput objects for the processor
+    """
+    if not self.spec:
+        raise ValueError("Step specification is required")
+        
+    if not self.contract:
+        raise ValueError("Script contract is required for output mapping")
+        
+    processing_outputs = []
+    
+    # Process each output in the specification
+    for logical_name, output_spec in self.spec.outputs.items():
+        # Get container path from contract
+        if logical_name in self.contract.expected_output_paths:
+            container_path = self.contract.expected_output_paths[logical_name]
+            
+            # Generate default output path if not provided
+            output_path = outputs.get(logical_name, 
+                f"{self.config.pipeline_s3_loc}/custom_step/{logical_name}")
+            
+            # Add output to processing outputs
+            processing_outputs.append(
+                ProcessingOutput(
+                    source=container_path,
+                    destination=output_path,
+                    output_name=logical_name
+                )
+            )
+        else:
+            raise ValueError(f"No container path found for output: {logical_name}")
+            
+    return processing_outputs
+```
+
+### 3. Helper Methods
+
+```python
+def _get_processor(self):
+    """
+    Create and configure the processor for the step.
+    
+    Returns:
+        The configured processor for running the step
+    """
+    return ScriptProcessor(
+        image_uri="137112412989.dkr.ecr.us-west-2.amazonaws.com/sagemaker-scikit-learn:0.23-1-cpu-py3",
+        command=["python3"],
+        instance_type=self.config.instance_type,
+        instance_count=self.config.instance_count,
+        volume_size_in_gb=self.config.volume_size_gb,
+        max_runtime_in_seconds=self.config.max_runtime_seconds,
+        role=self.role,
+        sagemaker_session=self.session,
+        base_job_name=self._sanitize_name_for_sagemaker(
+            f"{self._get_step_name('CustomStep')}"
+        )
+    )
+
+def _get_script_arguments(self) -> List[str]:
+    """
+    Generate script arguments from configuration parameters.
+    
+    Returns:
+        List of arguments to pass to the script
+    """
+    args = []
+    
+    # Add arguments from config
+    args.extend(["--param1", str(self.config.param1)])
+    args.extend(["--param2", str(self.config.param2)])
+    
+    return args
+
+def _validate_s3_uri(self, uri: str, description: str = "S3 URI") -> bool:
+    """
+    Validate that a string is a properly formatted S3 URI.
+    
+    Args:
+        uri: The URI to validate
+        description: Description for error messages
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    # Handle PipelineVariable objects
+    if hasattr(uri, 'expr'):
+        return True
+        
+    # Handle Pipeline step references with Get key
+    if isinstance(uri, dict) and 'Get' in uri:
+        return True
+    
+    if not isinstance(uri, str):
+        self.log_warning("Invalid %s URI: type %s", description, type(uri).__name__)
+        return False
+    
+    return S3PathHandler.is_valid(uri)
+```
+
+## Expected Output Format
+
+For each file you create, follow this format:
 
 ```
-# src/pipeline_script_contracts/[name]_contract.py
-from .base_script_contract import ScriptContract
+# File: [path/to/file.py]
+```python
+# Full content of the file here, including imports, docstrings, and implementation
+```
 
-[NAME]_CONTRACT = ScriptContract(
-    # Your implementation here
-)
+Ensure each file is complete, properly formatted, and ready to be saved directly to the specified location. Include all necessary imports, docstrings, and implementation details.
 
-# src/pipeline_step_specs/[name]_spec.py
-from ..pipeline_deps.base_specifications import StepSpecification, NodeType, DependencySpec, OutputSpec, DependencyType
-
-# Your implementation here
-
-# src/pipeline_steps/config_[name].py
-from .config_base import BasePipelineConfig
-
-class [Name]Config(BasePipelineConfig):
-    # Your implementation here
-
-# src/pipeline_steps/builder_[name].py
-from .builder_step_base import StepBuilderBase
-
-class [Name]StepBuilder(StepBuilderBase):
-    # Your implementation here
-
-# src/pipeline_scripts/[name].py
-#!/usr/bin/env python3
-
-# Your implementation here
-
-# Update src/pipeline_registry/step_names.py
-STEP_NAMES = {
-    # ... existing steps ...
-    "[StepName]": {
-        # Your implementation here
-    }
-}
-
-# Update src/pipeline_steps/__init__.py
-# Add: from .builder_[name] import [Name]StepBuilder
-
-# Update src/pipeline_step_specs/__init__.py
-# Add: from .[name]_spec import [NAME]_SPEC
-
-# Update src/pipeline_script_contracts/__init__.py
-# Add: from .[name]_contract import [NAME]_CONTRACT
+Remember that your implementation will be validated against our architectural standards, with special focus on alignment rules adherence and cross-component compatibility.

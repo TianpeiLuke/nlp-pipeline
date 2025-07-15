@@ -56,6 +56,12 @@ STEP_NAMES = {
         "spec_type": "XGBoostTraining",
         "description": "XGBoost model training step"
     },
+    "DummyTraining": {
+        "config_class": "DummyTrainingConfig",
+        "builder_step_name": "DummyTrainingStepBuilder",
+        "spec_type": "DummyTraining",
+        "description": "Training step that uses a pretrained model"
+    },
     
     # Model Creation Steps
     "PytorchModel": {  # Canonical: PytorchModel (not PyTorchModel)
