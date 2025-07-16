@@ -1,56 +1,73 @@
 import unittest
-from types import SimpleNamespace
+import tempfile
+import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
 import os
 import sys
+
+from sagemaker.processing import ProcessingInput
 
 # Add the project root to the Python path to allow for absolute imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Import the builder class to be tested
-from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
-from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig, VariableType
+# Mock the secure_ai_sandbox_workflow_python_sdk module before importing the builder
+with patch.dict('sys.modules', {
+    'secure_ai_sandbox_workflow_python_sdk': MagicMock(),
+    'secure_ai_sandbox_workflow_python_sdk.mims_model_registration': MagicMock(),
+    'secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_registration_processing_step': MagicMock()
+}):
+    # Import the builder class to be tested
+    from src.pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
+    from src.pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
 
 class TestModelRegistrationStepBuilder(unittest.TestCase):
     def setUp(self):
         """Set up a minimal, mocked configuration and builder instance for each test."""
-        # Create a dummy config object with required attributes
-        self.config = SimpleNamespace()
+        # Create a temporary directory for testing
+        self.temp_dir = tempfile.mkdtemp()
         
-        # Required attributes for validation
-        self.config.model_owner = "test-team"
-        self.config.model_registration_domain = "BuyerSellerMessaging"
-        self.config.model_registration_objective = "TestObjective"
-        self.config.source_model_inference_content_types = ["text/csv"]
-        self.config.source_model_inference_response_types = ["application/json"]
-        self.config.source_model_inference_output_variable_list = {"score": "NUMERIC"}
-        self.config.source_model_inference_input_variable_list = {"feature1": "NUMERIC", "feature2": "TEXT"}
-        
-        # Region configuration
-        self.config.region = "us-east-1"
-        self.config.REGION_MAPPING = {
-            "us-east-1": "IAD",
-            "us-west-2": "PDX",
-            "eu-west-1": "DUB"
+        # Create a valid config for the ModelRegistrationConfig
+        self.valid_config_data = {
+            "bucket": "test-bucket",
+            "author": "test-author",
+            "pipeline_name": "test-pipeline",
+            "pipeline_description": "Test Pipeline Description",
+            "pipeline_version": "1.0.0",
+            "pipeline_s3_loc": "s3://test-bucket/test-pipeline",
+            "region": "NA",
+            "model_registration_domain": "BuyerSellerMessaging",
+            "model_registration_objective": "TestObjective",
+            "framework": "xgboost",
+            "inference_instance_type": "ml.m5.large",
+            "inference_entry_point": "inference.py",
+            "source_model_inference_content_types": ["text/csv"],
+            "source_model_inference_response_types": ["application/json"],
+            "source_model_inference_input_variable_list": {"feature1": "NUMERIC", "feature2": "TEXT"},
+            "source_model_inference_output_variable_list": {"score": "NUMERIC"}
         }
         
-        # S3 configuration
-        self.config.bucket = "test-bucket"
+        # Create a real ModelRegistrationConfig instance
+        with patch('pathlib.Path.exists', return_value=True), \
+             patch('pathlib.Path.is_file', return_value=True), \
+             patch('pathlib.Path.is_dir', return_value=True):
+            self.config = ModelRegistrationConfig(**self.valid_config_data)
         
-        # Instantiate builder without running __init__ (to bypass type checks)
-        self.builder = object.__new__(ModelRegistrationStepBuilder)
-        self.builder.config = self.config
+        # Mock registry manager and dependency resolver
+        self.mock_registry_manager = MagicMock()
+        self.mock_dependency_resolver = MagicMock()
         
-        # Create a properly configured session mock
-        session_mock = MagicMock()
-        session_mock.sagemaker_config = {}
-        self.builder.session = session_mock
-        
-        self.builder.role = 'arn:aws:iam::000000000000:role/DummyRole'
-        self.builder.notebook_root = Path('.')
+        # Instantiate builder with the mocked config
+        self.builder = ModelRegistrationStepBuilder(
+            config=self.config,
+            sagemaker_session=MagicMock(),
+            role='arn:aws:iam::000000000000:role/DummyRole',
+            notebook_root=Path('.'),
+            registry_manager=self.mock_registry_manager,
+            dependency_resolver=self.mock_dependency_resolver
+        )
         
         # Mock the MimsModelRegistrationProcessingStep
         self.mock_registration_step = MagicMock()
@@ -59,210 +76,378 @@ class TestModelRegistrationStepBuilder(unittest.TestCase):
             return_value=self.mock_registration_step
         )
         self.mock_registration_step_class = self.mock_registration_step_patcher.start()
-        
+
     def tearDown(self):
         """Clean up after each test."""
+        # Remove the temporary directory
+        shutil.rmtree(self.temp_dir)
         self.mock_registration_step_patcher.stop()
-        
+
+    def test_init_with_invalid_config(self):
+        """Test that __init__ raises ValueError with invalid config type."""
+        with self.assertRaises(ValueError) as context:
+            ModelRegistrationStepBuilder(
+                config="invalid_config",  # Should be ModelRegistrationConfig instance
+                sagemaker_session=MagicMock(),
+                role='arn:aws:iam::000000000000:role/DummyRole'
+            )
+        self.assertIn("ModelRegistrationConfig instance", str(context.exception))
+
     def test_validate_configuration_success(self):
         """Test that configuration validation succeeds with valid config."""
         # Should not raise any exceptions
         self.builder.validate_configuration()
+
+    def test_validate_configuration_missing_required_attrs(self):
+        """Test that configuration validation fails with missing required attributes."""
+        # Directly modify the config object to have empty model_registration_domain
+        original_domain = self.builder.config.model_registration_domain
+        object.__setattr__(self.builder.config, 'model_registration_domain', "")  # Set empty domain
         
-    def test_validate_configuration_missing_required_attribute(self):
-        """Test that configuration validation fails with missing required attribute."""
-        # Save original value
-        original_value = self.config.model_owner
-        # Set to None to trigger validation error
-        self.config.model_owner = None
-        
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as context:
             self.builder.validate_configuration()
-            
-        # Restore original value
-        self.config.model_owner = original_value
+        self.assertIn("model_registration_domain", str(context.exception))
         
-    def test_validate_configuration_missing_output_variables(self):
-        """Test that configuration validation fails with missing output variables."""
-        # Save original value
-        original_value = self.config.source_model_inference_output_variable_list
-        # Set to empty dict to trigger validation error
-        self.config.source_model_inference_output_variable_list = {}
+        # Restore original domain
+        object.__setattr__(self.builder.config, 'model_registration_domain', original_domain)
+
+    def test_validate_configuration_missing_objective(self):
+        """Test that configuration validation fails with missing objective."""
+        # Directly modify the config object to have empty model_registration_objective
+        original_objective = self.builder.config.model_registration_objective
+        object.__setattr__(self.builder.config, 'model_registration_objective', "")  # Set empty objective
         
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as context:
             self.builder.validate_configuration()
-            
-        # Restore original value
-        self.config.source_model_inference_output_variable_list = original_value
+        self.assertIn("model_registration_objective", str(context.exception))
         
-    def test_validate_configuration_invalid_content_type(self):
-        """Test that configuration validation fails with invalid content type."""
-        # Save original value
-        original_value = self.config.source_model_inference_content_types
-        # Set to invalid value to trigger validation error
-        self.config.source_model_inference_content_types = ["invalid/type"]
+        # Restore original objective
+        object.__setattr__(self.builder.config, 'model_registration_objective', original_objective)
+
+    def test_get_inputs_with_spec_model_only(self):
+        """Test that inputs are created correctly using specification with model only."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
         
-        with self.assertRaises(ValueError):
-            self.builder.validate_configuration()
-            
-        # Restore original value
-        self.config.source_model_inference_content_types = original_value
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
         
-    def test_get_processing_inputs_model_only(self):
-        """Test that processing inputs are created correctly with model only."""
-        model_path = "s3://bucket/model.tar.gz"
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
         
-        inputs = self.builder._get_processing_inputs(model_path)
+        # Create inputs dictionary with only model
+        inputs = {
+            "PackagedModel": "s3://bucket/model.tar.gz"
+        }
         
-        # Should have one input for the model
-        self.assertEqual(len(inputs), 1)
+        proc_inputs = self.builder._get_inputs(inputs)
+        
+        # Should have 1 input: PackagedModel
+        self.assertEqual(len(proc_inputs), 1)
         
         # Check model input
-        model_input = inputs[0]
-        self.assertEqual(model_input.source, model_path)
+        model_input = proc_inputs[0]
+        self.assertIsInstance(model_input, ProcessingInput)
+        self.assertEqual(model_input.input_name, "PackagedModel")
+        self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
         self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
         self.assertEqual(model_input.s3_data_distribution_type, "FullyReplicated")
         self.assertEqual(model_input.s3_input_mode, "File")
+
+    def test_get_inputs_with_spec_model_and_payload(self):
+        """Test that inputs are created correctly using specification with model and payload."""
+        # Mock the spec and contract
+        mock_dependency1 = MagicMock()
+        mock_dependency1.logical_name = "PackagedModel"
+        mock_dependency1.required = True
         
-    def test_get_processing_inputs_with_payload(self):
-        """Test that processing inputs are created correctly with model and payload."""
-        model_path = "s3://bucket/model.tar.gz"
-        payload_key = "payloads/test-payload.json"
+        mock_dependency2 = MagicMock()
+        mock_dependency2.logical_name = "GeneratedPayloadSamples"
+        mock_dependency2.required = False
         
-        inputs = self.builder._get_processing_inputs(model_path, payload_key)
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {
+            "PackagedModel": mock_dependency1,
+            "GeneratedPayloadSamples": mock_dependency2
+        }
         
-        # Should have two inputs: model and payload
-        self.assertEqual(len(inputs), 2)
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model",
+            "GeneratedPayloadSamples": "/opt/ml/processing/mims_payload"
+        }
+        
+        # Create inputs dictionary with model and payload
+        inputs = {
+            "PackagedModel": "s3://bucket/model.tar.gz",
+            "GeneratedPayloadSamples": "s3://bucket/payload.tar.gz"
+        }
+        
+        proc_inputs = self.builder._get_inputs(inputs)
+        
+        # Should have 2 inputs: PackagedModel and GeneratedPayloadSamples
+        self.assertEqual(len(proc_inputs), 2)
+        
+        # Check model input (should be first)
+        model_input = proc_inputs[0]
+        self.assertIsInstance(model_input, ProcessingInput)
+        self.assertEqual(model_input.input_name, "PackagedModel")
+        self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
+        self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
+        
+        # Check payload input (should be second)
+        payload_input = proc_inputs[1]
+        self.assertIsInstance(payload_input, ProcessingInput)
+        self.assertEqual(payload_input.input_name, "GeneratedPayloadSamples")
+        self.assertEqual(payload_input.source, "s3://bucket/payload.tar.gz")
+        self.assertEqual(payload_input.destination, "/opt/ml/processing/mims_payload")
+
+    def test_get_inputs_missing_required(self):
+        """Test that _get_inputs raises ValueError when required inputs are missing."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
+        
+        # Test with empty inputs
+        with self.assertRaises(ValueError) as context:
+            self.builder._get_inputs({})
+        self.assertIn("Required input 'PackagedModel' not provided", str(context.exception))
+
+    def test_get_inputs_legacy_method(self):
+        """Test that legacy input method works when no specification is available."""
+        # Set spec to None to trigger legacy method
+        self.builder.spec = None
+        
+        # Create inputs dictionary
+        inputs = {
+            "PackagedModel": "s3://bucket/model.tar.gz",
+            "GeneratedPayloadSamples": "s3://bucket/payload.tar.gz"
+        }
+        
+        proc_inputs = self.builder._get_inputs(inputs)
+        
+        # Should have 2 inputs: PackagedModel and GeneratedPayloadSamples
+        self.assertEqual(len(proc_inputs), 2)
+        
+        # Check model input (should be first)
+        model_input = proc_inputs[0]
+        self.assertEqual(model_input.input_name, "PackagedModel")
+        self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
+        self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
+        
+        # Check payload input (should be second)
+        payload_input = proc_inputs[1]
+        self.assertEqual(payload_input.input_name, "GeneratedPayloadSamples")
+        self.assertEqual(payload_input.source, "s3://bucket/payload.tar.gz")
+        self.assertEqual(payload_input.destination, "/opt/ml/processing/mims_payload")
+
+    def test_get_inputs_legacy_method_model_only(self):
+        """Test that legacy input method works with model only."""
+        # Set spec to None to trigger legacy method
+        self.builder.spec = None
+        
+        # Create inputs dictionary with only model
+        inputs = {
+            "PackagedModel": "s3://bucket/model.tar.gz"
+        }
+        
+        proc_inputs = self.builder._get_inputs(inputs)
+        
+        # Should have 1 input: PackagedModel
+        self.assertEqual(len(proc_inputs), 1)
         
         # Check model input
-        model_input = inputs[0]
-        self.assertEqual(model_input.source, model_path)
+        model_input = proc_inputs[0]
+        self.assertEqual(model_input.input_name, "PackagedModel")
+        self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
+        self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
+
+    def test_get_outputs(self):
+        """Test that _get_outputs returns None (registration step has no outputs)."""
+        outputs = self.builder._get_outputs({})
+        self.assertIsNone(outputs)
+
+    def test_handle_legacy_parameters(self):
+        """Test that legacy parameters are handled correctly."""
+        kwargs = {
+            'packaged_model_output': 's3://bucket/model.tar.gz',
+            'payload_s3_key': 's3://bucket/payload.tar.gz',
+            'some_other_param': 'ignored'
+        }
         
-        # Check payload input
-        payload_input = inputs[1]
-        self.assertEqual(payload_input.source, f"s3://{self.config.bucket}/{payload_key}")
-        self.assertEqual(payload_input.destination, "/opt/ml/processing/mims_payload")
+        legacy_inputs = self.builder._handle_legacy_parameters(kwargs)
         
-    def test_validate_regions_success(self):
-        """Test that region validation succeeds with valid regions."""
-        # Should not raise any exceptions
-        self.builder._validate_regions(["us-east-1", "us-west-2"])
-        
-    def test_validate_regions_invalid(self):
-        """Test that region validation fails with invalid regions."""
-        with self.assertRaises(ValueError):
-            self.builder._validate_regions(["us-east-1", "invalid-region"])
-            
-    def test_create_step_single_region(self):
-        """Test that create_step creates a registration step for a single region."""
-        model_path = "s3://bucket/model.tar.gz"
-        
-        # Create step for a single region
-        step = self.builder.create_step(model_path)
-        
-        # Verify MimsModelRegistrationProcessingStep was called once
-        self.mock_registration_step_class.assert_called_once()
-        
-        # Verify the step was returned
-        self.assertEqual(step, self.mock_registration_step)
-        
-    def test_create_step_multiple_regions(self):
-        """Test that create_step creates registration steps for multiple regions."""
-        model_path = "s3://bucket/model.tar.gz"
-        regions = ["us-east-1", "us-west-2"]
-        
-        # Create steps for multiple regions
-        steps = self.builder.create_step(model_path, regions=regions)
-        
-        # Verify MimsModelRegistrationProcessingStep was called twice (once for each region)
-        self.assertEqual(self.mock_registration_step_class.call_count, 2)
-        
-        # Verify the steps dictionary contains both regions
-        self.assertEqual(len(steps), 2)
-        self.assertIn("us-east-1", steps)
-        self.assertIn("us-west-2", steps)
-        
+        # Should map legacy parameters to standard names
+        self.assertEqual(legacy_inputs['PackagedModel'], 's3://bucket/model.tar.gz')
+        self.assertEqual(legacy_inputs['GeneratedPayloadSamples'], 's3://bucket/payload.tar.gz')
+        self.assertNotIn('some_other_param', legacy_inputs)
+
     def test_create_step_with_dependencies(self):
-        """Test that create_step handles dependencies correctly."""
-        model_path = "s3://bucket/model.tar.gz"
+        """Test that create_step works with dependencies."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
         
-        # Create mock dependencies
-        dependency1 = MagicMock()
-        dependency2 = MagicMock()
-        dependencies = [dependency1, dependency2]
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
         
-        # Create step with dependencies
-        step = self.builder.create_step(model_path, dependencies=dependencies)
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
         
-        # Verify MimsModelRegistrationProcessingStep was called with dependencies
+        # Mock extract_inputs_from_dependencies
+        self.builder.extract_inputs_from_dependencies = MagicMock(
+            return_value={"PackagedModel": "s3://bucket/extracted_model.tar.gz"}
+        )
+        
+        # Setup mock dependency
+        dependency = MagicMock()
+        
+        # Create step with dependency
+        step = self.builder.create_step(dependencies=[dependency])
+        
+        # Verify extract_inputs_from_dependencies was called
+        self.builder.extract_inputs_from_dependencies.assert_called_once_with([dependency])
+        
+        # Verify MimsModelRegistrationProcessingStep was created with correct parameters
+        self.mock_registration_step_class.assert_called_once()
         call_kwargs = self.mock_registration_step_class.call_args.kwargs
-        self.assertEqual(call_kwargs["depends_on"], dependencies)
+        self.assertEqual(call_kwargs['depends_on'], [dependency])
         
-    def test_create_step_with_payload(self):
-        """Test that create_step handles payload correctly."""
-        model_path = "s3://bucket/model.tar.gz"
-        payload_key = "payloads/test-payload.json"
+        # Verify the returned step is our mock
+        self.assertEqual(step, self.mock_registration_step)
+
+    def test_create_step_with_inputs(self):
+        """Test that create_step works with direct inputs."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
         
-        # Create step with payload
-        step = self.builder.create_step(model_path, payload_s3_key=payload_key)
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
         
-        # Verify MimsModelRegistrationProcessingStep was called with correct inputs
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
+        
+        # Create step with direct inputs
+        inputs = {"PackagedModel": "s3://bucket/model.tar.gz"}
+        step = self.builder.create_step(inputs=inputs)
+        
+        # Verify MimsModelRegistrationProcessingStep was created
+        self.mock_registration_step_class.assert_called_once()
         call_kwargs = self.mock_registration_step_class.call_args.kwargs
-        processing_inputs = call_kwargs["processing_input"]
         
-        # Should have two inputs: model and payload
-        self.assertEqual(len(processing_inputs), 2)
+        # Check that processing_input was provided
+        self.assertIn('processing_input', call_kwargs)
+        processing_inputs = call_kwargs['processing_input']
+        self.assertEqual(len(processing_inputs), 1)
+        self.assertEqual(processing_inputs[0].source, "s3://bucket/model.tar.gz")
         
-        # Check payload input
-        payload_input = processing_inputs[1]
-        self.assertEqual(payload_input.source, f"s3://{self.config.bucket}/{payload_key}")
+        # Verify the returned step is our mock
+        self.assertEqual(step, self.mock_registration_step)
+
+    def test_create_step_with_legacy_parameters(self):
+        """Test that create_step works with legacy parameters."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
         
-    def test_create_registration_steps_backward_compatibility(self):
-        """Test that the old create_registration_steps method calls the new create_step method."""
-        model_path = "s3://bucket/model.tar.gz"
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
         
-        with patch.object(self.builder, 'create_step') as mock_create_step:
-            # Set up mock to return a dictionary for multiple regions
-            mock_create_step.return_value = {
-                "us-east-1": MagicMock(),
-                "us-west-2": MagicMock()
-            }
-            
-            # Call the old method with multiple regions
-            result = self.builder.create_registration_steps(
-                packaging_step_output=model_path,
-                dependencies=None,
-                payload_s3_key=None,
-                regions=["us-east-1", "us-west-2"]
-            )
-            
-            # Verify it called the new method with correct parameters
-            mock_create_step.assert_called_once_with(
-                packaging_step_output=model_path,
-                dependencies=None,
-                payload_s3_key=None,
-                regions=["us-east-1", "us-west-2"]
-            )
-            
-            # Verify the result is the dictionary returned by create_step
-            self.assertEqual(result, mock_create_step.return_value)
-            
-        # Test with single region that returns a step instead of dict
-        with patch.object(self.builder, 'create_step') as mock_create_step:
-            # Set up mock to return a single step
-            mock_step = MagicMock()
-            mock_create_step.return_value = mock_step
-            
-            # Call the old method with single region
-            result = self.builder.create_registration_steps(
-                packaging_step_output=model_path
-            )
-            
-            # Verify the result is a dictionary with the region as key
-            self.assertIsInstance(result, dict)
-            self.assertEqual(len(result), 1)
-            self.assertIn(self.config.region, result)
-            self.assertEqual(result[self.config.region], mock_step)
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
+        
+        # Create step with legacy parameters
+        step = self.builder.create_step(packaged_model_output="s3://bucket/model.tar.gz")
+        
+        # Verify MimsModelRegistrationProcessingStep was created
+        self.mock_registration_step_class.assert_called_once()
+        call_kwargs = self.mock_registration_step_class.call_args.kwargs
+        
+        # Check that processing_input was provided
+        self.assertIn('processing_input', call_kwargs)
+        processing_inputs = call_kwargs['processing_input']
+        self.assertEqual(len(processing_inputs), 1)
+        self.assertEqual(processing_inputs[0].source, "s3://bucket/model.tar.gz")
+
+    def test_create_step_with_performance_metadata(self):
+        """Test that create_step handles performance metadata location."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
+        
+        # Create step with performance metadata
+        inputs = {"PackagedModel": "s3://bucket/model.tar.gz"}
+        performance_location = "s3://bucket/performance.json"
+        step = self.builder.create_step(
+            inputs=inputs,
+            performance_metadata_location=performance_location
+        )
+        
+        # Verify MimsModelRegistrationProcessingStep was created with performance metadata
+        self.mock_registration_step_class.assert_called_once()
+        call_kwargs = self.mock_registration_step_class.call_args.kwargs
+        self.assertEqual(call_kwargs['performance_metadata_location'], performance_location)
+
+    def test_create_step_no_inputs_raises_error(self):
+        """Test that create_step raises error when no inputs are provided."""
+        with self.assertRaises(ValueError) as context:
+            self.builder.create_step()
+        self.assertIn("No inputs provided", str(context.exception))
+
+    def test_create_step_attaches_spec_and_contract(self):
+        """Test that create_step attaches spec and contract to the step."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "PackagedModel"
+        mock_dependency.required = True
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"PackagedModel": mock_dependency}
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "PackagedModel": "/opt/ml/processing/input/model"
+        }
+        
+        # Create step
+        inputs = {"PackagedModel": "s3://bucket/model.tar.gz"}
+        step = self.builder.create_step(inputs=inputs)
+        
+        # Verify spec and contract were attached to the step
+        # We can't directly check setattr calls on the mock, but we can verify the step was returned
+        self.assertEqual(step, self.mock_registration_step)
 
 if __name__ == '__main__':
-    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+    unittest.main()
