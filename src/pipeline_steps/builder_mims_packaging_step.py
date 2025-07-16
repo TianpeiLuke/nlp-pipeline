@@ -128,6 +128,9 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
     def _get_environment_variables(self) -> Dict[str, str]:
         """
         Constructs a dictionary of environment variables to be passed to the processing job.
+        
+        The MIMS packaging script doesn't actually use environment variables - it uses
+        hardcoded paths. We only provide basic pipeline information for logging/debugging.
 
         Returns:
             A dictionary of environment variables.
@@ -136,16 +139,6 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             "PIPELINE_NAME": self.config.pipeline_name,
             "REGION": self.config.region,
         }
-        
-        # Add optional configurations
-        for key, env_key in [
-            ('model_type', 'MODEL_TYPE'),
-            ('bucket', 'BUCKET_NAME'),
-            ('pipeline_version', 'PIPELINE_VERSION'),
-            ('model_registration_objective', 'MODEL_OBJECTIVE')
-        ]:
-            if hasattr(self.config, key) and getattr(self.config, key) is not None:
-                env_vars[env_key] = str(getattr(self.config, key))
         
         self.log_info("Packaging environment variables: %s", env_vars)
         return env_vars
