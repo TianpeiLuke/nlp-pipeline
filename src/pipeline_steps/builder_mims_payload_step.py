@@ -151,7 +151,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # Add optional configurations
         for key, env_key in [
             ('default_numeric_value', 'DEFAULT_NUMERIC_VALUE'),
-            ('default_string_value', 'DEFAULT_STRING_VALUE'),
+            ('default_text_value', 'DEFAULT_TEXT_VALUE'),
             ('sample_payload_s3_key', 'PAYLOAD_S3_KEY'),
             ('bucket', 'BUCKET_NAME')
         ]:

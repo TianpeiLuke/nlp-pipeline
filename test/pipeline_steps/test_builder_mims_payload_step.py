@@ -3,7 +3,7 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
 import os
 import sys
 
@@ -51,8 +51,14 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
                 "feature1": VariableType.NUMERIC, 
                 "feature2": VariableType.TEXT
             },
-            "payload_source_dir": self.temp_dir,
-            "payload_script_path": "mims_payload.py"
+            "processing_source_dir": self.temp_dir,
+            "processing_entry_point": "mims_payload.py",
+            "processing_instance_count": 1,
+            "processing_volume_size": 30,
+            "processing_instance_type_small": "ml.m5.large",
+            "processing_instance_type_large": "ml.m5.xlarge",
+            "use_large_processing_instance": False,
+            "processing_framework_version": "1.0-1"
         }
         
         # Create a real PayloadConfig instance
@@ -66,19 +72,23 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         self.mock_gen_upload = self.patcher.start()
         self.mock_gen_upload.return_value = 's3://test-bucket/mods/payload/payload_test-pipeline_1.0.0_TestObjective.tar.gz'
         
+        # Mock registry manager and dependency resolver
+        self.mock_registry_manager = MagicMock()
+        self.mock_dependency_resolver = MagicMock()
+        
         # Instantiate builder with the mocked config
         self.builder = MIMSPayloadStepBuilder(
             config=self.config,
             sagemaker_session=MagicMock(),
             role='arn:aws:iam::000000000000:role/DummyRole',
-            notebook_root=Path('.')
+            notebook_root=Path('.'),
+            registry_manager=self.mock_registry_manager,
+            dependency_resolver=self.mock_dependency_resolver
         )
         
         # Mock the methods that interact with SageMaker
-        self.builder._get_step_name = MagicMock(return_value='PayloadTestStep')
         self.builder._sanitize_name_for_sagemaker = MagicMock(return_value='test-pipeline-payload-test')
         self.builder._get_cache_config = MagicMock(return_value=MagicMock())
-        self.builder._extract_param = MagicMock(side_effect=lambda kwargs, key, default=None: kwargs.get(key, default))
 
     def tearDown(self):
         """Clean up after each test."""
@@ -89,80 +99,46 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         # Remove the temporary directory
         shutil.rmtree(self.temp_dir)
 
+    def test_init_with_invalid_config(self):
+        """Test that __init__ raises ValueError with invalid config type."""
+        with self.assertRaises(ValueError) as context:
+            MIMSPayloadStepBuilder(
+                config="invalid_config",  # Should be PayloadConfig instance
+                sagemaker_session=MagicMock(),
+                role='arn:aws:iam::000000000000:role/DummyRole'
+            )
+        self.assertIn("PayloadConfig instance", str(context.exception))
+
     def test_validate_configuration_success(self):
         """Test that configuration validation succeeds with valid config."""
         # Should not raise any exceptions
         self.builder.validate_configuration()
 
-    def test_validate_configuration_missing_required_fields(self):
-        """Test that configuration validation fails with missing required fields."""
-        # Skip this test as we can't properly mock the Pydantic model's behavior
-        # The real validation happens at model creation time, not in validate_configuration
-        pass
+    def test_validate_configuration_missing_bucket(self):
+        """Test that configuration validation fails with missing bucket."""
+        # Directly modify the config object to have empty bucket using object.__setattr__ to bypass Pydantic validation
+        original_bucket = self.builder.config.bucket
+        object.__setattr__(self.builder.config, 'bucket', "")  # Set empty bucket
+        
+        with self.assertRaises(ValueError) as context:
+            self.builder.validate_configuration()
+        self.assertIn("bucket", str(context.exception))
+        
+        # Restore original bucket
+        object.__setattr__(self.builder.config, 'bucket', original_bucket)
 
-    @patch('src.pipeline_steps.builder_mims_payload_step.MIMSPayloadStepBuilder.validate_configuration')
-    def test_init_calls_validate_configuration(self, mock_validate):
-        """Test that __init__ calls validate_configuration."""
-        # Create a new builder instance
-        builder = MIMSPayloadStepBuilder(
-            config=self.config,
-            sagemaker_session=MagicMock(),
-            role='arn:aws:iam::000000000000:role/DummyRole',
-            notebook_root=Path('.')
-        )
+    def test_validate_configuration_missing_required_attrs(self):
+        """Test that configuration validation fails with missing required attributes."""
+        # Directly modify the config object to have empty pipeline_name using object.__setattr__ to bypass Pydantic validation
+        original_pipeline_name = self.builder.config.pipeline_name
+        object.__setattr__(self.builder.config, 'pipeline_name', "")  # Set empty pipeline_name
         
-        # Verify validate_configuration was called
-        mock_validate.assert_called_once()
-
-    def test_get_input_requirements(self):
-        """Test that input requirements are returned correctly."""
-        input_reqs = self.builder.get_input_requirements()
-        self.assertIn("model_input", input_reqs)
-        self.assertIn("dependencies", input_reqs)
-        self.assertIn("enable_caching", input_reqs)
-
-    def test_get_output_properties(self):
-        """Test that output properties are returned correctly."""
-        output_props = self.builder.get_output_properties()
-        self.assertIn("payload_sample", output_props)
-        self.assertIn("payload_metadata", output_props)
-
-    def test_match_custom_properties(self):
-        """Test _match_custom_properties method."""
-        # Create a mock step with properties
-        prev_step = MagicMock()
-        prev_step.properties.ModelArtifacts.S3ModelArtifacts = "s3://bucket/model.tar.gz"
+        with self.assertRaises(ValueError) as context:
+            self.builder.validate_configuration()
+        self.assertIn("pipeline_name", str(context.exception))
         
-        # Set up input requirements
-        input_requirements = {
-            "model_input": "S3 URI of the model artifacts from training"
-        }
-        
-        # Call the method
-        inputs = {}
-        matched = self.builder._match_custom_properties(inputs, input_requirements, prev_step)
-        
-        # Verify inputs were matched
-        self.assertIn("model_input", matched)
-        self.assertEqual(inputs["model_input"], "s3://bucket/model.tar.gz")
-        
-    def test_match_custom_properties_no_model_artifacts(self):
-        """Test _match_custom_properties method when no model artifacts are available."""
-        # Create a mock step without ModelArtifacts property
-        prev_step = MagicMock(spec=[])  # No properties
-        
-        # Set up input requirements
-        input_requirements = {
-            "model_input": "S3 URI of the model artifacts from training"
-        }
-        
-        # Call the method
-        inputs = {}
-        matched = self.builder._match_custom_properties(inputs, input_requirements, prev_step)
-        
-        # Verify no inputs were matched
-        self.assertEqual(matched, set())
-        self.assertEqual(inputs, {})
+        # Restore original pipeline_name
+        object.__setattr__(self.builder.config, 'pipeline_name', original_pipeline_name)
 
     @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
     def test_create_processor(self, mock_processor_cls):
@@ -177,80 +153,197 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         # Verify SKLearnProcessor was created with correct parameters
         mock_processor_cls.assert_called_once()
         call_args = mock_processor_cls.call_args[1]
-        self.assertEqual(call_args['framework_version'], "0.23-1")
+        self.assertEqual(call_args['framework_version'], "1.0-1")
         self.assertEqual(call_args['role'], self.builder.role)
-        self.assertEqual(call_args['instance_type'], "ml.m5.large")  # Default
+        self.assertEqual(call_args['instance_type'], "ml.m5.large")  # Small instance
         self.assertEqual(call_args['instance_count'], 1)
-        self.assertEqual(call_args['volume_size_in_gb'], 30)  # Default
+        self.assertEqual(call_args['volume_size_in_gb'], 30)
         self.assertEqual(call_args['sagemaker_session'], self.builder.session)
         self.assertTrue('base_job_name' in call_args)
+        self.assertTrue('env' in call_args)
         
         # Verify the returned processor is our mock
         self.assertEqual(processor, mock_processor)
-        
-    def test_get_processor_inputs(self):
-        """Test that processor inputs are created correctly."""
-        # Create inputs dictionary with required keys
-        inputs = {
-            "model_input": "s3://bucket/model.tar.gz"
-        }
-        
-        proc_inputs = self.builder._get_processor_inputs(inputs)
-        
-        self.assertEqual(len(proc_inputs), 1)
-        
-        # Check model data input
-        model_input = proc_inputs[0]
-        self.assertIsInstance(model_input, ProcessingInput)
-        self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
-        self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
 
-    def test_get_processor_inputs_missing(self):
-        """Test that _get_processor_inputs raises ValueError when inputs are missing."""
-        # Test with empty inputs
-        with self.assertRaises(ValueError):
-            self.builder._get_processor_inputs({})
-
-    def test_get_processor_outputs(self):
-        """Test that processor outputs are created correctly."""
-        # Mock the _create_standard_processing_output method to return a predictable output
-        with patch.object(self.builder, '_create_standard_processing_output', 
-                         side_effect=lambda name, outputs, source: ProcessingOutput(
-                             output_name=name,
-                             source=source,
-                             destination=f"s3://test-bucket/test/{name}"
-                         )):
-            proc_outputs = self.builder._get_processor_outputs({})
-            
-            # Just verify the number of outputs
-            self.assertEqual(len(proc_outputs), 2)
+    @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
+    def test_create_processor_large_instance(self, mock_processor_cls):
+        """Test that the processor uses large instance when configured."""
+        # Setup mock processor
+        mock_processor = MagicMock()
+        mock_processor_cls.return_value = mock_processor
+        
+        # Set use_large_processing_instance to True
+        self.builder.config.use_large_processing_instance = True
+        
+        # Create processor
+        processor = self.builder._create_processor()
+        
+        # Verify large instance type was used
+        call_args = mock_processor_cls.call_args[1]
+        self.assertEqual(call_args['instance_type'], "ml.m5.xlarge")  # Large instance
 
     def test_get_environment_variables(self):
         """Test that environment variables are set correctly."""
         env_vars = self.builder._get_environment_variables()
         
         # Verify required environment variables
+        self.assertIn("PIPELINE_NAME", env_vars)
+        self.assertEqual(env_vars["PIPELINE_NAME"], "test-pipeline")
+        self.assertIn("REGION", env_vars)
         self.assertIn("CONTENT_TYPES", env_vars)
         self.assertEqual(env_vars["CONTENT_TYPES"], "text/csv")
         self.assertIn("DEFAULT_NUMERIC_VALUE", env_vars)
         self.assertEqual(env_vars["DEFAULT_NUMERIC_VALUE"], str(self.config.default_numeric_value))
         self.assertIn("DEFAULT_TEXT_VALUE", env_vars)
         self.assertEqual(env_vars["DEFAULT_TEXT_VALUE"], self.config.default_text_value)
+        self.assertIn("BUCKET_NAME", env_vars)
+        self.assertEqual(env_vars["BUCKET_NAME"], "test-bucket")
+
+    def test_get_inputs_with_spec(self):
+        """Test that inputs are created correctly using specification."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "model_input"
+        mock_dependency.required = True
         
-    def test_get_environment_variables_with_special_fields(self):
-        """Test that environment variables include special field values."""
-        # Skip this test as we can't mock special_field_values on a Pydantic model
-        pass
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"model_input": mock_dependency}
         
-    def test_get_job_arguments(self):
-        """Test that job arguments are created correctly."""
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "model_input": "/opt/ml/processing/input/model"
+        }
+        
+        # Create inputs dictionary
+        inputs = {
+            "model_input": "s3://bucket/model.tar.gz"
+        }
+        
+        proc_inputs = self.builder._get_inputs(inputs)
+        
+        self.assertEqual(len(proc_inputs), 1)
+        
+        # Check model data input
+        model_input = proc_inputs[0]
+        self.assertIsInstance(model_input, ProcessingInput)
+        self.assertEqual(model_input.input_name, "model_input")
+        self.assertEqual(model_input.source, "s3://bucket/model.tar.gz")
+        self.assertEqual(model_input.destination, "/opt/ml/processing/input/model")
+
+    def test_get_inputs_missing_required(self):
+        """Test that _get_inputs raises ValueError when required inputs are missing."""
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "model_input"
+        mock_dependency.required = True
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"model_input": mock_dependency}
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "model_input": "/opt/ml/processing/input/model"
+        }
+        
+        # Test with empty inputs
+        with self.assertRaises(ValueError) as context:
+            self.builder._get_inputs({})
+        self.assertIn("Required input 'model_input' not provided", str(context.exception))
+
+    def test_get_inputs_no_spec(self):
+        """Test that _get_inputs raises ValueError when no specification is available."""
+        self.builder.spec = None
+        
+        with self.assertRaises(ValueError) as context:
+            self.builder._get_inputs({})
+        self.assertIn("Step specification is required", str(context.exception))
+
+    def test_get_outputs_with_spec(self):
+        """Test that outputs are created correctly using specification."""
+        # Mock the spec and contract
+        mock_output = MagicMock()
+        mock_output.logical_name = "payload_sample"
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.outputs = {"payload_sample": mock_output}
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_output_paths = {
+            "payload_sample": "/opt/ml/processing/output"
+        }
+        
+        # Create outputs dictionary
+        outputs = {
+            "payload_sample": "s3://bucket/payload/"
+        }
+        
+        proc_outputs = self.builder._get_outputs(outputs)
+        
+        self.assertEqual(len(proc_outputs), 1)
+        
+        # Check payload output
+        payload_output = proc_outputs[0]
+        self.assertIsInstance(payload_output, ProcessingOutput)
+        self.assertEqual(payload_output.output_name, "payload_sample")
+        self.assertEqual(payload_output.source, "/opt/ml/processing/output")
+        self.assertEqual(payload_output.destination, "s3://bucket/payload/")
+
+    def test_get_outputs_generated_destination(self):
+        """Test that outputs use generated destination when not provided."""
+        # Mock the spec and contract
+        mock_output = MagicMock()
+        mock_output.logical_name = "payload_sample"
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.outputs = {"payload_sample": mock_output}
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_output_paths = {
+            "payload_sample": "/opt/ml/processing/output"
+        }
+        
+        # Create empty outputs dictionary
+        outputs = {}
+        
+        proc_outputs = self.builder._get_outputs(outputs)
+        
+        self.assertEqual(len(proc_outputs), 1)
+        
+        # Check payload output with generated destination
+        payload_output = proc_outputs[0]
+        self.assertIsInstance(payload_output, ProcessingOutput)
+        self.assertEqual(payload_output.output_name, "payload_sample")
+        self.assertEqual(payload_output.source, "/opt/ml/processing/output")
+        expected_dest = f"{self.config.pipeline_s3_loc}/payload/payload_sample"
+        self.assertEqual(payload_output.destination, expected_dest)
+
+    def test_get_outputs_no_spec(self):
+        """Test that _get_outputs raises ValueError when no specification is available."""
+        self.builder.spec = None
+        
+        with self.assertRaises(ValueError) as context:
+            self.builder._get_outputs({})
+        self.assertIn("Step specification is required", str(context.exception))
+
+    def test_get_job_arguments_default(self):
+        """Test that job arguments return default values."""
         job_args = self.builder._get_job_arguments()
         
-        # Verify job arguments
+        # Verify default job arguments
         self.assertIsInstance(job_args, list)
-        self.assertEqual(len(job_args), 2)  # Dummy arg and value
-        self.assertEqual(job_args[0], "--dummy-arg")
+        self.assertEqual(len(job_args), 2)
+        self.assertEqual(job_args, ["--mode", "standard"])
+
+    def test_get_job_arguments_custom(self):
+        """Test that job arguments use custom script arguments when provided."""
+        # Set custom script arguments
+        self.builder.config.processing_script_arguments = ["--custom", "arg"]
         
+        job_args = self.builder._get_job_arguments()
+        
+        # Verify custom job arguments
+        self.assertEqual(job_args, ["--custom", "arg"])
+
     @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
     @patch('src.pipeline_steps.builder_mims_payload_step.ProcessingStep')
     def test_create_step(self, mock_processing_step_cls, mock_processor_cls):
@@ -263,13 +356,35 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         mock_step = MagicMock()
         mock_processing_step_cls.return_value = mock_step
         
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "model_input"
+        mock_dependency.required = True
+        
+        mock_output = MagicMock()
+        mock_output.logical_name = "payload_sample"
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"model_input": mock_dependency}
+        self.builder.spec.outputs = {"payload_sample": mock_output}
+        self.builder.spec.step_type = "PayloadGeneration"
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "model_input": "/opt/ml/processing/input/model"
+        }
+        self.builder.contract.expected_output_paths = {
+            "payload_sample": "/opt/ml/processing/output"
+        }
+        self.builder.contract.entry_point = "mims_payload.py"
+        
         # Create step with model_input
-        step = self.builder.create_step(model_input="s3://bucket/model.tar.gz")
+        step = self.builder.create_step(inputs={"model_input": "s3://bucket/model.tar.gz"})
         
         # Verify ProcessingStep was created with correct parameters
         mock_processing_step_cls.assert_called_once()
         call_kwargs = mock_processing_step_cls.call_args.kwargs
-        self.assertEqual(call_kwargs['name'], 'PayloadTestStep')
+        self.assertEqual(call_kwargs['name'], 'PayloadGeneration')
         self.assertEqual(call_kwargs['processor'], mock_processor)
         self.assertEqual(call_kwargs['depends_on'], [])
         self.assertTrue(all(isinstance(i, ProcessingInput) for i in call_kwargs['inputs']))
@@ -277,7 +392,7 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
-        
+
     @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
     @patch('src.pipeline_steps.builder_mims_payload_step.ProcessingStep')
     def test_create_step_with_dependencies(self, mock_processing_step_cls, mock_processor_cls):
@@ -290,6 +405,28 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         mock_step = MagicMock()
         mock_processing_step_cls.return_value = mock_step
         
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "model_input"
+        mock_dependency.required = True
+        
+        mock_output = MagicMock()
+        mock_output.logical_name = "payload_sample"
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"model_input": mock_dependency}
+        self.builder.spec.outputs = {"payload_sample": mock_output}
+        self.builder.spec.step_type = "PayloadGeneration"
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "model_input": "/opt/ml/processing/input/model"
+        }
+        self.builder.contract.expected_output_paths = {
+            "payload_sample": "/opt/ml/processing/output"
+        }
+        self.builder.contract.entry_point = "mims_payload.py"
+        
         # Setup mock dependencies
         dependency1 = MagicMock()
         dependency2 = MagicMock()
@@ -297,7 +434,7 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         
         # Create step with dependencies and model_input
         step = self.builder.create_step(
-            model_input="s3://bucket/model.tar.gz",
+            inputs={"model_input": "s3://bucket/model.tar.gz"},
             dependencies=dependencies
         )
         
@@ -308,11 +445,11 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
-        
+
     @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
     @patch('src.pipeline_steps.builder_mims_payload_step.ProcessingStep')
-    def test_create_step_with_auto_detect_inputs(self, mock_processing_step_cls, mock_processor_cls):
-        """Test that the step auto-detects inputs from dependencies."""
+    def test_create_step_with_dependency_extraction(self, mock_processing_step_cls, mock_processor_cls):
+        """Test that the step extracts inputs from dependencies."""
         # Setup mock processor
         mock_processor = MagicMock()
         mock_processor_cls.return_value = mock_processor
@@ -321,71 +458,78 @@ class TestMIMSPayloadStepBuilder(unittest.TestCase):
         mock_step = MagicMock()
         mock_processing_step_cls.return_value = mock_step
         
-        # Setup mock dependency with model artifacts
-        dependency = MagicMock()
-        dependency.properties.ModelArtifacts.S3ModelArtifacts = "s3://bucket/model.tar.gz"
+        # Mock the spec and contract
+        mock_dependency = MagicMock()
+        mock_dependency.logical_name = "model_input"
+        mock_dependency.required = True
         
-        # Create step with dependency but no direct model_input
+        mock_output = MagicMock()
+        mock_output.logical_name = "payload_sample"
+        
+        self.builder.spec = MagicMock()
+        self.builder.spec.dependencies = {"model_input": mock_dependency}
+        self.builder.spec.outputs = {"payload_sample": mock_output}
+        self.builder.spec.step_type = "PayloadGeneration"
+        
+        self.builder.contract = MagicMock()
+        self.builder.contract.expected_input_paths = {
+            "model_input": "/opt/ml/processing/input/model"
+        }
+        self.builder.contract.expected_output_paths = {
+            "payload_sample": "/opt/ml/processing/output"
+        }
+        self.builder.contract.entry_point = "mims_payload.py"
+        
+        # Mock extract_inputs_from_dependencies
+        self.builder.extract_inputs_from_dependencies = MagicMock(
+            return_value={"model_input": "s3://bucket/extracted_model.tar.gz"}
+        )
+        
+        # Setup mock dependency
+        dependency = MagicMock()
+        
+        # Create step with dependency but no direct inputs
         step = self.builder.create_step(dependencies=[dependency])
+        
+        # Verify extract_inputs_from_dependencies was called
+        self.builder.extract_inputs_from_dependencies.assert_called_once_with([dependency])
         
         # Verify ProcessingStep was created with correct parameters
         mock_processing_step_cls.assert_called_once()
         call_kwargs = mock_processing_step_cls.call_args.kwargs
         self.assertEqual(call_kwargs['depends_on'], [dependency])
         
-        # Verify inputs were auto-detected
-        self.assertTrue(any(isinstance(i, ProcessingInput) for i in call_kwargs['inputs']))
-        
         # Verify the returned step is our mock
         self.assertEqual(step, mock_step)
+
+    def test_get_script_path_from_config(self):
+        """Test that get_script_path returns path from config."""
+        script_path = self.builder.config.get_script_path()
         
-    @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
-    @patch('src.pipeline_steps.builder_mims_payload_step.ProcessingStep')
-    def test_create_step_missing_model_input(self, mock_processing_step_cls, mock_processor_cls):
-        """Test that create_step raises ValueError when model_input is missing."""
-        # Setup mock processor
-        mock_processor = MagicMock()
-        mock_processor_cls.return_value = mock_processor
+        # Should combine source dir with entry point
+        expected_path = str(Path(self.temp_dir) / "mims_payload.py")
+        self.assertEqual(script_path, expected_path)
+
+    def test_get_script_path_s3_source(self):
+        """Test that get_script_path handles S3 source directory."""
+        # Set S3 source directory
+        self.builder.config.processing_source_dir = "s3://bucket/scripts/"
         
-        # Create step with no model_input and no dependencies
-        with self.assertRaises(ValueError):
-            self.builder.create_step()
-            
-    @patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor')
-    @patch('src.pipeline_steps.builder_mims_payload_step.ProcessingStep')
-    def test_create_step_constructs_s3_key_if_none(self, mock_processing_step_cls, mock_processor_cls):
-        """Test that the step sets sample_payload_s3_key if it's None."""
-        # Skip this test as we can't mock ensure_payload_path on a Pydantic model
-        pass
+        script_path = self.builder.config.get_script_path()
         
-    def test_get_script_path(self):
-        """Test that the script path is determined correctly in create_step."""
-        # Mock os.path.join to return a predictable path
-        with patch('os.path.join', return_value='/path/to/mims_payload.py'):
-            with patch('os.path.dirname', return_value='/path/to'):
-                with patch('os.path.abspath', return_value='/path/to'):
-                    # Mock the processor and step creation
-                    with patch('src.pipeline_steps.builder_mims_payload_step.SKLearnProcessor') as mock_processor_cls:
-                        with patch('src.pipeline_steps.builder_mims_payload_step.ProcessingStep') as mock_step_cls:
-                            # Setup mock processor
-                            mock_processor = MagicMock()
-                            mock_processor_cls.return_value = mock_processor
-                            
-                            # Setup mock step
-                            mock_step = MagicMock()
-                            mock_step_cls.return_value = mock_step
-                            
-                            # Create step
-                            self.builder.create_step(model_input="s3://bucket/model.tar.gz")
-                            
-                            # Verify ProcessingStep was called with the correct script path
-                            call_kwargs = mock_step_cls.call_args.kwargs
-                            self.assertEqual(call_kwargs['code'], '/path/to/mims_payload.py')
-            
-    def test_get_script_path_fallback(self):
-        """Test that _get_script_path falls back to default path."""
-        # Skip this test as we can't mock get_script_path on a Pydantic model
-        pass
+        # Should combine S3 path with entry point
+        expected_path = "s3://bucket/scripts/mims_payload.py"
+        self.assertEqual(script_path, expected_path)
+
+    def test_get_script_contract(self):
+        """Test that get_script_contract returns the MIMS payload contract."""
+        contract = self.builder.config.get_script_contract()
+        
+        # Should return the MIMS payload contract
+        self.assertIsNotNone(contract)
+        self.assertEqual(contract.entry_point, "mims_payload.py")
+        self.assertIn("model_input", contract.expected_input_paths)
+        self.assertIn("payload_sample", contract.expected_output_paths)
 
 if __name__ == '__main__':
     unittest.main()
