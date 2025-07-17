@@ -1,5 +1,76 @@
 import os
 import sys
+
+from subprocess import check_call
+import boto3
+
+
+def _get_secure_pypi_access_tokens() -> str:
+    os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
+    sts = boto3.client("sts", region_name="us-east-1")
+    caller_identity = sts.get_caller_identity()
+    assumed_role_object = sts.assume_role(
+        RoleArn="arn:aws:iam::675292366480:role/SecurePyPIReadRole_" + caller_identity["Account"],
+        RoleSessionName="SecurePypiReadRole",
+    )
+    credentials = assumed_role_object["Credentials"]
+    code_artifact_client = boto3.client(
+        "codeartifact",
+        aws_access_key_id=credentials["AccessKeyId"],
+        aws_secret_access_key=credentials["SecretAccessKey"],
+        aws_session_token=credentials["SessionToken"],
+        region_name="us-west-2",
+    )
+    token = code_artifact_client.get_authorization_token(
+        domain="amazon", domainOwner="149122183214"
+    )["authorizationToken"]
+
+    return token
+
+
+def install_requirements(path: str = "requirements.txt") -> None:
+    token = _get_secure_pypi_access_tokens()
+    check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--index-url",
+            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+            "-r",
+            path,
+        ]
+    )
+
+
+def install_requirements_single(package: str = "numpy") -> None:
+    token = _get_secure_pypi_access_tokens()
+    check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--index-url",
+            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+            package,
+        ]
+    )
+
+
+# Install required packages
+required_packages = [
+    "scikit-learn>=0.23.2,<1.0.0",
+    "pandas>=1.2.0,<2.0.0",
+    "pydantic>=2.0.0,<3.0.0"
+]
+
+for package in required_packages:
+    install_requirements_single(package)
+print("***********************Package Installed*********************")
+
+
 import json
 import argparse
 import pandas as pd
@@ -11,10 +82,11 @@ import xgboost as xgb
 import matplotlib.pyplot as plt
 import logging
 import tarfile
+import time
 
 
 # Setup logging first
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Define constants for paths
@@ -134,6 +206,50 @@ def preprocess_eval_data(df, feature_columns, risk_tables, impute_dict):
     return df
 
 
+def log_metrics_summary(metrics, is_binary=True):
+    """
+    Log a nicely formatted summary of metrics for easy visibility in logs.
+    
+    Args:
+        metrics: Dictionary of metrics to log
+        is_binary: Whether these are binary classification metrics
+    """
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    logger.info("=" * 80)
+    logger.info(f"METRICS SUMMARY - {timestamp}")
+    logger.info("=" * 80)
+    
+    # Log each metric with a consistent format
+    for name, value in metrics.items():
+        # Format numeric values to 4 decimal places
+        if isinstance(value, (int, float)):
+            formatted_value = f"{value:.4f}"
+        else:
+            formatted_value = str(value)
+        
+        # Add a special prefix for easy searching in logs
+        logger.info(f"METRIC: {name.ljust(25)} = {formatted_value}")
+    
+    # Highlight key metrics based on task type
+    logger.info("=" * 80)
+    logger.info("KEY PERFORMANCE METRICS")
+    logger.info("=" * 80)
+    
+    if is_binary:
+        logger.info(f"METRIC_KEY: AUC-ROC               = {metrics.get('auc_roc', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: Average Precision     = {metrics.get('average_precision', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: F1 Score              = {metrics.get('f1_score', 'N/A'):.4f}")
+    else:
+        logger.info(f"METRIC_KEY: Macro AUC-ROC         = {metrics.get('auc_roc_macro', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: Micro AUC-ROC         = {metrics.get('auc_roc_micro', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: Macro Average Precision = {metrics.get('average_precision_macro', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: Macro F1              = {metrics.get('f1_score_macro', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: Micro F1              = {metrics.get('f1_score_micro', 'N/A'):.4f}")
+    
+    # Add a summary section with pass/fail criteria if defined
+    logger.info("=" * 80)
+
+
 def compute_metrics_binary(y_true, y_prob):
     """
     Compute binary classification metrics: AUC-ROC, average precision, and F1 score.
@@ -145,7 +261,21 @@ def compute_metrics_binary(y_true, y_prob):
         "average_precision": average_precision_score(y_true, y_score),
         "f1_score": f1_score(y_true, y_score > 0.5)
     }
-    logger.info(f"Binary metrics: {metrics}")
+    
+    # Add more detailed metrics
+    precision, recall, _ = precision_recall_curve(y_true, y_score)
+    metrics["precision_at_threshold_0.5"] = precision[0]
+    metrics["recall_at_threshold_0.5"] = recall[0]
+    
+    # Thresholds at different operating points
+    for threshold in [0.3, 0.5, 0.7]:
+        y_pred = (y_score >= threshold).astype(int)
+        metrics[f"f1_score_at_{threshold}"] = f1_score(y_true, y_pred)
+    
+    # Log basic summary and detailed formatted metrics
+    logger.info(f"Binary metrics computed: AUC={metrics['auc_roc']:.4f}, AP={metrics['average_precision']:.4f}, F1={metrics['f1_score']:.4f}")
+    log_metrics_summary(metrics, is_binary=True)
+    
     return metrics
 
 
@@ -156,21 +286,37 @@ def compute_metrics_multiclass(y_true, y_prob, n_classes):
     """
     logger.info("Computing multiclass metrics")
     metrics = {}
+    
+    # Per-class metrics
     for i in range(n_classes):
         y_true_bin = (y_true == i).astype(int)
         y_score = y_prob[:, i]
         metrics[f"auc_roc_class_{i}"] = roc_auc_score(y_true_bin, y_score)
         metrics[f"average_precision_class_{i}"] = average_precision_score(y_true_bin, y_score)
         metrics[f"f1_score_class_{i}"] = f1_score(y_true_bin, y_score > 0.5)
+    
+    # Micro and macro averages
     metrics["auc_roc_micro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="micro")
     metrics["auc_roc_macro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="macro")
     metrics["average_precision_micro"] = average_precision_score(y_true, y_prob, average="micro")
     metrics["average_precision_macro"] = average_precision_score(y_true, y_prob, average="macro")
+    
     y_pred = np.argmax(y_prob, axis=1)
     metrics["f1_score_micro"] = f1_score(y_true, y_pred, average="micro")
     metrics["f1_score_macro"] = f1_score(y_true, y_pred, average="macro")
-    logger.info(f"Multiclass metrics: {metrics}")
+    
+    # Class distribution metrics
+    unique, counts = np.unique(y_true, return_counts=True)
+    for cls, count in zip(unique, counts):
+        metrics[f"class_{cls}_count"] = int(count)
+        metrics[f"class_{cls}_ratio"] = float(count) / len(y_true)
+    
+    # Log basic summary and detailed formatted metrics
+    logger.info(f"Multiclass metrics computed: Macro AUC={metrics['auc_roc_macro']:.4f}, Micro AUC={metrics['auc_roc_micro']:.4f}")
+    log_metrics_summary(metrics, is_binary=False)
+    
     return metrics
+
 
 def load_eval_data(eval_data_dir):
     """
@@ -225,6 +371,35 @@ def save_metrics(metrics, output_metrics_dir):
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
     logger.info(f"Saved metrics to {out_path}")
+    
+    # Also create a plain text summary for easy viewing
+    summary_path = os.path.join(output_metrics_dir, "metrics_summary.txt")
+    with open(summary_path, "w") as f:
+        f.write("METRICS SUMMARY\n")
+        f.write("=" * 50 + "\n")
+        
+        # Write key metrics at the top
+        if "auc_roc" in metrics:  # Binary classification
+            f.write(f"AUC-ROC:           {metrics['auc_roc']:.4f}\n")
+            f.write(f"Average Precision: {metrics['average_precision']:.4f}\n")
+            f.write(f"F1 Score:          {metrics['f1_score']:.4f}\n")
+        else:  # Multiclass classification
+            f.write(f"AUC-ROC (Macro):   {metrics.get('auc_roc_macro', 'N/A'):.4f}\n")
+            f.write(f"AUC-ROC (Micro):   {metrics.get('auc_roc_micro', 'N/A'):.4f}\n")
+            f.write(f"F1 Score (Macro):  {metrics.get('f1_score_macro', 'N/A'):.4f}\n")
+        
+        f.write("=" * 50 + "\n\n")
+        
+        # Write all metrics
+        f.write("ALL METRICS\n")
+        f.write("=" * 50 + "\n")
+        for name, value in sorted(metrics.items()):
+            if isinstance(value, (int, float)):
+                f.write(f"{name}: {value:.6f}\n")
+            else:
+                f.write(f"{name}: {value}\n")
+    
+    logger.info(f"Saved metrics summary to {summary_path}")
 
 
 def plot_and_save_roc_curve(y_true, y_score, output_dir, prefix=""):
