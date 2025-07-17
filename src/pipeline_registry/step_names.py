@@ -28,6 +28,12 @@ STEP_NAMES = {
         "spec_type": "TabularPreprocessing",
         "description": "Tabular data preprocessing step"
     },
+    "RiskTableMapping": {
+        "config_class": "RiskTableMappingConfig",
+        "builder_step_name": "RiskTableMappingStepBuilder",
+        "spec_type": "RiskTableMapping",
+        "description": "Risk table mapping step for categorical features"
+    },
     "CurrencyConversion": {
         "config_class": "CurrencyConversionConfig",
         "builder_step_name": "CurrencyConversionStep",

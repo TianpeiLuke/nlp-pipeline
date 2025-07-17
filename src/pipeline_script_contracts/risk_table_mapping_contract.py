@@ -11,10 +11,15 @@ RISK_TABLE_MAPPING_CONTRACT = ScriptContract(
     entry_point="risk_table_mapping.py",
     expected_input_paths={
         "data_input": "/opt/ml/processing/input/data",
-        "config_input": "/opt/ml/processing/input/config"
+        "hyperparameters_s3_uri": "/opt/ml/processing/input/config",
+        "risk_tables": "/opt/ml/processing/input/risk_tables"  # Optional for non-training modes
     },
     expected_output_paths={
-        "processed_data": "/opt/ml/processing/output"
+        "processed_data": "/opt/ml/processing/output",
+        "risk_tables": "/opt/ml/processing/output"  # Shared path with processed_data
+    },
+    expected_arguments={
+        # No expected arguments - job_type comes from config
     },
     required_env_vars=[
         # No strictly required environment variables - script has defaults
@@ -37,12 +42,16 @@ RISK_TABLE_MAPPING_CONTRACT = ScriptContract(
     5. Saves fitted artifacts for reuse in inference
     
     Input Structure:
-    - /opt/ml/processing/input/data: Data files
-      - Training mode: data.csv (single unsplit dataset)
-      - Inference mode: train/, validation/, test/ subdirectories with processed data
+    - /opt/ml/processing/input/data: Data files from tabular preprocessing
+      - Training mode: train/, test/, val/ subdirectories with processed data
+      - Other modes: job_type/ subdirectory with processed data
     - /opt/ml/processing/input/config: Configuration files
       - config.json: Model configuration including category risk parameters
       - metadata.csv: Variable metadata with types and imputation strategies
+      - job_type: Configuration parameter specifying job type (training, validation, testing, calibration)
+    - /opt/ml/processing/input/risk_tables: Pre-trained risk tables (for non-training modes)
+      - bin_mapping.pkl: Risk table mappings for categorical features
+      - missing_value_imputation.pkl: Imputation values for numeric features
     
     Output Structure:
     - /opt/ml/processing/output/{split}/{split}_processed_data.csv: Transformed data by split
@@ -51,18 +60,21 @@ RISK_TABLE_MAPPING_CONTRACT = ScriptContract(
     - /opt/ml/processing/output/config.pkl: Serialized configuration with metadata
     
     Environment Variables:
-    - TRAIN_RATIO: Training data ratio for splitting (default: 0.7)
+    - TRAIN_RATIO: Training data ratio (default: 0.7)
     - TEST_VAL_RATIO: Test/validation split ratio (default: 0.5)
     
-    Command Line Arguments:
-    - --job_type: Type of job (training, validation, testing)
+    Job Types (from config):
+    - training: Fits risk tables on training data, transforms all splits
+    - validation/testing/calibration: Uses pre-trained risk tables, transforms single split
     
     Training Mode:
-    - Fits risk tables and imputers on entire dataset
-    - Transforms data and splits into train/test/val
+    - Fits risk tables on training data
+    - Transforms train/test/val splits
+    - Saves risk tables and imputation models
     
-    Inference Mode:
-    - Fits on training data only
-    - Transforms all splits using fitted artifacts
+    Non-Training Modes:
+    - Loads pre-trained risk tables and imputation models
+    - Transforms data using loaded artifacts
+    - Maintains the same output structure as training mode
     """
 )

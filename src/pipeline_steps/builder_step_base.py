@@ -363,6 +363,36 @@ class StepBuilderBase(ABC):
             expire_after="P30D"
         )
 
+    def _get_job_arguments(self) -> Optional[List[str]]:
+        """
+        Constructs command-line arguments for the script based on script contract.
+        If no arguments are defined in the contract, returns None (not an empty list).
+        
+        Returns:
+            List of string arguments to pass to the script, or None if no arguments
+        """
+        if not hasattr(self, 'contract') or not self.contract:
+            self.log_warning("No contract available for argument generation")
+            return None
+            
+        # If contract has no expected arguments, return None
+        if not hasattr(self.contract, 'expected_arguments') or not self.contract.expected_arguments:
+            return None
+            
+        args = []
+        
+        # Add each expected argument with its value
+        for arg_name, arg_value in self.contract.expected_arguments.items():
+            args.extend([f"--{arg_name}", arg_value])
+        
+        # If we have arguments to return
+        if args:
+            self.log_info("Generated job arguments from contract: %s", args)
+            return args
+        
+        # If we end up with an empty list, return None instead
+        return None
+
     @abstractmethod
     def validate_configuration(self) -> None:
         """

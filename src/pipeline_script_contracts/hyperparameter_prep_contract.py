@@ -13,6 +13,9 @@ HYPERPARAMETER_PREP_CONTRACT = ScriptContract(
     expected_output_paths={
         "hyperparameters_s3_uri": "/opt/ml/processing/output/hyperparameters"  # Virtual output path
     },
+    expected_arguments={
+        # No expected arguments - this is a Lambda function without command-line arguments
+    },
     required_env_vars=[],  # No required environment variables
     optional_env_vars={},
     framework_requirements={},  # No framework requirements for Lambda

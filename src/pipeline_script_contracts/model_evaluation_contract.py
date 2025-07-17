@@ -17,6 +17,9 @@ MODEL_EVALUATION_CONTRACT = ScriptContract(
         "eval_output": "/opt/ml/processing/output/eval",
         "metrics_output": "/opt/ml/processing/output/metrics"
     },
+    expected_arguments={
+        # No expected arguments - job_type comes from config
+    },
     required_env_vars=[
         "ID_FIELD",
         "LABEL_FIELD"
@@ -55,6 +58,9 @@ MODEL_EVALUATION_CONTRACT = ScriptContract(
     Environment Variables:
     - ID_FIELD: Name of the ID column in evaluation data
     - LABEL_FIELD: Name of the label column in evaluation data
+    
+    Arguments:
+    - job_type: Type of evaluation job to perform (e.g., "evaluation", "validation")
     
     Supports both binary and multiclass classification with appropriate metrics for each.
     """

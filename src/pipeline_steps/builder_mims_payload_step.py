@@ -151,7 +151,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         # Add optional configurations
         for key, env_key in [
             ('default_numeric_value', 'DEFAULT_NUMERIC_VALUE'),
-            ('default_text_value', 'DEFAULT_TEXT_VALUE'),
+            ('default_string_value', 'DEFAULT_STRING_VALUE'),
             ('sample_payload_s3_key', 'PAYLOAD_S3_KEY'),
             ('bucket', 'BUCKET_NAME')
         ]:
@@ -269,20 +269,22 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             
         return processing_outputs
 
-    def _get_job_arguments(self) -> List[str]:
+    def _get_job_arguments(self) -> Optional[List[str]]:
         """
-        Constructs the list of command-line arguments to be passed to the processing script.
-
+        Returns None as job arguments since the payload script now uses
+        standard paths defined directly in the script.
+        
         Returns:
-            A list of strings representing the command-line arguments.
+            None since no arguments are needed (unless overridden by config)
         """
         # If there are custom script arguments in the config, use those
         if hasattr(self.config, 'processing_script_arguments') and self.config.processing_script_arguments:
+            self.log_info("Using custom script arguments from config: %s", self.config.processing_script_arguments)
             return self.config.processing_script_arguments
             
-        # Return a standard argument to ensure we don't return an empty list
-        self.log_info("Using default arguments for payload generation")
-        return ["--mode", "standard"]
+        # Otherwise, no arguments are needed
+        self.log_info("No command-line arguments needed for payload script")
+        return None
         
     def create_step(self, **kwargs) -> ProcessingStep:
         """

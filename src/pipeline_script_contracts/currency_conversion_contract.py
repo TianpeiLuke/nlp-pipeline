@@ -15,6 +15,16 @@ CURRENCY_CONVERSION_CONTRACT = ScriptContract(
     expected_output_paths={
         "converted_data": "/opt/ml/processing/output"
     },
+    expected_arguments={
+        "job-type": "training",  # Type of job (training, validation, testing, calibration)
+        "mode": "per_split",     # Conversion mode (per_split or split_after_conversion)
+        "marketplace-id-col": "marketplace_id",  # Column containing marketplace IDs
+        "currency-col": "",      # Optional existing currency column
+        "default-currency": "USD",  # Default currency code
+        "skip-invalid-currencies": "false",  # Skip rows with invalid currencies
+        "enable-conversion": "true",  # Enable/disable conversion
+        "n-workers": "50"        # Number of parallel workers
+    },
     required_env_vars=[
         "CURRENCY_CONVERSION_VARS",
         "CURRENCY_CONVERSION_DICT", 

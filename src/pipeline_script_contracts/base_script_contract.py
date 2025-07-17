@@ -51,13 +51,15 @@ class ValidationResult(BaseModel):
 
 class ScriptContract(BaseModel):
     """
-    Script execution contract that defines explicit I/O and environment requirements
+    Script execution contract that defines explicit I/O, environment requirements, and CLI arguments
     """
     entry_point: str = Field(..., description="Script entry point filename")
     expected_input_paths: Dict[str, str] = Field(..., description="Mapping of logical names to expected input paths")
     expected_output_paths: Dict[str, str] = Field(..., description="Mapping of logical names to expected output paths")
     required_env_vars: List[str] = Field(..., description="List of required environment variables")
     optional_env_vars: Dict[str, str] = Field(default_factory=dict, description="Optional environment variables with defaults")
+    expected_arguments: Dict[str, str] = Field(default_factory=dict, 
+                                              description="Mapping of argument names to container paths or values")
     framework_requirements: Dict[str, str] = Field(default_factory=dict, description="Framework version requirements")
     description: str = Field(default="", description="Human-readable description of the script")
     
@@ -88,6 +90,17 @@ class ScriptContract(BaseModel):
         for logical_name, path in v.items():
             if not path.startswith('/opt/ml/processing/output'):
                 raise ValueError(f'Output path for {logical_name} must start with /opt/ml/processing/output, got: {path}')
+        return v
+    
+    @field_validator('expected_arguments')
+    @classmethod
+    def validate_arguments(cls, v: Dict[str, str]) -> Dict[str, str]:
+        """Validate argument names follow CLI conventions (kebab-case)"""
+        for arg_name in v.keys():
+            if not all(c.isalnum() or c == '-' for c in arg_name):
+                raise ValueError(f'Argument name contains invalid characters: {arg_name}')
+            if not arg_name.lower() == arg_name:
+                raise ValueError(f'Argument name should be lowercase: {arg_name}')
         return v
     
     def validate_implementation(self, script_path: str) -> ValidationResult:
@@ -139,6 +152,12 @@ class ScriptContract(BaseModel):
         if missing_env_vars:
             errors.append(f"Script missing required environment variables: {list(missing_env_vars)}")
         
+        # Validate arguments
+        script_args = analyzer.get_argument_usage()
+        for arg_name in self.expected_arguments.keys():
+            if arg_name not in script_args:
+                warnings.append(f"Script doesn't seem to handle expected argument: --{arg_name}")
+        
         return ValidationResult(
             is_valid=len(errors) == 0,
             errors=errors,
@@ -157,6 +176,7 @@ class ScriptAnalyzer:
         self._input_paths = None
         self._output_paths = None
         self._env_vars = None
+        self._arguments = None
     
     @property
     def ast_tree(self):
@@ -257,3 +277,27 @@ class ScriptAnalyzer:
                         self._env_vars.add(node.args[0].value)
         
         return self._env_vars
+    
+    def get_argument_usage(self) -> Set[str]:
+        """Extract command-line arguments used by the script"""
+        if self._arguments is None:
+            self._arguments = set()
+            
+            # Look for argparse patterns
+            for node in ast.walk(self.ast_tree):
+                # Look for parser.add_argument calls
+                if (isinstance(node, ast.Call) and 
+                    isinstance(node.func, ast.Attribute) and
+                    node.func.attr == 'add_argument'):
+                    
+                    # Check first argument for the argument name
+                    if node.args and (isinstance(node.args[0], ast.Str) or 
+                                     (isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str))):
+                        arg_name = node.args[0].s if isinstance(node.args[0], ast.Str) else node.args[0].value
+                        # Strip leading dashes
+                        if arg_name.startswith('--'):
+                            self._arguments.add(arg_name[2:])
+                        elif arg_name.startswith('-'):
+                            self._arguments.add(arg_name[1:])
+        
+        return self._arguments

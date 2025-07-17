@@ -258,14 +258,21 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
     def _get_job_arguments(self) -> List[str]:
         """
         Constructs the list of command-line arguments to be passed to the processing script.
-        Passes the job_type from the configuration to the script, which requires this argument.
-
+        
+        This implementation uses job_type from the configuration, which is required by the script
+        but not included in the contract's expected_arguments. This approach allows different
+        evaluation jobs to use different job_type values based on their configuration.
+        
         Returns:
             A list of strings representing the command-line arguments.
         """
-        # Pass the job_type from the configuration to satisfy the script requirement
+        # Get job_type from configuration
         job_type = self.config.job_type
         self.log_info("Setting job_type argument to: %s", job_type)
+        
+        # For model evaluation, we always return just the job_type argument
+        # This is because model_evaluation_contract has empty expected_arguments
+        # and job_type is provided by configuration instead
         return ["--job_type", job_type]
         
     def create_step(self, **kwargs) -> ProcessingStep:

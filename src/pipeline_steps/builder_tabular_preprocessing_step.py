@@ -271,12 +271,23 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
 
     def _get_job_arguments(self) -> List[str]:
         """
-        Get command-line arguments for the script.
+        Constructs the list of command-line arguments to be passed to the processing script.
+        
+        This implementation uses job_type from the configuration, which is required by the script
+        and also included in the contract's expected_arguments (though we prioritize config).
+        This approach allows different preprocessing jobs to use different job_type values 
+        based on their configuration.
         
         Returns:
-            List[str]: Command-line arguments
+            A list of strings representing the command-line arguments.
         """
-        return ["--job_type", self.config.job_type]
+        # Get job_type from configuration (takes precedence over contract)
+        job_type = self.config.job_type
+        self.log_info("Setting job_type argument to: %s", job_type)
+        
+        # For tabular preprocessing, we always return the job_type from config
+        # The contract has a default job_type, but config value takes precedence
+        return ["--job_type", job_type]
 
     def create_step(self, **kwargs) -> ProcessingStep:
         """

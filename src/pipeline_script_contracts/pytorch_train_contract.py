@@ -19,6 +19,9 @@ PYTORCH_TRAIN_CONTRACT = TrainingScriptContract(
         "data_output": "/opt/ml/output/data",
         "checkpoints": "/opt/ml/checkpoints"
     },
+    expected_arguments={
+        # No expected arguments - using standard paths from contract
+    },
     required_env_vars=[
         # No strictly required environment variables - script uses hyperparameters.json
     ],

@@ -17,6 +17,9 @@ CRADLE_DATA_LOADING_CONTRACT = ScriptContract(
         "METADATA": "/opt/ml/processing/output/metadata", 
         "DATA": "/opt/ml/processing/output/place_holder"  # Placeholder since actual data goes to S3
     },
+    expected_arguments={
+        # No expected arguments - using standard paths from contract
+    },
     required_env_vars=[
         # No strictly required environment variables
     ],

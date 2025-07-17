@@ -2,12 +2,15 @@
 MIMS DummyTraining Step Builder.
 
 This module defines the builder that creates SageMaker processing steps
-for the DummyTraining component, which copies a pretrained model to
-make it available for downstream packaging and registration steps.
+for the DummyTraining component, which processes a pretrained model with
+hyperparameters to make it available for downstream packaging and payload steps.
 """
 
 import logging
 import os
+import json
+import tempfile
+import shutil
 from pathlib import Path
 from typing import Dict, Optional, Any, List
 
@@ -15,9 +18,11 @@ from sagemaker.processing import ProcessorBase, ScriptProcessor, ProcessingInput
 from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.functions import Join
 from sagemaker.s3 import S3Uploader
+from botocore.exceptions import ClientError
 
 from .config_dummy_training import DummyTrainingConfig
 from .builder_step_base import StepBuilderBase
+from .s3_utils import S3PathHandler
 from ..pipeline_step_specs.dummy_training_spec import DUMMY_TRAINING_SPEC
 
 logger = logging.getLogger(__name__)
@@ -85,11 +90,16 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             if not model_path.suffix == '.tar.gz' and not str(model_path).endswith('.tar.gz'):
                 self.log_warning(f"Model file {model_path} does not have .tar.gz extension")
         
+        # Check for hyperparameters
+        if not hasattr(self.config, 'hyperparameters') or not self.config.hyperparameters:
+            raise ValueError("Model hyperparameters are required in DummyTrainingConfig")
+        
         self.log_info("DummyTrainingConfig validation succeeded.")
     
     def _normalize_s3_uri(self, uri: str, description: str = "S3 URI") -> str:
         """
         Normalizes an S3 URI to ensure it has no trailing slashes and is properly formatted.
+        Uses S3PathHandler for consistent path handling.
         
         Args:
             uri: The S3 URI to normalize
@@ -112,18 +122,12 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             self.log_warning("Invalid %s URI type: %s", description, type(uri).__name__)
             return str(uri)
             
-        if not uri.startswith('s3://'):
-            self.log_warning("URI does not start with s3://: %s", uri)
-        
-        # Remove trailing slashes
-        while uri.endswith('/'):
-            uri = uri[:-1]
-        
-        return uri
+        return S3PathHandler.normalize(uri, description)
     
     def _validate_s3_uri(self, uri: str, description: str = "S3 URI") -> bool:
         """
         Validates that a string is a properly formatted S3 URI.
+        Uses S3PathHandler for consistent path validation.
         
         Args:
             uri: The URI to validate
@@ -142,19 +146,12 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             self.log_info(f"Validating Pipeline reference URI: {uri}")
             return True
         
-        if not isinstance(uri, str):
-            self.log_warning("Invalid %s URI: type %s", description, type(uri).__name__)
-            return False
-        
-        if not uri.startswith('s3://'):
-            self.log_warning("Invalid %s URI: does not start with s3://", description)
-            return False
-        
-        return True
+        return S3PathHandler.is_valid(uri)
     
     def _get_s3_directory_path(self, uri: str, filename: str = None) -> str:
         """
         Gets the directory part of an S3 URI, handling special cases correctly.
+        Uses S3PathHandler for consistent path handling.
         
         Args:
             uri: The S3 URI which may or may not contain a filename
@@ -172,15 +169,8 @@ class DummyTrainingStepBuilder(StepBuilderBase):
         if isinstance(uri, dict) and 'Get' in uri:
             self.log_info(f"Cannot extract directory from Pipeline reference URI: {uri}")
             return uri
-        
-        # Remove trailing slashes
-        uri = self._normalize_s3_uri(uri)
-        
-        # If a filename is provided and the URI ends with it, remove it
-        if filename and uri.endswith(f"/{filename}"):
-            uri = uri[:-len(filename)-1]
-        
-        return uri
+            
+        return S3PathHandler.ensure_directory(uri, filename)
     
     def _upload_model_to_s3(self) -> str:
         """
@@ -213,6 +203,78 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             import traceback
             self.log_error(traceback.format_exc())
             raise
+    
+    def _prepare_hyperparameters_file(self) -> str:
+        """
+        Serializes the hyperparameters to JSON, uploads it to S3, and
+        returns that full S3 URI.
+        
+        Returns:
+            S3 URI where the hyperparameters were uploaded
+            
+        Raises:
+            Exception: If hyperparameters serialization or upload fails
+        """
+        hyperparams_dict = self.config.hyperparameters.model_dump()
+        local_dir = Path(tempfile.mkdtemp())
+        local_file = local_dir / "hyperparameters.json"
+        
+        try:
+            # Write JSON locally
+            with open(local_file, "w") as f:
+                json.dump(hyperparams_dict, indent=2, fp=f)
+            self.log_info("Created hyperparameters JSON file at %s", local_file)
+
+            # Construct S3 URI for the config directory
+            prefix = self.config.hyperparameters_s3_uri if hasattr(self.config, 'hyperparameters_s3_uri') else None
+            if not prefix:
+                # Fallback path construction
+                bucket = self.config.bucket if hasattr(self.config, 'bucket') else "sandboxdependency-abuse-secureaisandboxteamshare-1l77v9am252um"
+                pipeline_name = self.config.pipeline_name if hasattr(self.config, 'pipeline_name') else "dummy-training"
+                current_date = getattr(self.config, 'current_date', "2025-06-02")
+                prefix = f"s3://{bucket}/{pipeline_name}/training_config/{current_date}" # No trailing slash
+            
+            # Use our helper methods for consistent path handling
+            config_dir = self._normalize_s3_uri(prefix, "hyperparameters prefix")
+            self.log_info("Normalized hyperparameters prefix: %s", config_dir)
+            
+            # Check if hyperparameters.json is already in the path
+            if S3PathHandler.get_name(config_dir) == "hyperparameters.json":
+                # Use path as is if it already includes the filename
+                target_s3_uri = config_dir
+                self.log_info("Using existing hyperparameters path: %s", target_s3_uri)
+            else:
+                # Otherwise append the filename using S3PathHandler.join for proper path handling
+                target_s3_uri = S3PathHandler.join(config_dir, "hyperparameters.json")
+                self.log_info("Constructed hyperparameters path: %s", target_s3_uri)
+                
+            self.log_info("Using hyperparameters S3 target URI: %s", target_s3_uri)
+
+            # Check if file exists and handle appropriately
+            s3_parts = target_s3_uri.replace('s3://', '').split('/', 1)
+            bucket = s3_parts[0]
+            key = s3_parts[1]
+            
+            s3_client = self.session.boto_session.client('s3')
+            try:
+                s3_client.head_object(Bucket=bucket, Key=key)
+                self.log_info("Found existing hyperparameters file at %s", target_s3_uri)
+            except ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    self.log_info("No existing hyperparameters file found at %s", target_s3_uri)
+                else:
+                    self.log_warning("Error checking existing file: %s", str(e))
+
+            # Upload the file
+            self.log_info("Uploading hyperparameters from %s to %s", local_file, target_s3_uri)
+            S3Uploader.upload(str(local_file), target_s3_uri, sagemaker_session=self.session)
+            
+            self.log_info("Hyperparameters successfully uploaded to %s", target_s3_uri)
+            return target_s3_uri
+        
+        finally:
+            # Clean up temporary files
+            shutil.rmtree(local_dir)
     
     def _get_processor(self):
         """
@@ -266,16 +328,41 @@ class DummyTrainingStepBuilder(StepBuilderBase):
         if hasattr(model_s3_uri, 'expr'):
             self.log_info(f"Processing PipelineVariable for model_s3_uri: {model_s3_uri.expr}")
         
-        # Get container path from contract
-        container_path = self.contract.expected_input_paths.get("pretrained_model_path",
-                          "/opt/ml/processing/input/model/model.tar.gz")
+        # Get container path from contract for model
+        model_container_path = self.contract.expected_input_paths.get("pretrained_model_path")
+        if not model_container_path:
+            raise ValueError("Script contract missing required input path: pretrained_model_path")
         
         # Add model input
         processing_inputs.append(
             ProcessingInput(
                 source=model_s3_uri,
-                destination=container_path,
+                destination=os.path.dirname(model_container_path),
                 input_name="model"
+            )
+        )
+        
+        # Handle hyperparameters - either use the provided one or generate a new one
+        hyperparams_s3_uri = inputs.get("hyperparameters_s3_uri")
+        if not hyperparams_s3_uri:
+            # Generate hyperparameters JSON and upload to S3
+            hyperparams_s3_uri = self._prepare_hyperparameters_file()
+        
+        # Handle PipelineVariable objects
+        if hasattr(hyperparams_s3_uri, 'expr'):
+            self.log_info(f"Processing PipelineVariable for hyperparams_s3_uri: {hyperparams_s3_uri.expr}")
+        
+        # Get container path from contract for hyperparameters
+        hyperparams_container_path = self.contract.expected_input_paths.get("hyperparameters_s3_uri")
+        if not hyperparams_container_path:
+            raise ValueError("Script contract missing required input path: hyperparameters_s3_uri")
+        
+        # Add hyperparameters input
+        processing_inputs.append(
+            ProcessingInput(
+                source=hyperparams_s3_uri,
+                destination=os.path.dirname(hyperparams_container_path),
+                input_name="config"
             )
         )
         
@@ -309,8 +396,9 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             self.log_info(f"Processing PipelineVariable for output_path: {output_path.expr}")
         
         # Get source path from contract
-        source_path = self.contract.expected_output_paths.get("model_input",
-                       "/opt/ml/processing/output/model")
+        source_path = self.contract.expected_output_paths.get("model_input")
+        if not source_path:
+            raise ValueError("Script contract missing required output path: model_input")
         
         return [
             ProcessingOutput(
@@ -320,6 +408,17 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             )
         ]
     
+    def _get_job_arguments(self) -> Optional[List[str]]:
+        """
+        Returns None as job arguments since the dummy training script now uses
+        standard paths defined directly in the script.
+        
+        Returns:
+            None since no arguments are needed
+        """
+        self.log_info("No command-line arguments needed for dummy training script")
+        return None
+
     def create_step(self, **kwargs) -> ProcessingStep:
         """
         Create the processing step.
@@ -340,23 +439,28 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             dependencies = kwargs.get('dependencies', [])
             inputs = {}
             if dependencies:
-                inputs = self.extract_inputs_from_dependencies(dependencies)
+                try:
+                    extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+                    inputs.update(extracted_inputs)
+                except Exception as e:
+                    self.log_warning("Failed to extract inputs from dependencies: %s", e)
+            
+            # Add any explicitly provided inputs (overriding extracted ones)
+            inputs_raw = kwargs.get('inputs', {})
+            inputs.update(inputs_raw)
             
             # Create processor
             processor = self._get_processor()
             
             # Get processor inputs and outputs
             processing_inputs = self._get_inputs(inputs)
-            processing_outputs = self._get_outputs({})
+            processing_outputs = self._get_outputs(kwargs.get('outputs', {}))
             
             # Create the step
             step_name = kwargs.get('step_name', 'DummyTraining')
             
-            # Generate script arguments
-            script_args = [
-                "--pretrained-model-path", "/opt/ml/processing/input/model/model.tar.gz",
-                "--output-dir", "/opt/ml/processing/output/model"
-            ]
+            # Get job arguments from contract
+            script_args = self._get_job_arguments()
             
             # Get cache configuration
             cache_config = self._get_cache_config(kwargs.get('enable_caching', True))

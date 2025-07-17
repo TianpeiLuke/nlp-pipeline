@@ -2,15 +2,18 @@
 Configuration for DummyTraining.
 
 This module defines the configuration class for the DummyTraining step,
-which is responsible for taking a pretrained model.tar.gz file and making
+which is responsible for taking a pretrained model.tar.gz file and
+hyperparameters.json, adding the hyperparameters to the model, and making
 it available for downstream packaging and registration steps.
 """
 
 from pydantic import Field, model_validator
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Dict, Any
 from pathlib import Path
 
 from .config_processing_step_base import ProcessingStepConfigBase
+from .hyperparameters_base import BaseHyperparameters
+from .hyperparameters_xgboost import XGBoostHyperparameters
 
 # Import the script contract
 from ..pipeline_script_contracts.dummy_training_contract import DUMMY_TRAINING_CONTRACT
@@ -24,9 +27,9 @@ class DummyTrainingConfig(ProcessingStepConfigBase):
     """
     Configuration for DummyTraining step.
     
-    This step takes a pretrained model.tar.gz file and makes it available 
-    for downstream packaging and registration steps, bypassing the actual 
-    training process.
+    This step takes a pretrained model.tar.gz file, adds hyperparameters.json
+    to it, and makes it available for downstream packaging and registration steps,
+    bypassing the actual training process.
     """
     
     # Override with specific default for this step
@@ -39,6 +42,18 @@ class DummyTrainingConfig(ProcessingStepConfigBase):
     pretrained_model_path: str = Field(
         default="",
         description="Local path to pretrained model.tar.gz file."
+    )
+    
+    # Add hyperparameters similar to XGBoost training config
+    hyperparameters: BaseHyperparameters = Field(
+        default_factory=XGBoostHyperparameters,
+        description="Model hyperparameters to be included in the model package."
+    )
+    
+    # Add hyperparameters_s3_uri for specifying the S3 location
+    hyperparameters_s3_uri: Optional[str] = Field(
+        default=None,
+        description="S3 URI where hyperparameters.json will be saved."
     )
 
     class Config(ProcessingStepConfigBase.Config):
@@ -74,6 +89,12 @@ class DummyTrainingConfig(ProcessingStepConfigBase):
             if not model_path.suffix == '.tar.gz' and not str(model_path).endswith('.tar.gz'):
                 self._logger.warning(f"Model file {model_path} does not have .tar.gz extension")
 
+        # Validate hyperparameters
+        if not self.hyperparameters:
+            raise ValueError("Model hyperparameters are required in DummyTrainingConfig")
+            
+        # If hyperparameters_s3_uri is not provided, it will be generated in the builder
+
         # Validate script contract - this will be the source of truth
         contract = self.get_script_contract()
         if not contract:
@@ -82,6 +103,9 @@ class DummyTrainingConfig(ProcessingStepConfigBase):
         if "pretrained_model_path" not in contract.expected_input_paths:
             raise ValueError("Script contract missing required input path: pretrained_model_path")
         
+        if "hyperparameters_s3_uri" not in contract.expected_input_paths:
+            raise ValueError("Script contract missing required input path: hyperparameters_s3_uri")
+            
         if "model_input" not in contract.expected_output_paths:
             raise ValueError("Script contract missing required output path: model_input")
             

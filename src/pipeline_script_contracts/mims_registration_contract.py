@@ -16,6 +16,9 @@ MIMS_REGISTRATION_CONTRACT = ScriptContract(
     expected_output_paths={
         # No output paths as this is a registration step with side effects only
     },
+    expected_arguments={
+        # No expected arguments - using standard paths from contract
+    },
     required_env_vars=[
         # Environment variables required for registration
         "MODS_WORKFLOW_EXECUTION_ID"

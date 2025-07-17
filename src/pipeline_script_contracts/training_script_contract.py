@@ -19,6 +19,7 @@ class TrainingScriptContract(BaseModel):
     entry_point: str = Field(..., description="Script entry point filename")
     expected_input_paths: Dict[str, str] = Field(..., description="Mapping of logical names to expected input paths")
     expected_output_paths: Dict[str, str] = Field(..., description="Mapping of logical names to expected output paths")
+    expected_arguments: Dict[str, str] = Field(default_factory=dict, description="Expected script arguments with default values")
     required_env_vars: List[str] = Field(..., description="List of required environment variables")
     optional_env_vars: Dict[str, str] = Field(default_factory=dict, description="Optional environment variables with defaults")
     framework_requirements: Dict[str, str] = Field(default_factory=dict, description="Framework version requirements")

@@ -17,6 +17,9 @@ XGBOOST_TRAIN_CONTRACT = TrainingScriptContract(
         "model_output": "/opt/ml/model",
         "evaluation_output": "/opt/ml/output/data"
     },
+    expected_arguments={
+        # No expected arguments - using standard paths from contract
+    },
     required_env_vars=[
         # No strictly required environment variables - script uses hyperparameters.json
     ],

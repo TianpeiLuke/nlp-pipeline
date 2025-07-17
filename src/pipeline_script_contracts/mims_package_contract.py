@@ -16,6 +16,9 @@ MIMS_PACKAGE_CONTRACT = ScriptContract(
     expected_output_paths={
         "packaged_model": "/opt/ml/processing/output"
     },
+    expected_arguments={
+        # No expected arguments - using standard paths from contract
+    },
     required_env_vars=[
         # No required environment variables for this script
     ],

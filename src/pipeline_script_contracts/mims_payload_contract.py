@@ -15,6 +15,9 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
     expected_output_paths={
         "payload_sample": "/opt/ml/processing/output"
     },
+    expected_arguments={
+        # No expected arguments - using standard paths from contract
+    },
     required_env_vars=[
         # No strictly required environment variables - script has defaults
     ],
@@ -47,5 +50,8 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
     - DEFAULT_NUMERIC_VALUE: Default value for numeric fields (default: "0.0")
     - DEFAULT_TEXT_VALUE: Default value for text fields (default: "DEFAULT_TEXT")
     - SPECIAL_FIELD_<fieldname>: Custom values for specific fields
+    
+    Arguments:
+    - mode: Operating mode for the script (default: "standard")
     """
 )

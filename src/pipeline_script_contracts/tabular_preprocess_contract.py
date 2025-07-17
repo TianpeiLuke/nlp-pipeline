@@ -15,6 +15,9 @@ TABULAR_PREPROCESS_CONTRACT = ScriptContract(
     expected_output_paths={
         "processed_data": "/opt/ml/processing/output"
     },
+    expected_arguments={
+        # No expected arguments - job_type comes from config
+    },
     required_env_vars=[
         "LABEL_FIELD",
         "TRAIN_RATIO", 
@@ -41,6 +44,7 @@ TABULAR_PREPROCESS_CONTRACT = ScriptContract(
     Contract aligned with actual script implementation:
     - Inputs: DATA (required) - reads from /opt/ml/processing/input/data
     - Outputs: processed_data (primary) - writes to /opt/ml/processing/output
+    - Arguments: job_type (required) - defines processing mode (training/validation/testing)
     
     Script Implementation Details:
     - Reads data shards (CSV, JSON, Parquet) from input/data directory
