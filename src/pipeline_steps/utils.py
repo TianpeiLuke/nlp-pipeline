@@ -13,6 +13,9 @@ from .config_processing_step_base import ProcessingStepConfigBase
 
 logger = logging.getLogger(__name__)
 
+# Define fields that should always be kept specific
+SPECIAL_FIELDS_TO_KEEP_SPECIFIC = {"hyperparameters", "data_sources_spec", "transform_spec", "output_spec", "output_schema"}
+
 # Recursive serializer for complex types
 def _serialize(val: Any) -> Any:
     """Convert complex types including Pydantic models to JSON-serializable values."""
@@ -23,7 +26,12 @@ def _serialize(val: Any) -> Any:
     if isinstance(val, Path):
         return str(val)
     if isinstance(val, BaseModel):  # Handle Pydantic models
-        return {k: _serialize(v) for k, v in val.model_dump().items()}
+        try:
+            result = {k: _serialize(v) for k, v in val.model_dump().items()}
+            return result
+        except Exception as e:
+            logger.warning(f"Error serializing {val.__class__.__name__}: {str(e)}")
+            return f"<Serialization error: {str(e)}>"
     if isinstance(val, dict):
         return {k: _serialize(v) for k, v in val.items()}
     if isinstance(val, list):
@@ -83,6 +91,16 @@ def should_keep_specific(config, field_name, all_configs=None):
     Returns:
         bool: True if the field should be kept specific to this config
     """
+    # Check for special fields that should always be kept specific
+    if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
+        return True
+        
+    # Check if this field is a Pydantic model
+    value = getattr(config, field_name, None)
+    if isinstance(value, BaseModel):
+        # Complex Pydantic models should be kept specific
+        return True
+        
     # If we don't have all configs for comparison, we can't make a proper decision
     # So default to keeping it specific for safety
     if all_configs is None:
@@ -176,6 +194,14 @@ o
     Returns:
         bool: True if the field is likely static, False otherwise
     """
+    # Special fields that should never be considered static
+    if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
+        return False
+        
+    # Pydantic models are typically not static configuration values
+    if isinstance(value, BaseModel):
+        return False
+    
     # Fields that are generally not static
     non_static_patterns = {"_names", "input_", "output_", "_specific", "_count"}
     
@@ -255,10 +281,14 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
             # Skip invalid fields (not in model_fields)
             if k not in valid:
                 continue
-                
-            txt = json.dumps(v, sort_keys=True)
-            field_values[k].add(txt)
-            field_sources['all'][k].append(step)
+            
+            try:
+                txt = json.dumps(v, sort_keys=True)
+                field_values[k].add(txt)
+                field_sources['all'][k].append(step)
+            except Exception as e:
+                logger.debug(f"Failed to serialize '{k}' in {cfg.__class__.__name__}: {str(e)}")
+                # Continue without this field value
             
             # Properly categorize processing fields vs specific fields
             if isinstance(cfg, ProcessingStepConfigBase) and k in ProcessingStepConfigBase.model_fields:
@@ -413,21 +443,36 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
             else:
                 # Different values or not in all processing configs - put in processing_specific
                 # This covers fields unique to specific processing configs or shared with different values
-                print(f"  ✗ {k} not eligible for processing_shared because:")
-                if len(processing_values) > 1:
-                    print(f"    - Values differ across configs ({len(processing_values)} different values)")
-                if len(processing_configs_with_field) < len(processing_configs):
-                    print(f"    - Not present in all processing configs ({len(processing_configs_with_field)} of {len(processing_configs)})")
-                if is_cross_type:
-                    print(f"    - It's a cross-type field (appears in both processing and non-processing configs)")
+                # Log why field is not eligible for processing_shared
+                if logger.isEnabledFor(logging.DEBUG):
+                    reasons = []
+                    if len(processing_values) > 1:
+                        reasons.append(f"Values differ across configs ({len(processing_values)} different values)")
+                    if len(processing_configs_with_field) < len(processing_configs):
+                        reasons.append(f"Not present in all processing configs ({len(processing_configs_with_field)} of {len(processing_configs)})")
+                    if is_cross_type:
+                        reasons.append("It's a cross-type field (appears in both processing and non-processing configs)")
+                    logger.debug(f"Field '{k}' not eligible for processing_shared because: {', '.join(reasons)}")
                     
+                # Process the field for all processing configs that have it
                 for cfg in processing_configs:
                     if hasattr(cfg, k):
                         d = serialize_config(cfg)
                         step = d['_metadata']['step_name']
                         val = getattr(cfg, k)
+                        
                         # Use the recursive serializer for potentially complex values
-                        merged['processing']['processing_specific'][step][k] = _serialize(val)
+                        try:
+                            serialized_val = _serialize(val)
+                            
+                            # Check if step exists in processing_specific
+                            if step not in merged['processing']['processing_specific']:
+                                merged['processing']['processing_specific'][step] = {}
+                                
+                            # Add the field to processing_specific
+                            merged['processing']['processing_specific'][step][k] = serialized_val
+                        except Exception as e:
+                            logger.warning(f"Failed to serialize '{k}' for {step}: {str(e)}")
                         
         # Special handling for cross-type fields
         if is_cross_type and k not in merged['shared']:
@@ -495,6 +540,38 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
                         # Put in regular specific section
                         merged['specific'][step][field_name] = _serialize(value)
 
+    # Special handling for hyperparameters - always keep them in their specific sections
+    for field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
+        # If it's in shared, move it to specific configs
+        if field_name in merged['shared']:
+            logger.info(f"Moving special field '{field_name}' from shared section to specific sections")
+            shared_value = merged['shared'].pop(field_name)
+            # Add to all configs that had this field
+            for cfg in config_list:
+                if hasattr(cfg, field_name):
+                    step = serialize_config(cfg)["_metadata"]["step_name"]
+                    value = getattr(cfg, field_name, shared_value)
+                    try:
+                        serialized = _serialize(value)
+                        if isinstance(cfg, ProcessingStepConfigBase):
+                            if step not in merged['processing']['processing_specific']:
+                                merged['processing']['processing_specific'][step] = {}
+                            merged['processing']['processing_specific'][step][field_name] = serialized
+                        else:
+                            merged['specific'][step][field_name] = serialized
+                    except Exception as e:
+                        logger.warning(f"Failed to add '{field_name}' to {'processing_specific' if isinstance(cfg, ProcessingStepConfigBase) else 'specific'}.{step}: {str(e)}")
+        
+        # If it's in processing_shared, move to processing_specific
+        if field_name in merged['processing']['processing_shared']:
+            logger.info(f"Moving special field '{field_name}' from processing_shared section to processing_specific sections")
+            shared_value = merged['processing']['processing_shared'].pop(field_name)
+            for cfg in processing_configs:
+                if hasattr(cfg, field_name):
+                    step = serialize_config(cfg)["_metadata"]["step_name"]
+                    value = getattr(cfg, field_name, shared_value)
+                    merged['processing']['processing_specific'][step][field_name] = _serialize(value)
+
     # Note: "Force add" section removed - this was causing issues with processing_source_dir
     # being incorrectly placed in processing_shared when values differed between configs
 
@@ -521,6 +598,31 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
             for field in overlap:
                 merged['processing']['processing_specific'][step].pop(field)
 
+    # Final check for special fields - ensure all special fields are in the correct sections
+    logger.debug("Final verification for special fields")
+    
+    # Check all processing configs to see if they have special fields that should be in processing_specific
+    for cfg in processing_configs:
+        step = serialize_config(cfg)["_metadata"]["step_name"]
+        
+        for field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
+            if hasattr(cfg, field_name):
+                # Check if the field is already in the correct section
+                is_in_specific = (step in merged['processing']['processing_specific'] and 
+                                 field_name in merged['processing']['processing_specific'][step])
+                
+                if not is_in_specific:
+                    # Field is missing from processing_specific - force add it
+                    logger.info(f"Ensuring special field '{field_name}' is in processing_specific.{step}")
+                    try:
+                        value = getattr(cfg, field_name)
+                        serialized = _serialize(value)
+                        if step not in merged['processing']['processing_specific']:
+                            merged['processing']['processing_specific'][step] = {}
+                        merged['processing']['processing_specific'][step][field_name] = serialized
+                    except Exception as e:
+                        logger.warning(f"Failed to add special field '{field_name}' to processing_specific.{step}: {str(e)}")
+
     metadata = {
         'created_at': datetime.now().isoformat(),
         'field_sources': field_sources,
@@ -530,8 +632,12 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
         }
     }
     out = {'metadata': metadata, 'configuration': merged}
-    with open(output_file, 'w') as f:
-        json.dump(out, f, indent=2, sort_keys=True)
+    try:
+        with open(output_file, 'w') as f:
+            json.dump(out, f, indent=2, sort_keys=True)
+        logger.debug(f"Successfully wrote config to {output_file}")
+    except Exception as e:
+        logger.error(f"Error writing JSON: {str(e)}")
     return merged
 
 
