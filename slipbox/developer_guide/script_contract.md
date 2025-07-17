@@ -31,6 +31,12 @@ YOUR_SCRIPT_CONTRACT = ScriptContract(
         "output_data": "/opt/ml/processing/output/data",
         "output_metadata": "/opt/ml/processing/output/metadata"
     },
+    expected_arguments={
+        "input-path": "/opt/ml/processing/input/data",
+        "metadata-path": "/opt/ml/processing/input/metadata",
+        "output-dir": "/opt/ml/processing/output/data",
+        "mode": "standard"
+    },
     required_env_vars=[
         "REQUIRED_PARAM_1",
         "REQUIRED_PARAM_2"
@@ -53,6 +59,7 @@ YOUR_SCRIPT_CONTRACT = ScriptContract(
 | `entry_point` | ✅ Required | Script filename | Look at your script's filename |
 | `expected_input_paths` | ✅ Required | Container paths for inputs | Analyze script for input file paths |
 | `expected_output_paths` | ✅ Required | Container paths for outputs | Analyze script for output file paths |
+| `expected_arguments` | Recommended | Command-line arguments | Analyze script for `argparse` usage |
 | `required_env_vars` | ✅ Required | Environment variables needed | Analyze script for `os.environ` usage |
 | `optional_env_vars` | Optional | Env vars with defaults | Look for fallback values in script |
 | `framework_requirements` | Recommended | Dependencies with versions | Check imports and requirements.txt |
@@ -66,6 +73,7 @@ The first step is to analyze your script to identify:
 
 - **Input Paths**: Where the script expects to find input data
 - **Output Paths**: Where the script writes output data
+- **Command-Line Arguments**: What arguments the script expects
 - **Environment Variables**: What environment variables the script accesses
 - **Framework Dependencies**: What libraries the script imports
 
@@ -111,6 +119,20 @@ Adhere to SageMaker's path conventions:
 - **Processing Outputs**: `/opt/ml/processing/output/{logical_name}`
 - **Training Inputs**: `/opt/ml/input/data/{channel_name}`
 - **Model Outputs**: `/opt/ml/model`
+
+### 2.5. Identify Command-Line Arguments
+
+Analyze your script's argument parsing to identify command-line arguments:
+
+```python
+# Look for argparse usage
+parser = argparse.ArgumentParser()
+parser.add_argument("--input-path", required=True)
+parser.add_argument("--output-dir", required=True)
+parser.add_argument("--mode", choices=["standard", "advanced"], default="standard")
+```
+
+Use kebab-case (hyphen-separated lowercase words) for argument names in your contract.
 
 ### 3. Be Aware of Directory Creation Behavior
 
@@ -294,14 +316,107 @@ TRAINING_CONTRACT = ScriptContract(
 )
 ```
 
+## Script Arguments in Contract
+
+The `expected_arguments` field allows you to explicitly declare the command-line arguments that your script expects. This enhances the contract system by making argument handling explicit rather than implicit, improving documentation, validation, and maintainability.
+
+### Benefits of Explicit Arguments
+
+1. **Documentation**: Script arguments are documented alongside paths and environment variables
+2. **Validation**: Arguments can be validated against script implementations
+3. **Single Source of Truth**: Arguments are defined in one place, reducing duplication and inconsistency
+4. **Improved Maintenance**: Changes to arguments need to be made in only one place
+5. **Alignment with Design Principles**: Makes the relationship between scripts and builders more explicit
+
+### Argument Naming Convention
+
+- Use kebab-case (hyphen-separated lowercase words) for argument names
+- Keep names descriptive and concise
+- Use standard terms like `input`, `output`, `path`, `dir`, `file`, etc.
+- For flags or boolean options, use the pattern `enable-feature` or `disable-feature`
+
+### Values Best Practices
+
+- For path arguments, reference paths defined in `expected_input_paths` or `expected_output_paths`
+- For mode/configuration arguments, use simple string literals
+- For boolean flags, use "true" or "false" as string values
+- Keep values portable across environments
+
+### Usage in Step Builders
+
+Step builders should use the base class's `_get_job_arguments()` method to generate arguments from the contract:
+
+```python
+def _get_job_arguments(self) -> Optional[List[str]]:
+    """
+    Constructs job arguments for script based on contract.
+    
+    Returns:
+        List of command-line arguments or None
+    """
+    # Use base implementation that reads from contract
+    return super()._get_job_arguments()
+```
+
+### Argument Validation
+
+You can validate that a script implements the arguments declared in its contract using the `validate_script_arguments.py` tool:
+
+```bash
+python tools/validate_script_arguments.py
+```
+
+This will check all contracts against their script implementations and report any mismatches.
+
+### Example
+
+```python
+# Contract
+PROCESSING_CONTRACT = ScriptContract(
+    entry_point="process_data.py",
+    expected_input_paths={
+        "data": "/opt/ml/processing/input/data",
+        "config": "/opt/ml/processing/input/config"
+    },
+    expected_output_paths={
+        "results": "/opt/ml/processing/output/results"
+    },
+    expected_arguments={
+        "input-path": "/opt/ml/processing/input/data",
+        "config-path": "/opt/ml/processing/input/config/config.json",
+        "output-dir": "/opt/ml/processing/output/results",
+        "verbose": "true",
+        "mode": "standard"
+    },
+    # Other fields...
+)
+
+# Script
+def main():
+    args = parse_args()
+    process_data(args.input_path, args.config_path, args.output_dir,
+                verbose=args.verbose, mode=args.mode)
+    
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-path", required=True)
+    parser.add_argument("--config-path", required=True)
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--mode", choices=["standard", "advanced"], default="standard")
+    return parser.parse_args()
+```
+
 ## Best Practices
 
 1. **Use Explicit Logical Names**: Choose descriptive logical names for inputs/outputs
-2. **Maintain 1:1 Alignment**: Ensure each input/output path in the script has a corresponding entry in the contract
+2. **Maintain 1:1 Alignment**: Ensure each input/output path and argument in the script has a corresponding entry in the contract
 3. **Validate Early**: Use the validation tools during development, not just at integration time
 4. **Document Requirements**: Use the contract to document all requirements for script execution
 5. **Consider File vs. Directory**: Be careful about path handling for file outputs
 6. **Avoid Hardcoding**: Use the contract paths in the script instead of hardcoding paths
-7. **Test Contract Compliance**: Include contract compliance in unit tests
+7. **Declare Arguments Explicitly**: Include all command-line arguments in the expected_arguments field
+8. **Use Standard Argument Patterns**: Follow kebab-case naming conventions for arguments
+9. **Test Contract Compliance**: Include contract compliance in unit tests
 
 By following these guidelines, your script contracts will provide a robust interface between your processing scripts and the pipeline infrastructure.

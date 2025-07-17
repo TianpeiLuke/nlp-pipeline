@@ -2,498 +2,414 @@
 
 ## Overview
 
-Specification-driven design is a declarative approach to building ML pipelines where users express their intent at a high level, and the system automatically determines the required steps, resolves dependencies, and assembles the pipeline. This approach prioritizes ease of use and rapid prototyping over fine-grained control.
+Specification-driven design is a declarative approach to building ML pipelines where users express their intent at a high level, and the system resolves dependencies and assembles the pipeline automatically. This approach has now been implemented in the MODS pipeline system, creating a clear separation between **what** (specifications) and **how** (implementations).
 
 ## Related Documents
-- **[Hybrid Design](./hybrid_design.md)** - **RECOMMENDED**: Combines this approach with config-driven implementation for the best of both worlds
-- **[Config-Driven Design](./config_driven_design.md)** - Current implementation that provides detailed control but higher complexity
+- **[Hybrid Design](./hybrid_design.md)** - The implemented approach that combines specifications with robust config classes
+- **[Config-Driven Design](./config_driven_design.md)** - Previous implementation that provided detailed control but higher complexity
 - **[Step Specification](./step_specification.md)** - Technical details on step specification format and structure
-- **[Specification Registry](./specification_registry.md)** - Implementation details for managing step specifications
+- **[Script Contract](./script_contract.md)** - Script contract enforcement in the specification system
+- **[Step Builder](./step_builder.md)** - How step builders implement specifications
 
-> **💡 Note**: While this document describes a pure specification-driven approach, the **[Hybrid Design](./hybrid_design.md)** is the recommended implementation strategy as it provides specification-driven simplicity while preserving the robust config infrastructure.
+> **💡 Implementation Note**: The current implementation follows a hybrid approach where specifications define the "what" (dependencies, outputs) while configuration classes and builders handle the "how" (implementation details). This provides a balance between declarative simplicity and implementation flexibility.
 
 ## Core Principles
 
-### Declarative Intent
-- Users specify **what** they want to achieve, not **how** to implement it
-- High-level business goals drive pipeline structure
-- System handles technical implementation details automatically
+### Declarative Dependencies
+- Users declare **dependencies** between steps, not implementation details
+- System automatically resolves connections between steps
+- Semantic matching connects outputs to compatible inputs
 
-### Intelligent Automation
-- Automatic step discovery based on user intent
-- Smart dependency resolution through semantic matching
-- Context-aware parameter selection and optimization
+### Specification-Implementation Separation
+- **Specifications** define step dependencies and outputs
+- **Script Contracts** define script input/output paths
+- **Configurations** provide implementation parameters
+- **Builders** implement specifications as SageMaker steps
 
-### Semantic Understanding
-- Rich metadata about step capabilities and requirements
-- Natural language-like pipeline definitions
-- Business-focused abstractions over technical details
+### Runtime Validation
+- Specifications validate dependencies at runtime
+- Script contracts ensure implementation aligns with specification
+- Error messages provide clear guidance on missing dependencies
 
 ## Architecture Overview
 
+The implemented specification-driven architecture consists of these key components:
+
 ```mermaid
 flowchart TD
-    subgraph "🎯 User Intent Layer"
-        UserIntent["High-Level User Intent<br/>Pipeline('fraud').auto_train_xgboost('s3://data/')<br/>• Business-focused<br/>• Declarative<br/>• Framework-agnostic"]
+    subgraph "📝 Specification Layer"
+        StepSpec["Step Specification<br/>• Dependencies<br/>• Outputs<br/>• Property paths<br/>• Step type & description"]
+        ScriptContract["Script Contract<br/>• Entry point<br/>• Input paths<br/>• Output paths<br/>• Environment variables"]
+        StepSpec <--> ScriptContract
     end
     
-    subgraph "🧠 Intelligence Layer"
-        IntentParser["Intent Parser<br/>• Parse user declarations<br/>• Extract requirements<br/>• Identify pipeline type<br/>• Determine success criteria"]
-        
-        StepDiscovery["Step Discovery Engine<br/>• Analyze requirements<br/>• Discover compatible steps<br/>• Generate step sequences<br/>• Optimize for performance"]
-    end
-    
-    subgraph "📋 Specification Registry"
-        StepSpecs["Step Specifications<br/>• Capability descriptions<br/>• Input/output contracts<br/>• Compatibility rules<br/>• Performance characteristics"]
-        
-        PatternLibrary["Pattern Library<br/>• Common pipeline patterns<br/>• Best practice templates<br/>• Domain-specific workflows<br/>• Optimization strategies"]
+    subgraph "⚙️ Implementation Layer"
+        Config["Configuration<br/>• Parameters<br/>• Resources<br/>• Environments<br/>• Hyperparameters"]
+        StepBuilder["Step Builder<br/>• Implementation<br/>• Integration<br/>• SageMaker mapping<br/>• Input/Output handling"]
+        Config --> StepBuilder
+        StepSpec --> StepBuilder
+        ScriptContract --> StepBuilder
     end
     
     subgraph "🔗 Dependency Resolution"
-        SemanticMatcher["Semantic Matcher<br/>• Match step capabilities<br/>• Resolve data flow<br/>• Validate compatibility<br/>• Handle type conversions"]
-        
-        DependencyGraph["Dependency Graph<br/>• Logical step connections<br/>• Data flow validation<br/>• Execution ordering<br/>• Resource optimization"]
+        DependencyResolver["Dependency Resolver<br/>• Semantic matching<br/>• Property references<br/>• Type compatibility<br/>• Automatic connections"]
+        DependencyResolver <-- Resolves dependencies --> StepSpec
+        DependencyResolver --> StepBuilder
     end
     
-    subgraph "⚙️ Configuration Generation"
-        ConfigGenerator["Intelligent Config Generator<br/>• Generate step configurations<br/>• Apply best practices<br/>• Optimize for context<br/>• Handle edge cases"]
+    subgraph "🏗️ Pipeline Assembly"
+        DAG["Pipeline DAG<br/>• Step connections<br/>• Data flow<br/>• Execution order"]
+        Assembler["Pipeline Assembler<br/>• Connects steps<br/>• Resolves references<br/>• Creates pipeline"]
         
-        ParameterOptimizer["Parameter Optimizer<br/>• Context-aware defaults<br/>• Performance optimization<br/>• Resource allocation<br/>• Cost optimization"]
+        DAG --> Assembler
+        DependencyResolver --> Assembler
+        StepBuilder --> Assembler
     end
     
-    subgraph "🔧 Step Assembly"
-        StepBuilder["Universal Step Builder<br/>• Create pipeline steps<br/>• Apply configurations<br/>• Handle platform specifics<br/>• Ensure compatibility"]
-        
-        PipelineAssembler["Pipeline Assembler<br/>• Combine all steps<br/>• Apply dependencies<br/>• Validate pipeline<br/>• Generate execution plan"]
-    end
-    
-    UserIntent --> IntentParser
-    IntentParser --> StepDiscovery
-    StepDiscovery --> StepSpecs
-    StepSpecs --> SemanticMatcher
-    SemanticMatcher --> DependencyGraph
-    DependencyGraph --> ConfigGenerator
-    ConfigGenerator --> ParameterOptimizer
-    ParameterOptimizer --> StepBuilder
-    StepBuilder --> PipelineAssembler
-    
-    PatternLibrary --> StepDiscovery
-    PatternLibrary --> ConfigGenerator
+    PipelineTemplate["Pipeline Template<br/>• High-level structure<br/>• Step configuration<br/>• Pipeline composition"]
+    PipelineTemplate --> DAG
+    PipelineTemplate --> Config
 ```
+
+## Implementation Components
+
+### Step Specifications
+
+Step specifications define a step's dependencies and outputs declaratively:
+
+```python
+# XGBoost Training Step Specification
+XGBOOST_TRAINING_SPEC = StepSpecification(
+    step_type=get_spec_step_type("XGBoostTraining"),
+    node_type=NodeType.INTERNAL,
+    script_contract=_get_xgboost_train_contract(),
+    dependencies=[
+        DependencySpec(
+            logical_name="input_path",
+            dependency_type=DependencyType.TRAINING_DATA,
+            required=True,
+            compatible_sources=["TabularPreprocessing", "ProcessingStep", "DataLoad"],
+            semantic_keywords=["data", "input", "training", "dataset", "processed", "train", "tabular"],
+            data_type="S3Uri",
+            description="Training dataset S3 location with train/val/test subdirectories"
+        ),
+        DependencySpec(
+            logical_name="hyperparameters_s3_uri",
+            dependency_type=DependencyType.HYPERPARAMETERS,
+            required=False,
+            compatible_sources=["HyperparameterPrep", "ProcessingStep"],
+            semantic_keywords=["config", "params", "hyperparameters", "settings", "hyperparams"],
+            data_type="S3Uri",
+            description="Hyperparameters configuration file (optional, can be generated internally)"
+        )
+    ],
+    outputs=[
+        OutputSpec(
+            logical_name="model_output",
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.ModelArtifacts.S3ModelArtifacts",
+            data_type="S3Uri",
+            description="Trained XGBoost model artifacts",
+            aliases=["ModelOutputPath", "ModelArtifacts", "model_data", "output_path", "model_input"]
+        ),
+        OutputSpec(
+            logical_name="evaluation_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
+            data_type="S3Uri",
+            description="Model evaluation results and predictions (val.tar.gz, test.tar.gz)"
+        )
+    ]
+)
+```
+
+### Script Contracts
+
+Script contracts define the expected input and output paths for step scripts:
+
+```python
+XGBOOST_TRAIN_CONTRACT = TrainingScriptContract(
+    entry_point="train_xgb.py",
+    expected_input_paths={
+        "input_path": "/opt/ml/input/data",
+        "hyperparameters_s3_uri": "/opt/ml/input/data/config/hyperparameters.json"
+    },
+    expected_output_paths={
+        "model_output": "/opt/ml/model",
+        "evaluation_output": "/opt/ml/output/data"
+    },
+    required_env_vars=[],
+    optional_env_vars={},
+    framework_requirements={
+        "boto3": ">=1.26.0",
+        "xgboost": "==1.7.6",
+        "scikit-learn": ">=0.23.2,<1.0.0",
+        "pandas": ">=1.2.0,<2.0.0"
+    },
+    description="XGBoost training script for tabular data classification"
+)
+```
+
+### Step Builders
+
+Step builders implement specifications to create SageMaker steps:
+
+```python
+class XGBoostTrainingStepBuilder(StepBuilderBase):
+    def __init__(self, config: XGBoostTrainingConfig, ...):
+        # Initialize with specification
+        super().__init__(
+            config=config,
+            spec=XGBOOST_TRAINING_SPEC,  # Connect to the specification
+            sagemaker_session=sagemaker_session,
+            ...
+        )
+        self.config: XGBoostTrainingConfig = config
+        
+    def create_step(self, **kwargs):
+        """Create step using specification-driven dependency resolution"""
+        # Extract common parameters
+        inputs_raw = kwargs.get('inputs', {})
+        dependencies = kwargs.get('dependencies', [])
+        
+        # If dependencies are provided, extract inputs using the resolver
+        if dependencies:
+            try:
+                extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+                inputs.update(extracted_inputs)
+            except Exception as e:
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
+        
+        # Generate step with specification-validated inputs
+        training_inputs = self._get_inputs(inputs)
+        output_path = self._get_outputs({})
+        estimator = self._create_estimator(output_path)
+        
+        # Create the training step
+        step = TrainingStep(
+            name=self._get_step_name('XGBoostTraining'),
+            estimator=estimator,
+            inputs=training_inputs,
+            depends_on=dependencies,
+            cache_config=self._get_cache_config(enable_caching)
+        )
+        
+        # Attach specification to the step for future reference
+        setattr(step, '_spec', self.spec)
+        
+        return step
+```
+
+### Dependency Resolution
+
+The UnifiedDependencyResolver automatically connects steps based on their specifications:
+
+```python
+def extract_inputs_from_dependencies(self, dependency_steps: List[Step]) -> Dict[str, Any]:
+    """Extract inputs from dependency steps using the UnifiedDependencyResolver."""
+    if not self.spec:
+        raise ValueError("Step specification is required for dependency extraction.")
+        
+    # Get step name
+    step_name = self.__class__.__name__.replace("Builder", "Step")
+    
+    # Use the injected resolver or create one
+    resolver = self._get_dependency_resolver()
+    resolver.register_specification(step_name, self.spec)
+    
+    # Register dependencies and enhance them with metadata
+    available_steps = []
+    self._enhance_dependency_steps_with_specs(resolver, dependency_steps, available_steps)
+    
+    # One method call handles what used to require multiple matching methods
+    resolved = resolver.resolve_step_dependencies(step_name, available_steps)
+    
+    # Convert results to SageMaker properties
+    return {name: prop_ref.to_sagemaker_property() for name, prop_ref in resolved.items()}
+```
+
+### Pipeline Templates
+
+Pipeline templates define the high-level structure of a pipeline and use specifications for automatic connection:
+
+```python
+class XGBoostTrainingPipeline(PipelineTemplateBase):
+    """Pipeline template that uses specification-driven dependency resolution"""
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        # Create the DAG structure
+        dag = PipelineDAG()
+        dag.add_node("data_loading")
+        dag.add_node("preprocessing") 
+        dag.add_node("training")
+        
+        # Define logical connections, implementations handled by specifications
+        dag.add_edge("data_loading", "preprocessing")
+        dag.add_edge("preprocessing", "training")
+        
+        return dag
+        
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        # Map steps to configurations
+        return {
+            "data_loading": self.configs['DataLoading'],
+            "preprocessing": self.configs['Preprocessing'],
+            "training": self.configs['Training']
+        }
+    
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        # Map step types to builder classes
+        return {
+            "CradleDataLoading": CradleDataLoadingStepBuilder,
+            "TabularPreprocessing": TabularPreprocessingStepBuilder,
+            "XGBoostTraining": XGBoostTrainingStepBuilder
+        }
+```
+
+## Advantages of the Implementation
+
+### Clean Separation of Concerns
+- **Specifications**: Define what steps require and produce
+- **Contracts**: Define how scripts interact with SageMaker
+- **Configs**: Define parameters for implementation
+- **Builders**: Define how to create SageMaker steps
+
+### Automated Dependency Resolution
+- Automatic connection between compatible steps
+- Semantic matching of dependencies to outputs
+- Runtime validation of required connections
+- Clear error messages for missing dependencies
+
+### Enhanced Maintainability
+- Changes to specifications don't require builder changes
+- New step types can be added by defining specifications
+- Script contracts ensure consistency between specs and scripts
+- Property paths abstract SageMaker property details
+
+### Simplified Pipeline Creation
+- Define pipeline structure as a DAG
+- System handles connections automatically
+- Reduced boilerplate for input/output mapping
+- Clear separation between structure and implementation
 
 ## User Experience
 
-### Ultra-Simple Interface
+### Traditional Pattern with Specification Benefits
+
 ```python
-# One-line pipeline creation
-pipeline = Pipeline("fraud_detection").auto_train_xgboost("s3://fraud-data/")
-
-# System automatically:
-# 1. Discovers data loading is needed
-# 2. Determines preprocessing requirements
-# 3. Configures XGBoost training
-# 4. Sets up model creation
-# 5. Resolves all dependencies
-# 6. Optimizes parameters
-```
-
-### Progressive Enhancement
-```python
-# Add constraints and preferences
-pipeline = (Pipeline("fraud_detection")
-    .auto_train_xgboost("s3://fraud-data/")
-    .with_constraints(
-        max_training_time="2 hours",
-        min_accuracy=0.85,
-        max_cost_per_run=50
-    )
-    .with_preferences(
-        prefer_speed_over_accuracy=True,
-        enable_hyperparameter_tuning=True
-    ))
-```
-
-### Domain-Specific Languages
-```python
-# Fraud detection specific
-fraud_pipeline = (FraudDetectionPipeline()
-    .load_transaction_data("s3://transactions/")
-    .detect_anomalies()
-    .train_classifier()
-    .evaluate_performance()
-    .deploy_for_realtime_scoring())
-
-# Time series specific
-forecast_pipeline = (TimeSeriesPipeline()
-    .load_time_series("s3://metrics/")
-    .detect_seasonality()
-    .train_forecasting_model()
-    .validate_predictions()
-    .deploy_forecasting_endpoint())
-```
-
-## Step Specifications
-
-### Rich Metadata Model
-```python
-@dataclass
-class StepSpecification:
-    # Identity
-    step_type: str
-    version: str
-    description: str
-    
-    # Capabilities
-    input_types: List[DataType]
-    output_types: List[DataType]
-    supported_algorithms: List[str]
-    performance_characteristics: Dict[str, Any]
-    
-    # Requirements
-    dependencies: List[DependencySpec]
-    resource_requirements: ResourceSpec
-    constraints: List[ConstraintSpec]
-    
-    # Optimization
-    cost_model: CostModel
-    performance_model: PerformanceModel
-    scaling_characteristics: ScalingSpec
-
-# Example specification
-XGBOOST_TRAINING_SPEC = StepSpecification(
-    step_type="XGBoostTraining",
-    version="1.0",
-    description="Train XGBoost model for tabular data classification/regression",
-    
-    input_types=[
-        DataType.PROCESSED_TABULAR,
-        DataType.FEATURE_ENGINEERED_TABULAR
-    ],
-    output_types=[
-        DataType.XGBOOST_MODEL,
-        DataType.TRAINING_METRICS
-    ],
-    
-    dependencies=[
-        DependencySpec(
-            logical_name="training_data",
-            compatible_sources=["TabularPreprocessing", "FeatureEngineering"],
-            data_types=[DataType.PROCESSED_TABULAR],
-            semantic_keywords=["training", "processed", "features"]
-        )
-    ],
-    
-    resource_requirements=ResourceSpec(
-        min_cpu_cores=2,
-        min_memory_gb=8,
-        preferred_instance_types=["ml.m5.2xlarge", "ml.m5.4xlarge"],
-        supports_gpu=False
-    ),
-    
-    cost_model=CostModel(
-        base_cost_per_hour=0.50,
-        scaling_factor=1.2,
-        cost_per_gb_data=0.01
-    ),
-    
-    performance_model=PerformanceModel(
-        training_time_formula="0.1 * data_size_gb + 0.05 * n_estimators",
-        accuracy_expectations={"min": 0.7, "typical": 0.85, "max": 0.95}
-    )
+# Create configuration
+config = XGBoostTrainingConfig(
+    training_instance_type="ml.m5.xlarge",
+    training_instance_count=1,
+    # other configuration parameters
 )
-```
 
-### Dependency Specifications
-```python
-@dataclass
-class DependencySpec:
-    logical_name: str
-    compatible_sources: List[str]
-    data_types: List[DataType]
-    semantic_keywords: List[str]
-    
-    # Advanced matching
-    compatibility_function: Optional[Callable]
-    transformation_required: Optional[str]
-    quality_requirements: Optional[QualitySpec]
-    
-    # Optimization hints
-    preferred_sources: List[str]
-    performance_impact: Dict[str, float]
+# Create builder with specification
+builder = XGBoostTrainingStepBuilder(config=config)
 
-# Example with advanced matching
-ADVANCED_DEPENDENCY = DependencySpec(
-    logical_name="high_quality_features",
-    compatible_sources=["FeatureEngineering", "TabularPreprocessing"],
-    data_types=[DataType.PROCESSED_TABULAR],
-    semantic_keywords=["features", "engineered", "processed"],
-    
-    compatibility_function=lambda source_spec: (
-        source_spec.quality_score > 0.8 and
-        "feature_selection" in source_spec.capabilities
-    ),
-    
-    quality_requirements=QualitySpec(
-        min_data_quality_score=0.8,
-        required_columns=["features", "target"],
-        max_missing_values_ratio=0.05
-    ),
-    
-    preferred_sources=["FeatureEngineering"],  # Prefer over basic preprocessing
-    performance_impact={"accuracy": 0.15, "training_time": -0.1}
+# Create step - using the builder now uses the specification for validation
+step = builder.create_step(
+    input_path=previous_step.properties.OutputPath,
+    dependencies=[previous_step]
 )
+
+# Or simply use dependencies for automatic resolution
+step = builder.create_step(dependencies=[previous_step])
+
+# Add to pipeline
+pipeline.add_step(step)
 ```
 
-## Intelligent Dependency Resolution
+### Template-Based Pattern
 
-### Semantic Matching Engine
 ```python
-class SemanticMatcher:
-    def find_compatible_sources(self, dependency: DependencySpec, available_steps: List[StepSpec]) -> List[Match]:
-        matches = []
+from src.pipeline_builder.pipeline_template_base import PipelineTemplateBase
+from src.pipeline_dag.base_dag import PipelineDAG
+
+class XGBoostPipelineTemplate(PipelineTemplateBase):
+    # Define configuration classes
+    CONFIG_CLASSES = {
+        'Base': BasePipelineConfig,
+        'DataLoading': CradleDataLoadingConfig,
+        'Preprocessing': TabularPreprocessingConfig,
+        'Training': XGBoostTrainingConfig
+    }
+    
+    def _create_pipeline_dag(self) -> PipelineDAG:
+        # Create DAG structure - connections are resolved automatically
+        dag = PipelineDAG()
+        dag.add_node("data_loading")
+        dag.add_node("preprocessing")
+        dag.add_node("training")
         
-        for step in available_steps:
-            # 1. Type compatibility
-            type_score = self._calculate_type_compatibility(dependency.data_types, step.output_types)
-            
-            # 2. Semantic similarity
-            semantic_score = self._calculate_semantic_similarity(
-                dependency.semantic_keywords, 
-                step.semantic_keywords
-            )
-            
-            # 3. Custom compatibility function
-            custom_score = 1.0
-            if dependency.compatibility_function:
-                custom_score = dependency.compatibility_function(step)
-            
-            # 4. Performance impact
-            performance_score = self._calculate_performance_impact(dependency, step)
-            
-            # Combined score
-            total_score = (type_score * 0.4 + semantic_score * 0.3 + 
-                          custom_score * 0.2 + performance_score * 0.1)
-            
-            if total_score > 0.7:  # Threshold for compatibility
-                matches.append(Match(step=step, score=total_score, reasons=...))
+        # Define data flow edges - implementation details handled by specifications
+        dag.add_edge("data_loading", "preprocessing")
+        dag.add_edge("preprocessing", "training")
         
-        return sorted(matches, key=lambda m: m.score, reverse=True)
+        return dag
+    
+    def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
+        # Map steps to configurations
+        return {
+            "data_loading": self.configs['DataLoading'],
+            "preprocessing": self.configs['Preprocessing'],
+            "training": self.configs['Training']
+        }
+    
+    def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
+        # Map step types to builder classes
+        return {
+            "CradleDataLoading": CradleDataLoadingStepBuilder,
+            "TabularPreprocessing": TabularPreprocessingStepBuilder,
+            "XGBoostTraining": XGBoostTrainingStepBuilder
+        }
+
+# Create the template and generate pipeline
+template = XGBoostPipelineTemplate(
+    config_path="configs/pipeline_config.json",
+    sagemaker_session=sagemaker_session,
+    role=role
+)
+pipeline = template.generate_pipeline()
 ```
 
-### Automatic Pipeline Assembly
-```python
-class PipelineAssembler:
-    def assemble_pipeline(self, user_intent: UserIntent) -> Pipeline:
-        # 1. Parse intent and extract requirements
-        requirements = self.intent_parser.parse(user_intent)
-        
-        # 2. Discover required steps
-        step_sequence = self.step_discovery.discover_steps(requirements)
-        
-        # 3. Resolve dependencies
-        dependency_graph = self.dependency_resolver.resolve(step_sequence)
-        
-        # 4. Optimize configuration
-        optimized_configs = self.config_optimizer.optimize(dependency_graph, requirements)
-        
-        # 5. Generate pipeline
-        pipeline = self.pipeline_generator.generate(dependency_graph, optimized_configs)
-        
-        return pipeline
-```
+## Future Directions
 
-## Configuration Generation
+While the current implementation provides significant benefits through specifications and contracts, there are opportunities for further enhancement:
 
-### Context-Aware Defaults
-```python
-class IntelligentConfigGenerator:
-    def generate_config(self, step_type: str, context: PipelineContext) -> Dict[str, Any]:
-        # Base configuration from specification
-        base_config = self.spec_registry.get_default_config(step_type)
-        
-        # Context-aware adjustments
-        if context.data_size > 10_000_000:  # Large dataset
-            base_config["instance_type"] = "ml.m5.4xlarge"
-            base_config["volume_size"] = 100
-        
-        if context.priority == "speed":
-            base_config["early_stopping_rounds"] = 10
-            base_config["n_estimators"] = min(base_config["n_estimators"], 100)
-        
-        if context.priority == "accuracy":
-            base_config["n_estimators"] = max(base_config["n_estimators"], 500)
-            base_config["learning_rate"] = 0.01  # Slower but more accurate
-        
-        # Cost optimization
-        if context.budget_constraint:
-            base_config = self._optimize_for_cost(base_config, context.budget_constraint)
-        
-        return base_config
-```
+### Enhanced Semantic Matching
+- Add more advanced semantic matching algorithms
+- Support for weighted keyword matching
+- Context-aware dependency resolution
 
-### Performance Optimization
-```python
-class PerformanceOptimizer:
-    def optimize_pipeline(self, pipeline_spec: PipelineSpec) -> OptimizedPipeline:
-        # Analyze data flow
-        data_flow = self._analyze_data_flow(pipeline_spec)
-        
-        # Identify bottlenecks
-        bottlenecks = self._identify_bottlenecks(data_flow)
-        
-        # Apply optimizations
-        optimizations = []
-        for bottleneck in bottlenecks:
-            if bottleneck.type == "compute":
-                optimizations.append(self._optimize_compute(bottleneck))
-            elif bottleneck.type == "io":
-                optimizations.append(self._optimize_io(bottleneck))
-            elif bottleneck.type == "memory":
-                optimizations.append(self._optimize_memory(bottleneck))
-        
-        return self._apply_optimizations(pipeline_spec, optimizations)
-```
+### Intelligent Configuration Generation
+- Generate optimal configurations based on data characteristics
+- Automatic resource allocation based on workload
+- Performance profiling and optimization
 
-## Error Handling & Validation
+### Domain-Specific Templates
+- Create specialized templates for common ML workflows
+- Domain-specific abstractions for different use cases
+- Higher-level interfaces for business users
 
-### Early Validation
-```python
-class PipelineValidator:
-    def validate_intent(self, user_intent: UserIntent) -> ValidationResult:
-        issues = []
-        
-        # Check data availability
-        if not self._validate_data_access(user_intent.data_sources):
-            issues.append(ValidationIssue(
-                type="data_access",
-                message="Cannot access specified data sources",
-                suggested_fix="Check S3 permissions and bucket existence"
-            ))
-        
-        # Check resource constraints
-        estimated_cost = self._estimate_cost(user_intent)
-        if estimated_cost > user_intent.budget_limit:
-            issues.append(ValidationIssue(
-                type="budget_exceeded",
-                message=f"Estimated cost ${estimated_cost} exceeds budget ${user_intent.budget_limit}",
-                suggested_fix="Reduce data size or use smaller instance types"
-            ))
-        
-        # Check compatibility
-        compatibility_issues = self._check_step_compatibility(user_intent)
-        issues.extend(compatibility_issues)
-        
-        return ValidationResult(
-            is_valid=len(issues) == 0,
-            issues=issues,
-            suggestions=self._generate_suggestions(issues)
-        )
-```
+### Feedback-Based Optimization
+- Learn from pipeline execution results
+- Optimize configurations based on performance metrics
+- Suggest improvements based on historical runs
 
-### Intelligent Error Messages
-```python
-class ErrorMessageGenerator:
-    def generate_semantic_error(self, error: PipelineError) -> str:
-        if error.type == "incompatible_steps":
-            return f"""
-            Step '{error.source_step}' produces {error.source_output_type} data,
-            but step '{error.target_step}' expects {error.target_input_type} data.
-            
-            Suggestion: Add a {error.suggested_intermediate_step} step between them
-            to convert {error.source_output_type} to {error.target_input_type}.
-            
-            Example:
-            pipeline.{error.source_step}().{error.suggested_intermediate_step}().{error.target_step}()
-            """
-        
-        elif error.type == "missing_dependency":
-            return f"""
-            Step '{error.step}' requires {error.missing_dependency} but no compatible
-            source was found in the pipeline.
-            
-            Compatible sources: {', '.join(error.compatible_sources)}
-            
-            Suggestion: Add one of these steps before '{error.step}':
-            {self._format_step_suggestions(error.compatible_sources)}
-            """
-```
+## Conclusion
 
-## Advantages
-
-### Rapid Prototyping
-- **Minutes to Working Pipeline**: From idea to executable pipeline in minutes
-- **No Infrastructure Knowledge Required**: Focus on business logic, not technical details
-- **Automatic Best Practices**: System applies ML and infrastructure best practices automatically
-
-### Intelligent Automation
-- **Smart Dependency Resolution**: Automatic discovery and connection of compatible steps
-- **Context-Aware Optimization**: Parameters optimized based on data characteristics and constraints
-- **Performance Optimization**: Automatic bottleneck detection and resolution
-
-### Business-Focused Interface
-- **Natural Language-Like**: Pipeline definitions read like business requirements
-- **Domain-Specific Languages**: Specialized interfaces for different ML domains
-- **Semantic Error Messages**: Errors explained in business terms with actionable suggestions
-
-## Limitations
-
-### Reduced Control
-- **Limited Customization**: May not support highly specialized or custom requirements
-- **Black Box Decisions**: System makes many decisions automatically, reducing transparency
-- **Standardized Approaches**: May not accommodate unique or innovative approaches
-
-### Complexity Hidden, Not Eliminated
-- **Complex Implementation**: Requires sophisticated specification system and intelligent automation
-- **Debugging Challenges**: When things go wrong, the abstraction can make debugging difficult
-- **Performance Unpredictability**: Automatic optimizations may not always produce expected results
-
-### Learning Curve for Extension
-- **Specification Complexity**: Adding new step types requires understanding complex specification model
-- **System Knowledge**: Extending the system requires deep understanding of the automation logic
-- **Testing Complexity**: Validating intelligent behavior across many scenarios is challenging
-
-## Use Cases
-
-### Ideal For
-- **Rapid Prototyping**: Quick exploration of ML approaches
-- **Standard Workflows**: Common ML patterns with well-established best practices
-- **Non-Expert Users**: Data scientists who want to focus on business problems, not infrastructure
-- **Experimentation**: A/B testing different approaches quickly
-
-### Not Ideal For
-- **Highly Customized Pipelines**: Unique requirements that don't fit standard patterns
-- **Performance-Critical Applications**: Where every optimization must be manually tuned
-- **Regulatory Environments**: Where full transparency and control are required
-- **Research Applications**: Where novel approaches need to be implemented
-
-## Implementation Considerations
-
-### Specification Registry
-- **Comprehensive Coverage**: Must cover all common ML patterns and step types
-- **Version Management**: Handle evolution of specifications over time
-- **Quality Assurance**: Ensure specifications are accurate and up-to-date
-
-### Intelligence Layer
-- **Machine Learning**: Use ML to improve intent parsing and optimization over time
-- **Feedback Loop**: Learn from user corrections and pipeline performance
-- **Continuous Improvement**: Regular updates based on usage patterns and outcomes
-
-### Performance Monitoring
-- **Pipeline Analytics**: Track performance of automatically generated pipelines
-- **User Satisfaction**: Monitor user experience and success rates
-- **Cost Optimization**: Continuously improve cost-performance trade-offs
-
-This specification-driven approach prioritizes **ease of use and rapid development** over fine-grained control, making it ideal for users who want to focus on business problems rather than technical implementation details.
+The implemented specification-driven design provides a pragmatic balance between declarative simplicity and implementation flexibility. By separating specifications (what) from implementations (how), the system achieves better maintainability, clearer dependency resolution, and simplified pipeline creation while maintaining backward compatibility with existing code.
 
 ## See Also
 
 ### Design Approach Comparisons
-- **[Hybrid Design](./hybrid_design.md)** - **RECOMMENDED**: Combines this approach with config-driven robustness
-- **[Config-Driven Design](./config_driven_design.md)** - Current production implementation with detailed control
+- **[Hybrid Design](./hybrid_design.md)** - The implemented hybrid approach combining specifications and configs
+- **[Config-Driven Design](./config_driven_design.md)** - Previous implementation approach
 - **[Design Evolution](./design_evolution.md)** - Historical context and evolution of pipeline design approaches
 
 ### Technical Implementation Details
-- **[Step Specification](./step_specification.md)** - Specification format and structure for this approach
-- **[Specification Registry](./specification_registry.md)** - Registry management for step specifications
+- **[Step Specification](./step_specification.md)** - Specification format and structure details
+- **[Script Contract](./script_contract.md)** - Script contract implementation details
+- **[Step Builder](./step_builder.md)** - Step builder implementation details
 - **[Dependency Resolver](./dependency_resolver.md)** - Core dependency resolution mechanisms
-- **[Smart Proxy](./smart_proxy.md)** - Intelligent automation and proxy patterns

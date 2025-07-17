@@ -2,7 +2,7 @@
 
 ## What is the Purpose of Config?
 
-Configs serve as the **centralized configuration management layer** that provides hierarchical, validated, and environment-specific configuration for pipeline components. They represent the evolution from scattered configuration parameters to a unified, intelligent configuration system.
+Configs serve as the **centralized configuration management layer** that provides hierarchical, validated, and environment-specific configuration for pipeline components. After the spec-driven design refactoring, configs are now integrated with script contracts and step specifications, representing the evolution from scattered configuration parameters to a unified, intelligent configuration system with contract enforcement.
 
 ## Core Purpose
 
@@ -10,51 +10,80 @@ Configs provide **centralized configuration management** that:
 
 1. **Hierarchical Configuration** - Support inheritance and composition patterns
 2. **Environment-Specific Overrides** - Enable dev/staging/prod configurations
-3. **Validation and Type Safety** - Ensure configuration correctness at creation time
+3. **Validation and Type Safety** - Ensure configuration correctness at creation time with Pydantic
 4. **Template and Defaults** - Provide sensible defaults with customization points
 5. **Integration Bridge** - Connect high-level settings to low-level implementation details
+6. **Contract Enforcement** - Ensure alignment between configurations and script contracts
 
 ## Key Features
 
-### 1. Hierarchical Configuration
+### 1. Hierarchical Configuration with Pydantic
 
-Configs support inheritance and composition for maximum reusability:
+Configs support inheritance and composition for maximum reusability, now using Pydantic models:
 
 ```python
+from pydantic import BaseModel, Field, model_validator, field_validator
+
 # Base configuration with common settings
-class BaseStepConfig(ConfigBase):
+class BasePipelineConfig(BaseModel):
     """Base configuration for all pipeline steps"""
     
-    def __init__(self):
-        self.role = "arn:aws:iam::123456789012:role/SageMakerRole"
-        self.tags = {"Project": "MLPipeline", "Environment": "dev"}
-        self.retry_policies = [StepRetryPolicy(exception_types=[StepExceptionTypeEnum.SERVICE_FAULT])]
+    # Shared basic info
+    bucket: str = Field(description="S3 bucket name for pipeline artifacts and data.")
+    current_date: str = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d"),
+        description="Current date, typically used for versioning or pathing."
+    )
+    region: str = Field(default='NA', description="Custom region code (NA, EU, FE) for internal logic.")
+    aws_region: Optional[str] = Field(default=None, description="Derived AWS region (e.g., us-east-1).")
+    author: str = Field(description="Author or owner of the pipeline.")
+
+    # Overall pipeline identification
+    pipeline_name: str = Field(description="Name of the SageMaker Pipeline.")
+    pipeline_description: str = Field(description="Description for the SageMaker Pipeline.")
+    pipeline_version: str = Field(description="Version string for the SageMaker Pipeline.")
+    pipeline_s3_loc: str = Field(
+        description="Root S3 location for storing pipeline definition and step artifacts.",
+        pattern=r'^s3://[a-zA-Z0-9.-][a-zA-Z0-9.-]*(?:/[a-zA-Z0-9.-][a-zA-Z0-9._-]*)*$'
+    )
+
+    # Common framework/scripting info
+    framework_version: str = Field(default='2.1.0', description="Default framework version.")
+    py_version: str = Field(default='py310', description="Default Python version.")
+    source_dir: Optional[str] = Field(default=None, description="Common source directory for scripts.")
+    
+    class Config:
+        validate_assignment = True
 
 # Specialized configuration inheriting from base
-class TrainingStepConfig(BaseStepConfig):
+class TrainingStepConfig(BasePipelineConfig):
     """Configuration for training steps"""
     
-    def __init__(self):
-        super().__init__()
-        self.instance_type = "ml.m5.xlarge"
-        self.instance_count = 1
-        self.max_runtime_in_seconds = 3600
-        self.use_spot_instances = False
+    # Training-specific parameters
+    training_instance_type: str = Field(description="EC2 instance type for training")
+    training_instance_count: int = Field(default=1, description="Number of instances for training")
+    training_volume_size: int = Field(default=30, description="Size of the EBS volume in GB")
+    enable_caching: bool = Field(default=True, description="Enable step caching")
+    
+    @field_validator('training_instance_type')
+    @classmethod
+    def validate_instance_type(cls, v: str) -> str:
+        valid_prefixes = ['ml.m5', 'ml.c5', 'ml.p3', 'ml.g4dn']
+        if not any(v.startswith(prefix) for prefix in valid_prefixes):
+            raise ValueError(f"Instance type must start with one of {valid_prefixes}")
+        return v
 
 # Specific implementation configuration
-class XGBoostTrainingStepConfig(TrainingStepConfig):
+class XGBoostTrainingConfig(TrainingStepConfig):
     """Configuration for XGBoost training steps"""
     
-    def __init__(self):
-        super().__init__()
-        self.framework_version = "1.5-1"
-        self.entry_point = "train.py"
-        self.source_dir = "src/training"
-        self.hyperparameters = {
-            "max_depth": 6,
-            "eta": 0.3,
-            "objective": "binary:logistic"
-        }
+    # XGBoost-specific parameters
+    training_entry_point: str = Field(default="train_xgb.py", description="Training script path")
+    hyperparameters: XGBoostModelHyperparameters = Field(
+        default_factory=XGBoostModelHyperparameters,
+        description="XGBoost hyperparameters"
+    )
+    hyperparameters_s3_uri: Optional[str] = Field(default=None, description="S3 path for hyperparameters")
 ```
 
 ### 2. Environment-Specific Overrides
@@ -62,94 +91,67 @@ class XGBoostTrainingStepConfig(TrainingStepConfig):
 Support different configurations for different environments:
 
 ```python
-class EnvironmentConfig:
-    """Environment-specific configuration overrides"""
+def get_config_for_environment(base_config: BasePipelineConfig, environment: str) -> BasePipelineConfig:
+    """Apply environment-specific overrides using Pydantic model copying"""
     
-    @staticmethod
-    def get_config_for_environment(base_config: ConfigBase, environment: str):
-        """Apply environment-specific overrides"""
-        
-        if environment == "dev":
-            return EnvironmentConfig._apply_dev_overrides(base_config)
-        elif environment == "staging":
-            return EnvironmentConfig._apply_staging_overrides(base_config)
-        elif environment == "prod":
-            return EnvironmentConfig._apply_prod_overrides(base_config)
-        else:
-            return base_config
+    # Create a copy to modify
+    config_dict = base_config.model_dump()
     
-    @staticmethod
-    def _apply_dev_overrides(config):
-        """Development environment overrides"""
-        config.instance_type = "ml.t3.medium"  # Smaller instances for dev
-        config.max_runtime_in_seconds = 1800   # Shorter timeouts
-        config.use_spot_instances = True       # Cost optimization
-        config.tags["Environment"] = "dev"
-        return config
+    if environment == "dev":
+        # Development environment overrides
+        config_dict.update({
+            "training_instance_type": "ml.t3.medium",
+            "training_volume_size": 20,
+            "use_spot_instances": True,
+            "max_runtime_in_seconds": 1800
+        })
+    elif environment == "prod":
+        # Production environment overrides
+        config_dict.update({
+            "training_instance_type": "ml.m5.2xlarge",
+            "training_volume_size": 100,
+            "use_spot_instances": False,
+            "max_runtime_in_seconds": 7200
+        })
     
-    @staticmethod
-    def _apply_prod_overrides(config):
-        """Production environment overrides"""
-        config.instance_type = "ml.m5.2xlarge"  # Larger instances for prod
-        config.max_runtime_in_seconds = 7200    # Longer timeouts
-        config.use_spot_instances = False       # Reliability over cost
-        config.tags["Environment"] = "prod"
-        config.retry_policies.append(
-            StepRetryPolicy(exception_types=[StepExceptionTypeEnum.THROTTLING])
-        )
-        return config
-
-# Usage
-base_config = XGBoostTrainingStepConfig()
-dev_config = EnvironmentConfig.get_config_for_environment(base_config, "dev")
-prod_config = EnvironmentConfig.get_config_for_environment(base_config, "prod")
+    # Create a new config instance with updated values
+    return type(base_config)(**config_dict)
 ```
 
-### 3. Validation and Type Safety
+### 3. Validation and Type Safety with Pydantic
 
 Configs provide validation at creation time to catch errors early:
 
 ```python
-class ValidatedConfig(ConfigBase):
-    """Configuration with comprehensive validation"""
+class XGBoostTrainingConfig(TrainingStepConfig):
+    """Configuration with comprehensive Pydantic validation"""
     
-    def __init__(self, instance_type: str, hyperparameters: Dict[str, Any]):
-        self.instance_type = instance_type
-        self.hyperparameters = hyperparameters
-        
-        # Validate immediately upon creation
-        self.validate_configuration()
-    
-    def validate_configuration(self):
-        """Validate configuration parameters"""
-        errors = []
-        
-        # Validate instance type
+    # Validate instance type
+    @field_validator('training_instance_type')
+    @classmethod
+    def validate_training_instance(cls, v: str) -> str:
         valid_instance_types = ["ml.t3.medium", "ml.m5.large", "ml.m5.xlarge", "ml.m5.2xlarge"]
-        if self.instance_type not in valid_instance_types:
-            errors.append(f"Invalid instance_type: {self.instance_type}. Must be one of: {valid_instance_types}")
-        
-        # Validate hyperparameters
-        if "max_depth" in self.hyperparameters:
-            max_depth = self.hyperparameters["max_depth"]
-            if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 20:
-                errors.append("max_depth must be an integer between 1 and 20")
-        
-        if "eta" in self.hyperparameters:
-            eta = self.hyperparameters["eta"]
-            if not isinstance(eta, (int, float)) or eta <= 0 or eta > 1:
-                errors.append("eta must be a number between 0 and 1")
-        
-        if errors:
-            raise ConfigurationError(f"Configuration validation failed: {errors}")
+        if v not in valid_instance_types:
+            raise ValueError(f"Invalid instance_type: {v}. Must be one of: {valid_instance_types}")
+        return v
     
-    def merge_with(self, other_config: 'ValidatedConfig'):
-        """Merge with another configuration, validating the result"""
-        merged = ValidatedConfig(
-            instance_type=other_config.instance_type or self.instance_type,
-            hyperparameters={**self.hyperparameters, **other_config.hyperparameters}
-        )
-        return merged
+    # Validate source_dir exists
+    @field_validator('source_dir', check_fields=False)
+    @classmethod
+    def validate_source_dir_exists(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.startswith('s3://'):
+            if not Path(v).exists():
+                raise ValueError(f"Local source directory does not exist: {v}")
+        return v
+    
+    # Model validator for interdependent fields
+    @model_validator(mode='after')
+    def validate_dependencies(self) -> 'XGBoostTrainingConfig':
+        """Validate interdependent fields after all values are set"""
+        # Ensure hyperparameters are appropriate for objective
+        if self.hyperparameters.objective == "binary:logistic" and self.hyperparameters.num_class > 1:
+            raise ValueError("num_class should be 1 for binary classification")
+        return self
 ```
 
 ### 4. Template and Defaults
@@ -157,65 +159,37 @@ class ValidatedConfig(ConfigBase):
 Provide sensible defaults with clear customization points:
 
 ```python
-class TemplateConfig:
-    """Template configurations for common use cases"""
-    
-    @staticmethod
-    def quick_prototype_config():
-        """Fast, cheap configuration for prototyping"""
-        return XGBoostTrainingStepConfig(
-            instance_type="ml.t3.medium",
-            instance_count=1,
-            max_runtime_in_seconds=1800,
-            use_spot_instances=True,
-            hyperparameters={
-                "max_depth": 3,
-                "eta": 0.3,
-                "num_round": 100
-            }
+# Factory functions for common configuration patterns
+def create_quick_prototype_config(region: str = "NA", author: str = "default-author") -> XGBoostTrainingConfig:
+    """Fast, cheap configuration for prototyping"""
+    return XGBoostTrainingConfig(
+        region=region,
+        author=author,
+        training_instance_type="ml.t3.medium",
+        training_instance_count=1,
+        training_volume_size=30,
+        hyperparameters=XGBoostModelHyperparameters(
+            max_depth=3,
+            eta=0.3,
+            num_round=100
         )
-    
-    @staticmethod
-    def production_config():
-        """Robust configuration for production workloads"""
-        return XGBoostTrainingStepConfig(
-            instance_type="ml.m5.2xlarge",
-            instance_count=1,
-            max_runtime_in_seconds=7200,
-            use_spot_instances=False,
-            hyperparameters={
-                "max_depth": 6,
-                "eta": 0.1,
-                "num_round": 1000,
-                "early_stopping_rounds": 50
-            },
-            retry_policies=[
-                StepRetryPolicy(exception_types=[StepExceptionTypeEnum.SERVICE_FAULT]),
-                StepRetryPolicy(exception_types=[StepExceptionTypeEnum.THROTTLING])
-            ]
-        )
-    
-    @staticmethod
-    def hyperparameter_tuning_config():
-        """Configuration optimized for hyperparameter tuning"""
-        return XGBoostTrainingStepConfig(
-            instance_type="ml.m5.large",
-            instance_count=1,
-            max_runtime_in_seconds=3600,
-            use_spot_instances=True,
-            hyperparameters={
-                "max_depth": 6,
-                "eta": 0.3,
-                "num_round": 500
-            },
-            # Enable early stopping for tuning efficiency
-            early_stopping_patience=10
-        )
+    )
 
-# Usage
-prototype_config = TemplateConfig.quick_prototype_config()
-production_config = TemplateConfig.production_config()
-tuning_config = TemplateConfig.hyperparameter_tuning_config()
+def create_production_config(region: str, author: str) -> XGBoostTrainingConfig:
+    """Robust configuration for production workloads"""
+    return XGBoostTrainingConfig(
+        region=region,
+        author=author,
+        training_instance_type="ml.m5.2xlarge",
+        training_instance_count=1,
+        training_volume_size=100,
+        hyperparameters=XGBoostModelHyperparameters(
+            max_depth=6,
+            eta=0.1,
+            num_round=1000,
+            early_stopping_rounds=50
+        )
+    )
 ```
 
 ### 5. Integration Bridge
@@ -223,56 +197,129 @@ tuning_config = TemplateConfig.hyperparameter_tuning_config()
 Connect high-level settings to low-level implementation details:
 
 ```python
-class IntegrationConfig(ConfigBase):
+class XGBoostTrainingConfig(TrainingStepConfig):
     """Configuration that bridges high-level intent to implementation"""
     
-    def __init__(self, performance_tier: str = "balanced"):
-        self.performance_tier = performance_tier
-        self._apply_performance_tier_settings()
+    # Performance tier options
+    performance_tier: str = Field(default="balanced", description="Performance tier setting")
     
-    def _apply_performance_tier_settings(self):
-        """Apply settings based on performance tier"""
+    @model_validator(mode='after')
+    def apply_performance_tier(self) -> 'XGBoostTrainingConfig':
+        """Apply settings based on performance tier if not explicitly overridden"""
+        if not hasattr(self, '_performance_applied') or not self._performance_applied:
+            self._performance_applied = True
+            
+            if self.performance_tier == "cost_optimized":
+                if not hasattr(self, '_explicit_instance_type'):
+                    self.training_instance_type = "ml.t3.medium"
+                if not hasattr(self, '_explicit_hyperparams'):
+                    self.hyperparameters.max_depth = 3
+                    self.hyperparameters.eta = 0.3
+                    self.hyperparameters.num_round = 100
+                
+            elif self.performance_tier == "balanced":
+                if not hasattr(self, '_explicit_instance_type'):
+                    self.training_instance_type = "ml.m5.large"
+                if not hasattr(self, '_explicit_hyperparams'):
+                    self.hyperparameters.max_depth = 6
+                    self.hyperparameters.eta = 0.2
+                    self.hyperparameters.num_round = 500
+                
+            elif self.performance_tier == "performance_optimized":
+                if not hasattr(self, '_explicit_instance_type'):
+                    self.training_instance_type = "ml.m5.2xlarge" 
+                if not hasattr(self, '_explicit_hyperparams'):
+                    self.hyperparameters.max_depth = 8
+                    self.hyperparameters.eta = 0.1
+                    self.hyperparameters.num_round = 1000
         
-        if self.performance_tier == "cost_optimized":
-            self.instance_type = "ml.t3.medium"
-            self.use_spot_instances = True
-            self.max_runtime_in_seconds = 1800
-            self.hyperparameters = {"max_depth": 3, "eta": 0.3, "num_round": 100}
-            
-        elif self.performance_tier == "balanced":
-            self.instance_type = "ml.m5.large"
-            self.use_spot_instances = True
-            self.max_runtime_in_seconds = 3600
-            self.hyperparameters = {"max_depth": 6, "eta": 0.2, "num_round": 500}
-            
-        elif self.performance_tier == "performance_optimized":
-            self.instance_type = "ml.m5.2xlarge"
-            self.use_spot_instances = False
-            self.max_runtime_in_seconds = 7200
-            self.hyperparameters = {"max_depth": 8, "eta": 0.1, "num_round": 1000}
-            
-        else:
-            raise ValueError(f"Unknown performance tier: {self.performance_tier}")
+        return self
+```
+
+### 6. Script Contract Integration
+
+Configs now integrate with script contracts to ensure alignment:
+
+```python
+class BasePipelineConfig(BaseModel):
+    """Base configuration with script contract integration"""
     
-    def to_dict(self):
-        """Convert configuration to dictionary for serialization"""
-        return {
-            "performance_tier": self.performance_tier,
-            "instance_type": self.instance_type,
-            "use_spot_instances": self.use_spot_instances,
-            "max_runtime_in_seconds": self.max_runtime_in_seconds,
-            "hyperparameters": self.hyperparameters
-        }
-    
-    @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]):
-        """Create configuration from dictionary"""
-        config = cls(performance_tier=config_dict["performance_tier"])
-        # Override with any explicit settings
-        for key, value in config_dict.items():
-            if key != "performance_tier":
-                setattr(config, key, value)
-        return config
+    def get_script_contract(self) -> Optional['ScriptContract']:
+        """
+        Get script contract for this configuration.
+        
+        This base implementation attempts to dynamically load the script contract
+        based on naming conventions.
+        
+        Returns:
+            Script contract instance or None if not available
+        """
+        # Check for hardcoded script_contract first (for backward compatibility)
+        if hasattr(self, '_script_contract'):
+            return self._script_contract
+            
+        # Otherwise attempt to load based on class name
+        try:
+            class_name = self.__class__.__name__.replace('Config', '')
+            
+            # Try with job_type if available
+            if hasattr(self, 'job_type') and self.job_type:
+                module_name = f"..pipeline_script_contracts.{class_name.lower()}_{self.job_type.lower()}_contract"
+                contract_name = f"{class_name.upper()}_{self.job_type.upper()}_CONTRACT"
+                
+                try:
+                    contract_module = __import__(module_name, fromlist=[''])
+                    if hasattr(contract_module, contract_name):
+                        return getattr(contract_module, contract_name)
+                except (ImportError, AttributeError):
+                    pass
+            
+            # Try without job_type
+            module_name = f"..pipeline_script_contracts.{class_name.lower()}_contract"
+            contract_name = f"{class_name.upper()}_CONTRACT"
+            
+            try:
+                contract_module = __import__(module_name, fromlist=[''])
+                if hasattr(contract_module, contract_name):
+                    return getattr(contract_module, contract_name)
+            except (ImportError, AttributeError):
+                pass
+                
+        except Exception as e:
+            logger.debug(f"Error loading script contract: {e}")
+            
+        return None
+        
+    @property
+    def script_contract(self) -> Optional['ScriptContract']:
+        """
+        Property accessor for script contract.
+        
+        Returns:
+            Script contract instance or None if not available
+        """
+        return self.get_script_contract()
+        
+    def get_script_path(self, default_path: str = None) -> str:
+        """
+        Get script path, preferring contract-defined path if available.
+        
+        Args:
+            default_path: Default script path to use if not found in contract
+            
+        Returns:
+            Script path
+        """
+        # Try to get from contract
+        contract = self.get_script_contract()
+        if contract and hasattr(contract, 'script_path'):
+            return contract.script_path
+            
+        # Fall back to default or hardcoded path
+        if hasattr(self, 'script_path'):
+            return self.script_path
+            
+        return default_path
 ```
 
 ## Integration with Other Components
@@ -282,63 +329,92 @@ class IntegrationConfig(ConfigBase):
 [Step Builders](step_builder.md) use dependency injection pattern with configs:
 
 ```python
-class XGBoostTrainingStepBuilder(BuilderStepBase):
-    def __init__(self, config: XGBoostTrainingStepConfig):
-        self.config = config  # Injected configuration
-        super().__init__()
-    
-    def build_step(self, inputs):
-        # Use configuration to create estimator
-        estimator = XGBoost(
-            entry_point=self.config.entry_point,
-            framework_version=self.config.framework_version,
-            instance_type=self.config.instance_type,
-            hyperparameters=self.config.hyperparameters,
-            role=self.config.role
-        )
+class XGBoostTrainingStepBuilder(StepBuilderBase):
+    def __init__(self, config: XGBoostTrainingConfig, spec=None, **kwargs):
+        # Initialize with both config and specification
+        if not spec:
+            # Load default specification if not provided
+            from ..pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+            spec = XGBOOST_TRAINING_SPEC
+            
+        super().__init__(config=config, spec=spec, **kwargs)
+        self.config = config
         
-        return TrainingStep(
-            name=self.step_name,
-            estimator=estimator,
-            inputs=self._create_inputs(inputs)
-        )
+        # Use script contract from config if available
+        if not self.contract and hasattr(self.config, 'script_contract'):
+            self.contract = self.config.script_contract
 ```
 
-### With Smart Proxies
+### With Script Contracts
 
-[Smart Proxies](smart_proxy.md) use configs for intelligent defaults and customization:
+Configs now directly link with script contracts for validation and integration:
 
 ```python
-class SmartXGBoostTraining:
-    def __init__(self, config: XGBoostTrainingStepConfig = None):
-        self.config = config or TemplateConfig.balanced_config()
-        self.builder = XGBoostTrainingStepBuilder(self.config)
+class XGBoostTrainingConfig(TrainingStepConfig):
+    # This will automatically load the contract from pipeline_script_contracts.xgboost_train_contract
     
-    def with_performance_tier(self, tier: str):
-        """Fluent interface for performance configuration"""
-        self.config = IntegrationConfig(performance_tier=tier)
-        self.builder = XGBoostTrainingStepBuilder(self.config)
-        return self
-    
-    def with_custom_hyperparameters(self, **hyperparameters):
-        """Fluent interface for hyperparameter customization"""
-        self.config.hyperparameters.update(hyperparameters)
+    @model_validator(mode='after')
+    def validate_against_contract(self) -> 'XGBoostTrainingConfig':
+        """Validate configuration against script contract if available"""
+        contract = self.script_contract
+        if contract:
+            # Ensure entry_point matches contract
+            if hasattr(contract, 'entry_point') and self.training_entry_point != contract.entry_point:
+                logger.warning(
+                    f"Entry point '{self.training_entry_point}' doesn't match contract entry point '{contract.entry_point}'. "
+                    f"Using contract entry point."
+                )
+                self.training_entry_point = contract.entry_point
+                
+            # Ensure environment variables required by contract are set
+            if hasattr(contract, 'required_env_vars') and contract.required_env_vars:
+                env = getattr(self, 'env', {}) or {}
+                for req_var in contract.required_env_vars:
+                    if req_var not in env:
+                        raise ValueError(f"Environment variable '{req_var}' required by contract but missing in config")
+        
         return self
 ```
 
-### With Fluent APIs
+### With Step Specifications
 
-[Fluent APIs](fluent_api.md) use configs to provide natural configuration interfaces:
+Configs now work with step specifications for validation:
 
 ```python
-# Natural language configuration through fluent API
-training_step = (Pipeline("fraud-detection")
-    .train_xgboost()
-    .with_performance_tier("cost_optimized")
-    .with_hyperparameters(max_depth=4, eta=0.2)
-    .with_early_stopping(patience=10)
-    .on_spot_instances()
-    .with_timeout_minutes(30))
+class XGBoostTrainingConfig(TrainingStepConfig):
+    # Configuration values
+    
+    def validate_against_specification(self, spec: 'StepSpecification') -> None:
+        """
+        Validate configuration against a step specification.
+        
+        Args:
+            spec: Step specification to validate against
+            
+        Raises:
+            ValueError: If configuration doesn't meet specification requirements
+        """
+        if not spec:
+            return
+            
+        # Check if contract is compatible with specification
+        if spec.script_contract and self.script_contract:
+            if spec.script_contract != self.script_contract:
+                # Detailed contract compatibility check
+                incompatibilities = []
+                for input_name, input_path in spec.script_contract.expected_input_paths.items():
+                    if input_name in self.script_contract.expected_input_paths:
+                        if self.script_contract.expected_input_paths[input_name] != input_path:
+                            incompatibilities.append(
+                                f"Input path mismatch for '{input_name}': "
+                                f"spec={input_path}, config={self.script_contract.expected_input_paths[input_name]}"
+                            )
+                
+                if incompatibilities:
+                    raise ValueError(
+                        f"Configuration script contract incompatible with specification:\n" +
+                        "\n".join(incompatibilities)
+                    )
 ```
 
 ## Strategic Value
@@ -346,38 +422,65 @@ training_step = (Pipeline("fraud-detection")
 Configs provide:
 
 1. **Configuration Centralization**: Single source of truth for all settings
-2. **Environment Flexibility**: Easy adaptation to different deployment environments
-3. **Validation and Safety**: Early error detection through validation
-4. **Template Reusability**: Common patterns can be shared and customized
-5. **Integration Simplification**: Bridge between high-level intent and implementation
-6. **Maintainability**: Changes to configuration logic isolated and manageable
+2. **Contract Integration**: Ensure alignment with script contracts
+3. **Specification Validation**: Validate against step specifications
+4. **Validation and Safety**: Early error detection through Pydantic
+5. **Template Reusability**: Common patterns can be shared and customized
+6. **Integration Simplification**: Bridge between high-level intent and implementation
+7. **Maintainability**: Changes to configuration logic isolated and manageable
 
-## Example Usage
+## Example Usage with Specifications and Contracts
 
 ```python
-# Basic configuration creation
-config = XGBoostTrainingStepConfig(
-    instance_type="ml.m5.xlarge",
-    hyperparameters={"max_depth": 6, "eta": 0.3}
+# Create config for XGBoost training
+config = XGBoostTrainingConfig(
+    region="NA",
+    author="data-scientist",
+    bucket="my-ml-bucket",
+    pipeline_name="fraud-detection",
+    pipeline_description="Fraud Detection ML Pipeline",
+    pipeline_version="1.0.0",
+    training_instance_type="ml.m5.xlarge",
+    hyperparameters=XGBoostModelHyperparameters(
+        max_depth=6,
+        eta=0.3,
+        objective="binary:logistic"
+    )
 )
 
-# Environment-specific configuration
-dev_config = EnvironmentConfig.get_config_for_environment(config, "dev")
-prod_config = EnvironmentConfig.get_config_for_environment(config, "prod")
+# Config automatically links with appropriate script contract
+assert config.script_contract.entry_point == "train_xgb.py"
 
-# Template-based configuration
-prototype_config = TemplateConfig.quick_prototype_config()
+# Create builder with config
+from ..pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+builder = XGBoostTrainingStepBuilder(config=config, spec=XGBOOST_TRAINING_SPEC)
 
-# High-level configuration
-performance_config = IntegrationConfig(performance_tier="performance_optimized")
-
-# Configuration merging and validation
-merged_config = config.merge_with(performance_config)
-merged_config.validate_configuration()
-
-# Serialization for persistence
-config_dict = merged_config.to_dict()
-restored_config = IntegrationConfig.from_dict(config_dict)
+# Contract is available from both config and spec
+assert builder.contract.entry_point == "train_xgb.py"
 ```
 
-Configs form the **configuration management foundation** that enables flexible, validated, and environment-aware configuration of pipeline components while maintaining clean separation between configuration logic and implementation details.
+## JSON Configuration Loading
+
+```python
+def load_config_from_json(json_path: str, config_class: Type[BasePipelineConfig]) -> BasePipelineConfig:
+    """
+    Load configuration from JSON file.
+    
+    Args:
+        json_path: Path to JSON config file
+        config_class: Configuration class to instantiate
+        
+    Returns:
+        Configuration instance
+    """
+    with open(json_path, 'r') as f:
+        config_data = json.load(f)
+    
+    # Use Pydantic model_validate for proper validation
+    return config_class.model_validate(config_data)
+
+# Usage
+config = load_config_from_json("configs/xgboost_training.json", XGBoostTrainingConfig)
+```
+
+Configs form the **configuration management foundation** that enables flexible, validated, and environment-aware configuration of pipeline components while maintaining alignment with script contracts and step specifications.
