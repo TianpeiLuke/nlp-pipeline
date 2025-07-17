@@ -374,3 +374,177 @@ The PropertyReference design provides several key benefits:
 - [Base Specifications](base_specifications.md): Defines OutputSpec and StepSpecification
 - [Dependency Resolver](dependency_resolver.md): Creates PropertyReference objects during resolution
 - [Pipeline Assembler](../pipeline_builder/pipeline_assembler.md): Uses PropertyReference objects for step wiring
+
+## SageMaker Step Properties Reference
+
+The following is a comprehensive list of SageMaker step properties organized by step type. This reference is valuable for understanding the property paths that need to be parsed by the PropertyReference class.
+
+### Training Step Properties
+
+```
+properties.ModelArtifacts.S3ModelArtifacts       # Path to model artifacts
+properties.TrainingJobName                       # Name of the training job
+properties.TrainingJobArn                        # ARN of the training job
+properties.TrainingJobStatus                     # Status of the training job
+properties.SecondaryStatus                       # Secondary status details
+properties.HyperParameters                       # Dictionary of hyperparameters
+properties.HyperParameters['param_name']         # Access specific hyperparameter
+properties.OutputDataConfig.S3OutputPath         # S3 path for output data
+properties.ResourceConfig.InstanceType           # Instance type used
+properties.ResourceConfig.InstanceCount          # Number of instances used
+properties.StoppingCondition.MaxRuntimeInSeconds # Maximum runtime
+```
+
+### Processing Step Properties
+
+```
+properties.ProcessingInputs[0].S3Input.S3Uri     # First input S3 location
+properties.ProcessingInputs['named'].S3Input.S3Uri  # Named input S3 location
+properties.ProcessingOutputConfig.Outputs['output_name'].S3Output.S3Uri  # Output location
+properties.ProcessingJobName                     # Name of the processing job
+properties.ProcessingJobArn                      # ARN of the processing job
+properties.ProcessingJobStatus                   # Status of the processing job
+properties.ProcessingResources.ClusterConfig.InstanceType  # Instance type
+properties.ProcessingResources.ClusterConfig.InstanceCount  # Instance count
+properties.AppSpecification.ImageUri             # Docker image URI
+properties.AppSpecification.ContainerArguments[0]  # First container argument
+properties.RoleArn                               # IAM role ARN
+```
+
+### Model Step Properties
+
+```
+properties.ModelName                             # Name of the model
+properties.ModelArn                              # ARN of the model
+properties.PrimaryContainer.Image                # Primary container image URI
+properties.PrimaryContainer.ModelDataUrl         # Model data S3 location
+properties.PrimaryContainer.Environment['ENV_VAR']  # Environment variable
+properties.Containers[0].Image                   # First container image (for multi-container)
+properties.Containers[0].ModelDataUrl            # First container model data URL
+properties.ExecutionRoleArn                      # IAM role ARN
+```
+
+### Transform Step Properties
+
+```
+properties.TransformJobName                      # Name of the transform job
+properties.TransformJobArn                       # ARN of the transform job
+properties.TransformJobStatus                    # Status of the transform job
+properties.ModelName                             # Name of the model used
+properties.TransformOutput.S3OutputPath          # Output S3 location
+properties.TransformInput.DataSource.S3DataSource.S3Uri  # Input data source
+properties.TransformResources.InstanceType       # Instance type
+properties.TransformResources.InstanceCount      # Instance count
+properties.BatchStrategy                         # Batch transform strategy
+```
+
+### Evaluation Step Properties
+
+```
+properties.ProcessingJobName                     # Name of the evaluation job
+properties.ProcessingOutputConfig.Outputs['evaluation'].S3Output.S3Uri  # Evaluation output
+properties.ProcessingOutputConfig.Outputs['metrics'].S3Output.S3Uri  # Metrics output
+properties.Statistics['accuracy']                # Accuracy metric
+properties.Statistics['precision']               # Precision metric
+properties.Statistics['recall']                  # Recall metric
+properties.Statistics['f1']                      # F1 score
+properties.Statistics['confusion_matrix'][0][0]  # Confusion matrix entry
+properties.Statistics['roc_auc']                 # ROC AUC score
+```
+
+### Hyperparameter Tuning Step Properties
+
+```
+properties.BestTrainingJob.TrainingJobName       # Best training job name
+properties.BestTrainingJob.TrainingJobArn        # Best training job ARN
+properties.BestTrainingJob.ModelArtifacts.S3ModelArtifacts  # Best model artifacts
+properties.BestTrainingJob.FinalHyperParameterTuningJobObjectiveMetric.Value  # Best metric value
+properties.TrainingJobSummaries[0].TrainingJobName  # First training job name
+properties.TrainingJobSummaries[0].TrainingJobArn   # First training job ARN
+properties.TrainingJobSummaries[0].FinalHyperParameterTuningJobObjectiveMetric.Value  # First job metric
+properties.TrainingJobSummaries[0].HyperParameters['param_name']  # Hyperparameter of first job
+properties.TrainingJobSummaries.Length              # Number of training jobs
+properties.HyperParameterTuningJobName           # Tuning job name
+properties.HyperParameterTuningJobStatus         # Tuning job status
+```
+
+### Model Registry Step Properties
+
+```
+properties.ModelPackageName                      # Model package name
+properties.ModelPackageArn                       # Model package ARN
+properties.ModelPackageStatus                    # Status of model package
+properties.ModelApprovalStatus                   # Approval status
+properties.CreationTime                          # Creation timestamp
+properties.ModelMetrics.ModelQuality.Statistics.RegressionMetrics.RSquared  # R-squared value
+properties.ModelMetrics.ModelQuality.Statistics.ClassificationMetrics.Accuracy  # Accuracy metric
+properties.InferenceSpecification.Containers[0].Image  # Container image
+properties.InferenceSpecification.SupportedContentTypes[0]  # Supported content type
+```
+
+### Clarify Step Properties
+
+```
+properties.ProcessingJobName                     # Name of the clarify job
+properties.ProcessingOutputConfig.Outputs['analysis'].S3Output.S3Uri  # Analysis output
+properties.ProcessingOutputConfig.Outputs['shap_values'].S3Output.S3Uri  # SHAP values
+properties.AnalysisResult.BiasMetrics['class_probability_difference_in_labels']  # Bias metric
+properties.AnalysisResult.FeatureImportance[0].FeatureName  # Most important feature name
+properties.AnalysisResult.FeatureImportance[0].Importance   # Importance score
+properties.ExplainabilityReport.S3Uri           # Explainability report location
+properties.DataConfig.S3Uri                     # Input data location
+```
+
+### Conditional Step Properties
+
+```
+properties.Outcome                               # Step outcome (true/false)
+properties.ConditionOutcome                      # Detailed condition outcome
+properties.IfSteps[0].StepName                   # Name of first 'if' step 
+properties.IfSteps.Length                        # Number of 'if' steps
+properties.ElseSteps[0].StepName                 # Name of first 'else' step
+properties.ElseSteps.Length                      # Number of 'else' steps
+```
+
+### Lambda Step Properties
+
+```
+properties.FunctionArn                           # Lambda function ARN
+properties.Payload                               # Lambda function payload
+properties.Payload['output_key']                 # Access specific output key
+properties.OutputFile                            # Output file S3 location
+properties.StatusCode                            # Lambda execution status code
+properties.ExecutedVersion                       # Lambda version executed
+```
+
+### Array Indexing in SageMaker Properties
+
+Several SageMaker step properties use array indexing patterns:
+
+1. **Accessing array elements with numeric indices**:
+   ```
+   properties.TrainingJobSummaries[0].TrainingJobName
+   properties.ProcessingInputs[0].S3Input.S3Uri
+   properties.Containers[0].Image
+   properties.AppSpecification.ContainerArguments[0]
+   properties.Statistics['confusion_matrix'][0][0]
+   properties.AnalysisResult.FeatureImportance[0].FeatureName
+   properties.IfSteps[0].StepName
+   ```
+
+2. **Mixed patterns with array indexing and subsequent property access**:
+   ```
+   properties.TrainingJobSummaries[0].FinalHyperParameterTuningJobObjectiveMetric.Value
+   properties.AnalysisResult.FeatureImportance[0].FeatureName
+   ```
+
+3. **Multi-dimensional array access**:
+   ```
+   properties.Statistics['confusion_matrix'][0][0]
+   ```
+
+These examples confirm that property path parsing must support:
+- Dictionary access with string keys (e.g., `Outputs['output_name']`)
+- Array indexing with numeric indices (e.g., `Containers[0]`)
+- Mixed patterns with both types of access (e.g., `TrainingJobSummaries[0].TrainingJobName`)
+- Multiple levels of nesting (e.g., `BestTrainingJob.FinalHyperParameterTuningJobObjectiveMetric.Value`)

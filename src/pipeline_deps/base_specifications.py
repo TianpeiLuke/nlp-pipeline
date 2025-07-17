@@ -324,10 +324,8 @@ class PropertyReference(BaseModel):
     
     def to_sagemaker_property(self) -> Dict[str, str]:
         """Convert to SageMaker Properties dictionary format at pipeline definition time."""
-        # Get the property path without 'properties.' prefix
+        # Keep the property path as is - includes 'properties.'
         property_path = self.output_spec.property_path
-        if property_path.startswith('properties.'):
-            property_path = property_path[11:]
         
         return {"Get": f"Steps.{self.step_name}.{property_path}"}
     
@@ -403,10 +401,11 @@ class PropertyReference(BaseModel):
         """
         Parse a property path into a sequence of access operations.
         
-        This method handles various property path formats, including:
-        - Regular attribute access: "properties.ProcessingOutputConfig"
-        - Dictionary access: "Outputs['DATA']"
-        - Combined access: "properties.ProcessingOutputConfig.Outputs['DATA']"
+        This method handles various SageMaker property path formats, including:
+        - Regular attribute access: "properties.ModelArtifacts.S3ModelArtifacts"
+        - Dictionary access: "properties.Outputs['DATA']"
+        - Array indexing: "properties.TrainingJobSummaries[0]"
+        - Mixed patterns: "properties.Config.Outputs['data'].Sub[0].Value"
         
         Args:
             path: Property path as a string
@@ -414,7 +413,7 @@ class PropertyReference(BaseModel):
         Returns:
             List of access operations, where each operation is either:
             - A string for attribute access
-            - A tuple (attr_name, key) for dictionary access
+            - A tuple (attr_name, key) for dictionary access or array indexing
         """
         # Remove "properties." prefix if present
         if path.startswith("properties."):
@@ -422,12 +421,15 @@ class PropertyReference(BaseModel):
         
         result = []
         
-        # Improved pattern to match dictionary access like: 
-        # Outputs['DATA'] or Outputs["DATA"] or Outputs[0]
-        # Ensures that quotes are properly balanced using backreference
+        # Regular expression patterns:
+        # 1. Dictionary access: Outputs['key'] or Outputs["key"]
         dict_pattern = re.compile(r'(\w+)\[([\'"]?)([^\]\'\"]+)\2\]')
+        # 2. Array indexing: Array[0]
+        array_pattern = re.compile(r'(\w+)\[(\d+)\]')
+        # 3. Detect complex case with dot after bracket: Sub[0].Value
+        complex_pattern = re.compile(r'([^.]+\[\d+\])\.(.+)')
         
-        # Split by dots first, but preserve quoted parts
+        # Split by dots first, but preserve quoted parts and brackets
         parts = []
         current = ""
         in_brackets = False
@@ -454,7 +456,34 @@ class PropertyReference(BaseModel):
             parts.append(current)
         
         # Process each part
-        for part in parts:
+        i = 0
+        while i < len(parts):
+            part = parts[i]
+            
+            # Handle the complex case: "Sub[0].Value"
+            complex_match = complex_pattern.match(part)
+            if complex_match:
+                # Split into bracket part and property part
+                bracket_part = complex_match.group(1)  # "Sub[0]"
+                property_part = complex_match.group(2)  # "Value"
+                
+                # Process the bracket part
+                array_match = array_pattern.match(bracket_part)
+                if array_match:
+                    # Add the array name
+                    array_name = array_match.group(1)
+                    result.append(array_name)
+                    
+                    # Add the array index as a tuple with empty attr_name
+                    array_index = int(array_match.group(2))
+                    result.append(("", array_index))
+                
+                # Add the property part
+                result.append(property_part)
+                
+                i += 1
+                continue
+            
             # Check if this part contains dictionary access
             dict_match = dict_pattern.match(part)
             if dict_match:
@@ -470,8 +499,21 @@ class PropertyReference(BaseModel):
                 # Add a tuple for dictionary access
                 result.append((attr_name, key))
             else:
-                # Regular attribute access
-                result.append(part)
+                # Check for pure array indexing
+                array_match = array_pattern.match(part)
+                if array_match:
+                    # Add the array name
+                    array_name = array_match.group(1)
+                    result.append(array_name)
+                    
+                    # Add the array index as a tuple with empty attr_name
+                    array_index = int(array_match.group(2))
+                    result.append(("", array_index))
+                else:
+                    # Regular attribute access
+                    result.append(part)
+            
+            i += 1
         
         return result
     
