@@ -208,7 +208,7 @@ class TestOutputSpec(IsolatedTestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        # Create a fresh instance of the enum for each test to ensure isolation
+        # Create fresh instances of the enums for each test to ensure isolation
         self.output_type = DependencyType.PROCESSING_OUTPUT
         self.valid_output_data = {
             "logical_name": "processed_data",
@@ -246,6 +246,55 @@ class TestOutputSpec(IsolatedTestCase):
         
         self.assertEqual(output_spec.data_type, "S3Uri")  # Default
         self.assertEqual(output_spec.description, "")  # Default empty string
+        self.assertEqual(output_spec.aliases, [])  # Default empty list
+        
+    def test_output_aliases(self):
+        """Test OutputSpec alias functionality."""
+        # Test creating an output with aliases
+        output_spec = OutputSpec(
+            logical_name="model_artifacts",
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.ModelArtifacts.S3ModelArtifacts",
+            aliases=["ModelOutput", "model_data", "training_model"]
+        )
+        
+        self.assertEqual(len(output_spec.aliases), 3)
+        self.assertIn("ModelOutput", output_spec.aliases)
+        self.assertIn("model_data", output_spec.aliases)
+        self.assertIn("training_model", output_spec.aliases)
+        
+        # Test that aliases are properly cleaned (strip whitespace, remove duplicates)
+        output_spec = OutputSpec(
+            logical_name="test_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.test",
+            aliases=["  alias1  ", "ALIAS2", "alias2", "alias1", "new_alias"]
+        )
+        
+        self.assertEqual(len(output_spec.aliases), 3)  # Duplicates are removed case-insensitively
+        self.assertIn("alias1", output_spec.aliases)
+        self.assertIn("ALIAS2", output_spec.aliases)  # Original case is preserved
+        self.assertIn("new_alias", output_spec.aliases)
+        
+        # Test alias validation (case insensitive conflicts with logical name)
+        with self.assertRaises(ValueError) as context:
+            OutputSpec(
+                logical_name="model_artifacts",
+                output_type=DependencyType.MODEL_ARTIFACTS,
+                property_path="properties.ModelArtifacts.S3ModelArtifacts",
+                aliases=["model_artifacts"]  # Should conflict with logical_name
+            )
+        self.assertIn("cannot be the same as logical_name", str(context.exception))
+        
+        # Test alias with invalid characters
+        with self.assertRaises(ValueError) as context:
+            OutputSpec(
+                logical_name="test_output",
+                output_type=DependencyType.PROCESSING_OUTPUT,
+                property_path="properties.test",
+                aliases=["valid_alias", "invalid@alias"]
+            )
+        self.assertIn("should contain only alphanumeric characters", str(context.exception))
     
     def test_logical_name_validation(self):
         """Test logical name validation."""
@@ -325,70 +374,8 @@ class TestOutputSpec(IsolatedTestCase):
         self.assertEqual(new_spec.output_type, output_spec.output_type)
 
 
-class TestPropertyReference(IsolatedTestCase):
-    """Test cases for PropertyReference class."""
-    
-    def setUp(self):
-        """Set up test fixtures."""
-        self.output_spec = OutputSpec(
-            logical_name="model_artifacts",
-            output_type=DependencyType.MODEL_ARTIFACTS,
-            property_path="properties.ModelArtifacts.S3ModelArtifacts"
-        )
-    
-    def test_valid_property_reference_creation(self):
-        """Test creating a valid PropertyReference."""
-        prop_ref = PropertyReference(
-            step_name="training_step",
-            output_spec=self.output_spec
-        )
-        
-        self.assertEqual(prop_ref.step_name, "training_step")
-        self.assertEqual(prop_ref.output_spec.logical_name, "model_artifacts")
-    
-    def test_step_name_validation(self):
-        """Test step name validation."""
-        # Empty step name should fail
-        with self.assertRaises(ValueError) as context:
-            PropertyReference(
-                step_name="",
-                output_spec=self.output_spec
-            )
-        self.assertTrue("String should have at least 1 character" in str(context.exception) or
-                       "step_name cannot be empty" in str(context.exception))
-        
-        # Whitespace-only step name should fail
-        with self.assertRaises(ValueError) as context:
-            PropertyReference(
-                step_name="   ",
-                output_spec=self.output_spec
-            )
-        self.assertIn("step_name cannot be empty", str(context.exception))
-    
-    def test_sagemaker_property_conversion(self):
-        """Test conversion to SageMaker property format."""
-        prop_ref = PropertyReference(
-            step_name="training_step",
-            output_spec=self.output_spec
-        )
-        
-        sagemaker_prop = prop_ref.to_sagemaker_property()
-        expected = {"Get": "Steps.training_step.properties.ModelArtifacts.S3ModelArtifacts"}
-        self.assertEqual(sagemaker_prop, expected)
-    
-    def test_string_representation(self):
-        """Test string representation methods."""
-        prop_ref = PropertyReference(
-            step_name="training_step",
-            output_spec=self.output_spec
-        )
-        
-        # Test __str__
-        self.assertEqual(str(prop_ref), "training_step.model_artifacts")
-        
-        # Test __repr__
-        expected_repr = "PropertyReference(step='training_step', output='model_artifacts')"
-        self.assertEqual(repr(prop_ref), expected_repr)
+# TestPropertyReference class has been moved to test_property_reference.py
+# See test/pipeline_deps/test_property_reference.py for PropertyReference tests
 
 
 class TestStepSpecification(IsolatedTestCase):
@@ -413,6 +400,13 @@ class TestStepSpecification(IsolatedTestCase):
             logical_name="processed_data",
             output_type=self.dependency_type,
             property_path="properties.ProcessingOutputConfig.Outputs['ProcessedData'].S3Output.S3Uri"
+        )
+        
+        self.model_output_spec = OutputSpec(
+            logical_name="model_artifacts",
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.ModelArtifacts.S3ModelArtifacts",
+            aliases=["model_output", "model_data"]
         )
     
     def test_internal_node_creation(self):
@@ -572,9 +566,7 @@ class TestStepSpecification(IsolatedTestCase):
             dependencies=[],
             outputs=[self.output_spec]
         )
-        # With use_enum_values=True, we expect a string value
-        self.assertEqual(step_spec.node_type, "source")
-        # We can still compare with the enum
+        # StepSpecification stores node_type as enum instance (use_enum_values=False)
         self.assertEqual(step_spec.node_type, NodeType.SOURCE)
     
     def test_dependency_and_output_access(self):
@@ -669,6 +661,109 @@ class TestStepSpecification(IsolatedTestCase):
         
         errors = step_spec.validate()
         self.assertEqual(len(errors), 0)  # Should have no errors
+        
+    def test_output_name_resolution(self):
+        """Test get_output_by_name_or_alias method."""
+        # Create step with output that has aliases
+        step_spec = StepSpecification(
+            step_type="TrainingStep",
+            node_type=self.node_type_internal,
+            dependencies=[self.dep_spec],
+            outputs=[self.model_output_spec]
+        )
+        
+        # Test lookup by logical name
+        result = step_spec.get_output_by_name_or_alias("model_artifacts")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.logical_name, "model_artifacts")
+        
+        # Test lookup by alias
+        result = step_spec.get_output_by_name_or_alias("model_output")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.logical_name, "model_artifacts")
+        
+        # Test lookup by another alias
+        result = step_spec.get_output_by_name_or_alias("model_data")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.logical_name, "model_artifacts")
+        
+        # Test case insensitivity
+        result = step_spec.get_output_by_name_or_alias("MODEL_OUTPUT")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.logical_name, "model_artifacts")
+        
+        # Test lookup with non-existent name
+        result = step_spec.get_output_by_name_or_alias("non_existent")
+        self.assertIsNone(result)
+        
+    def test_list_all_output_names(self):
+        """Test list_all_output_names method."""
+        # Create step with output that has aliases
+        step_spec = StepSpecification(
+            step_type="TrainingStep",
+            node_type=self.node_type_internal,
+            dependencies=[self.dep_spec],
+            outputs=[self.model_output_spec]
+        )
+        
+        # Get all output names
+        all_names = step_spec.list_all_output_names()
+        
+        # Should include logical name and all aliases
+        self.assertEqual(len(all_names), 3)
+        self.assertIn("model_artifacts", all_names)
+        self.assertIn("model_output", all_names)
+        self.assertIn("model_data", all_names)
+    
+    def test_node_type_constraints_with_multiple_items(self):
+        """Test node type constraints with multiple dependencies/outputs."""
+        # Create multiple dependencies
+        dep1 = DependencySpec(logical_name="dep1", dependency_type=DependencyType.PROCESSING_OUTPUT)
+        dep2 = DependencySpec(logical_name="dep2", dependency_type=DependencyType.HYPERPARAMETERS)
+        
+        # Create multiple outputs
+        out1 = OutputSpec(
+            logical_name="out1", 
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.path1"
+        )
+        out2 = OutputSpec(
+            logical_name="out2", 
+            output_type=DependencyType.MODEL_ARTIFACTS,
+            property_path="properties.path2"
+        )
+        
+        # Test INTERNAL node with multiple dependencies and outputs
+        internal_spec = StepSpecification(
+            step_type="MultiIOStep",
+            node_type=self.node_type_internal,
+            dependencies=[dep1, dep2],
+            outputs=[out1, out2]
+        )
+        
+        self.assertEqual(len(internal_spec.dependencies), 2)
+        self.assertEqual(len(internal_spec.outputs), 2)
+        
+        # Test utility methods with multiple items
+        self.assertEqual(len(internal_spec.list_required_dependencies()), 2)  # Default is required=True
+        
+        # Test list_dependencies_by_type
+        processing_deps = internal_spec.list_dependencies_by_type(DependencyType.PROCESSING_OUTPUT)
+        self.assertEqual(len(processing_deps), 1)
+        self.assertEqual(processing_deps[0].logical_name, "dep1")
+        
+        hyperparam_deps = internal_spec.list_dependencies_by_type(DependencyType.HYPERPARAMETERS)
+        self.assertEqual(len(hyperparam_deps), 1)
+        self.assertEqual(hyperparam_deps[0].logical_name, "dep2")
+        
+        # Test list_outputs_by_type
+        processing_outputs = internal_spec.list_outputs_by_type(DependencyType.PROCESSING_OUTPUT)
+        self.assertEqual(len(processing_outputs), 1)
+        self.assertEqual(processing_outputs[0].logical_name, "out1")
+        
+        model_outputs = internal_spec.list_outputs_by_type(DependencyType.MODEL_ARTIFACTS)
+        self.assertEqual(len(model_outputs), 1)
+        self.assertEqual(model_outputs[0].logical_name, "out2")
     
     def test_repr_method(self):
         """Test __repr__ method."""
@@ -829,9 +924,7 @@ class TestEnumValidation(IsolatedTestCase):
                 logical_name="test_dep",
                 dependency_type=value
             )
-            # With use_enum_values=True, we expect a string value
-            self.assertEqual(dep_spec.dependency_type, value)
-            # We can still compare with the enum
+            # The model is using enum instances, not string values
             self.assertEqual(dep_spec.dependency_type, DependencyType(value))
             
             # Test in OutputSpec
@@ -840,9 +933,7 @@ class TestEnumValidation(IsolatedTestCase):
                 output_type=value,
                 property_path="properties.test.path"
             )
-            # With use_enum_values=True, we expect a string value
-            self.assertEqual(output_spec.output_type, value)
-            # We can still compare with the enum
+            # The model is using enum instances, not string values
             self.assertEqual(output_spec.output_type, DependencyType(value))
     
     def test_node_type_enum_values(self):
@@ -902,9 +993,7 @@ class TestEnumValidation(IsolatedTestCase):
                     )]
                 )
             
-            # With use_enum_values=True, we expect a string value
-            self.assertEqual(step_spec.node_type, value.value)
-            # We can still compare with the enum
+            # StepSpecification uses use_enum_values=False, so we get the enum instance
             self.assertEqual(step_spec.node_type, value)
 
 
@@ -1020,6 +1109,41 @@ class TestPydanticFeatures(IsolatedTestCase):
         # Test that invalid assignment still fails
         with self.assertRaises(ValueError):
             dep_spec.logical_name = ""  # Should fail validation
+            
+    def test_pydantic_v2_specific_features(self):
+        """Test Pydantic V2 specific features."""
+        # Test JSON schema generation
+        schema = StepSpecification.model_json_schema()
+        self.assertIn("properties", schema)
+        self.assertIn("step_type", schema["properties"])
+        self.assertIn("dependencies", schema["properties"])
+        self.assertIn("outputs", schema["properties"])
+        
+        # Test model_validate_json
+        dep_spec = DependencySpec(
+            logical_name="test_dep",
+            dependency_type=DependencyType.PROCESSING_OUTPUT
+        )
+        
+        json_str = dep_spec.model_dump_json()
+        new_dep_spec = DependencySpec.model_validate_json(json_str)
+        
+        self.assertEqual(new_dep_spec.logical_name, dep_spec.logical_name)
+        self.assertEqual(new_dep_spec.dependency_type, dep_spec.dependency_type)
+        
+        # Test model_validate with dict
+        output_spec = OutputSpec(
+            logical_name="test_output",
+            output_type=DependencyType.PROCESSING_OUTPUT,
+            property_path="properties.test_path"
+        )
+        
+        dict_data = output_spec.model_dump()
+        new_output_spec = OutputSpec.model_validate(dict_data)
+        
+        self.assertEqual(new_output_spec.logical_name, output_spec.logical_name)
+        self.assertEqual(new_output_spec.output_type, output_spec.output_type)
+        self.assertEqual(new_output_spec.property_path, output_spec.property_path)
 
 
 class TestScriptContractIntegration(IsolatedTestCase):
@@ -1182,11 +1306,11 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
     
     def test_no_circular_imports(self):
         """Test that there are no circular import issues."""
-        from src.pipeline_step_specs import (
-            MODEL_EVAL_SPEC,
-            PREPROCESSING_TRAINING_SPEC,
-            XGBOOST_TRAINING_SPEC,
-        )
+        # Import directly from the specific modules instead of from the package
+        from src.pipeline_step_specs.model_eval_spec import MODEL_EVAL_SPEC
+        from src.pipeline_step_specs.preprocessing_training_spec import PREPROCESSING_TRAINING_SPEC
+        from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+        
         self.assertIsNotNone(MODEL_EVAL_SPEC)
         self.assertIsNotNone(PREPROCESSING_TRAINING_SPEC)
         self.assertIsNotNone(XGBOOST_TRAINING_SPEC)

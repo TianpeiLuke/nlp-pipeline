@@ -514,7 +514,7 @@ class TestDependencyResolver(unittest.TestCase):
             output_spec=output_spec
         )
         
-        # Test to_sagemaker_property
+        # Test to_sagemaker_property - implementation removes "properties." prefix
         sagemaker_prop = prop_ref.to_sagemaker_property()
         self.assertEqual(
             sagemaker_prop,
