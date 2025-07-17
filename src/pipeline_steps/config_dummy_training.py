@@ -12,8 +12,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 from pathlib import Path
 
 from .config_processing_step_base import ProcessingStepConfigBase
-from .hyperparameters_base import BaseHyperparameters
-from .hyperparameters_xgboost import XGBoostHyperparameters
+from .hyperparameters_base import ModelHyperparameters
 
 # Import the script contract
 from ..pipeline_script_contracts.dummy_training_contract import DUMMY_TRAINING_CONTRACT
@@ -44,9 +43,9 @@ class DummyTrainingConfig(ProcessingStepConfigBase):
         description="Local path to pretrained model.tar.gz file."
     )
     
-    # Add hyperparameters similar to XGBoost training config
-    hyperparameters: BaseHyperparameters = Field(
-        default_factory=XGBoostHyperparameters,
+    # Add hyperparameters - compatible with both XGBoost and PyTorch models
+    hyperparameters: ModelHyperparameters = Field(
+        default_factory=ModelHyperparameters,
         description="Model hyperparameters to be included in the model package."
     )
     

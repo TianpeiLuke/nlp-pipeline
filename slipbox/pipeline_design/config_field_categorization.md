@@ -85,6 +85,38 @@ Only static fields are eligible for the shared section. A field is considered st
 - It's not a complex type (large dictionaries, lists, or Pydantic models)
 - It's not explicitly marked as a special field
 
+## Config Step Name Generation and Uniqueness
+
+### Step Name Generation Logic
+
+Each configuration is assigned a unique step name that becomes the key in the specific sections. This step name is generated based on:
+
+1. Base step name from the configuration class name
+2. Additional distinguishing attributes if present
+
+```python
+# Base step name from registry
+base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
+step_name = base_step
+
+# Append distinguishing attributes
+for attr in ("job_type", "data_type", "mode"):
+    if hasattr(config, attr):
+        val = getattr(config, attr)
+        if val is not None:
+            step_name = f"{step_name}_{val}"
+```
+
+### Important Config Uniqueness Assumption
+
+**The configuration system assumes that configs of the same class type will be distinguished by at least one of these attributes: "job_type", "data_type", or "mode".** If multiple configs of the same class exist without these distinguishing attributes, they will have the same step_name and only one will appear in the output structure (the later one will overwrite earlier ones).
+
+This is an intentional design decision to enforce logical separation of configurations. Different configs should either:
+- Be different classes (with unique class names)
+- Or have different purposes indicated by job_type, data_type, or mode attributes
+
+For proper handling of multiple similar configurations, ensure they have distinct values for at least one of these attributes.
+
 ## Decision Process Flow
 
 The full decision process for each field follows these steps:
@@ -199,6 +231,13 @@ As we found with the hyperparameters field, special fields might be identified c
 - Force add any missing special fields to their appropriate sections
 - Add extra logging to track the handling of special fields
 
+### 4. Multiple Configs of the Same Class
+
+If multiple configs of the same class exist without distinguishing attributes (job_type, data_type, mode), they will have the same step_name and only one will appear in the output. Solutions:
+- Always provide distinguishing attributes for configs of the same class
+- Use different class types if the configurations serve fundamentally different purposes
+- Check the output to ensure all expected configs appear with their own sections
+
 ## Recommendations for Adding New Special Fields
 
 When adding new fields that should always be kept specific:
@@ -217,6 +256,7 @@ To verify field categorization is working correctly:
 3. Verify special fields appear in their specific sections
 4. Check that shared fields have identical values across configs
 5. Verify that no field appears in both shared and specific sections
+6. If testing multiple configs of the same class, ensure they have distinguishing attributes
 
 ---
 
