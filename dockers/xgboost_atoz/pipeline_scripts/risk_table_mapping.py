@@ -340,8 +340,6 @@ def main(job_type: str,
          output_dir: str, 
          hyperparams: dict, 
          risk_table_input_dir: str = None,
-         train_ratio: float = 0.7, 
-         test_val_ratio: float = 0.5,
          load_data_func=load_split_data,
          save_data_func=save_output_data):
     """
@@ -353,8 +351,6 @@ def main(job_type: str,
         output_dir: Output directory for processed data
         hyperparams: Hyperparameters dictionary loaded from hyperparameters.json
         risk_table_input_dir: Directory containing pre-trained risk tables (for non-training jobs)
-        train_ratio: Ratio of data for training (used only if creating new splits)
-        test_val_ratio: Ratio of test to validation data (used only if creating new splits)
         load_data_func: Function to load data (for dependency injection in tests)
         save_data_func: Function to save data (for dependency injection in tests)
         
@@ -444,19 +440,13 @@ if __name__ == "__main__":
                 "count_threshold": 5
             }
         
-        # Load environment variables for split ratios
-        train_ratio = float(os.environ.get("TRAIN_RATIO", 0.7))
-        test_val_ratio = float(os.environ.get("TEST_VAL_RATIO", 0.5))
-
         # Execute the main logic
         main(
             job_type=args.job_type,
             input_dir=input_dir,
             output_dir=output_dir,
             hyperparams=hyperparams,
-            risk_table_input_dir=risk_table_input_dir,
-            train_ratio=train_ratio,
-            test_val_ratio=test_val_ratio
+            risk_table_input_dir=risk_table_input_dir
         )
         sys.exit(0)
     except FileNotFoundError as e:
