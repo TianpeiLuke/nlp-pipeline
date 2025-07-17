@@ -25,8 +25,7 @@ RISK_TABLE_MAPPING_CONTRACT = ScriptContract(
         # No strictly required environment variables - script has defaults
     ],
     optional_env_vars={
-        "TRAIN_RATIO": "0.7",
-        "TEST_VAL_RATIO": "0.5"
+        # No optional environment variables needed
     },
     framework_requirements={
         "pandas": ">=1.3.0",
@@ -58,10 +57,6 @@ RISK_TABLE_MAPPING_CONTRACT = ScriptContract(
     - /opt/ml/processing/output/bin_mapping.pkl: Risk table mappings for categorical features
     - /opt/ml/processing/output/missing_value_imputation.pkl: Imputation values for numeric features
     - /opt/ml/processing/output/config.pkl: Serialized configuration with metadata
-    
-    Environment Variables:
-    - TRAIN_RATIO: Training data ratio (default: 0.7)
-    - TEST_VAL_RATIO: Test/validation split ratio (default: 0.5)
     
     Job Types (from config):
     - training: Fits risk tables on training data, transforms all splits

@@ -160,10 +160,8 @@ class RiskTableMappingStepBuilder(StepBuilderBase):
         Returns:
             Dict[str, str]: Environment variables for the processing job
         """
-        env_vars = {
-            "TRAIN_RATIO": str(getattr(self.config, "train_ratio", 0.7)),
-            "TEST_VAL_RATIO": str(getattr(self.config, "test_val_ratio", 0.5)),
-        }
+        # Initialize with empty dict - no default environment variables needed
+        env_vars = {}
         
         # Add environment variables from config if they exist
         if hasattr(self.config, "env") and self.config.env:
