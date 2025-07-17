@@ -15,7 +15,7 @@ try:
     from ..pipeline_deps.registry_manager import RegistryManager
     from ..pipeline_deps.semantic_matcher import SemanticMatcher
     from ..pipeline_deps.factory import create_dependency_resolver, create_pipeline_components
-    from ..pipeline_deps.base_specifications import PropertyReference
+    from ..pipeline_deps.property_reference import PropertyReference
     DEPENDENCY_RESOLVER_AVAILABLE = True
 except ImportError:
     DEPENDENCY_RESOLVER_AVAILABLE = False

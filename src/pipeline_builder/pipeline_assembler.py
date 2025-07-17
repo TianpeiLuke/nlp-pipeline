@@ -21,7 +21,8 @@ from ..pipeline_steps.builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver, create_dependency_resolver
 from ..pipeline_deps.factory import create_pipeline_components
-from ..pipeline_deps.base_specifications import PropertyReference, OutputSpec
+from ..pipeline_deps.property_reference import PropertyReference
+from ..pipeline_deps.base_specifications import OutputSpec
 from ..pipeline_registry.step_names import CONFIG_STEP_REGISTRY
 
 from ..pipeline_dag.base_dag import PipelineDAG

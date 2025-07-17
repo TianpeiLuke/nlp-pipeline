@@ -10,9 +10,10 @@ import logging
 from .base_dag import PipelineDAG
 from .edge_types import DependencyEdge, EdgeCollection, EdgeType
 from ..pipeline_deps import (
-    StepSpecification, UnifiedDependencyResolver, PropertyReference,
+    StepSpecification, UnifiedDependencyResolver, 
     DependencyResolutionError, SpecificationRegistry
 )
+from ..pipeline_deps.property_reference import PropertyReference
 
 logger = logging.getLogger(__name__)
 

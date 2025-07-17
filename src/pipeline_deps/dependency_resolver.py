@@ -8,9 +8,9 @@ matches step dependencies with compatible outputs from other steps.
 from typing import Dict, List, Set, Optional, Tuple
 import logging
 from .base_specifications import (
-    StepSpecification, DependencySpec, OutputSpec, PropertyReference, 
-    DependencyType
+    StepSpecification, DependencySpec, OutputSpec, DependencyType
 )
+from .property_reference import PropertyReference
 from .specification_registry import SpecificationRegistry
 from .semantic_matcher import SemanticMatcher
 

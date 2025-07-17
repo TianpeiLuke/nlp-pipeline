@@ -6,9 +6,9 @@ for pipeline step dependencies.
 """
 
 from .base_specifications import (
-    DependencyType, NodeType, DependencySpec, OutputSpec, PropertyReference, 
-    StepSpecification
+    DependencyType, NodeType, DependencySpec, OutputSpec, StepSpecification
 )
+from .property_reference import PropertyReference
 from .specification_registry import SpecificationRegistry
 from .registry_manager import (
     RegistryManager,
