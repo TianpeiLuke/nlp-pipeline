@@ -185,6 +185,279 @@ Our refactoring will build on this simplified approach while maintaining the job
    - Added examples of handling complex nested types
    - Included migration guide for users of the old system
 
+### Phase 5: Validation Enhancements and Format Fix (Week 3-4) - 🔄 In Progress
+
+9. **Improve Config Loading Documentation** - ⏳ Pending
+   - Update documentation to explicitly show job type variant usage pattern:
+     ```python
+     # Access configs via variant names, not base classes
+     training_config = loaded_configs.get('XGBoostTraining')  # Specific variant
+     data_loading = loaded_configs.get('CradleDataLoading_training')  # Job type variant
+     
+     # Avoid accessing base class names directly
+     # base_config = loaded_configs.get('BasePipelineConfig')  # Not recommended
+     ```
+   - Create examples for various scenarios in user guide
+   - Add clear warnings about loading limitations to docstrings
+
+10. **Enhanced Validation Handling** - 🔄 In Progress
+    - Extend the `load_configs` function to support validation modes:
+      ```python
+      def load_configs(input_file: str, 
+                      config_classes: Dict[str, Type[BaseModel]],
+                      validation_mode: str = "strict") -> Dict[str, BaseModel]:
+          """
+          Load multiple Pydantic configs from JSON with configurable validation.
+          
+          Args:
+              input_file: Path to JSON config file
+              config_classes: Dictionary of config class names to class types
+              validation_mode: Validation strictness level:
+                  - "strict" (default): Full Pydantic validation, fail on errors
+                  - "relaxed": Try to load configs even with validation errors
+                  - "analysis": Load all possible configs for analysis only (not for production use)
+          """
+      ```
+    - Create helper function for constructing configs with different validation modes:
+      ```python
+      def _create_config_with_validation_mode(cls, data, validation_mode):
+          """Create config object with specified validation mode."""
+          if validation_mode == "strict":
+              # Standard validation
+              return cls(**data)
+          elif validation_mode == "relaxed":
+              try:
+                  # Try standard validation first
+                  return cls(**data)
+              except ValidationError as e:
+                  # Log and try with model_construct
+                  logger.warning(f"Validation error in {cls.__name__}: {e}")
+                  return cls.model_construct(**{k: v for k, v in data.items() 
+                                            if k in cls.model_fields})
+          else:  # "analysis" mode
+              # Skip validation completely
+              return DiagnosticConfigWrapper(cls, data)
+      ```
+    - Implement a diagnostic wrapper class for validation analysis:
+      ```python
+      class DiagnosticConfigWrapper:
+          """Wrapper for configs that couldn't be validated."""
+          def __init__(self, cls, data):
+              self.__class__.__name__ = f"Diagnostic_{cls.__name__}"
+              self._target_class = cls
+              self._raw_data = data
+              # Set attributes from data
+              for k, v in data.items():
+                  setattr(self, k, v)
+              
+          def get_missing_fields(self):
+              """Return fields required by target class but missing."""
+              return [name for name, field in self._target_class.model_fields.items()
+                     if field.is_required() and name not in self._raw_data]
+      ```
+    - Add clear documentation about validation modes in docstrings:
+      ```
+      VALIDATION MODES:
+      
+      - "strict" (default): Standard Pydantic validation
+        * Enforces all required fields
+        * Fails if validation rules are violated
+        * Recommended for production code
+      
+      - "relaxed": Try to load configs with validation issues
+        * Attempts standard validation first
+        * Falls back to partial loading if validation fails
+        * Logs warnings about validation issues
+        * Use for development and debugging
+      
+      - "analysis": Maximum loading capability
+        * Skips most validation checks
+        * Creates diagnostic wrapper objects for invalid configs
+        * Provides tools to analyze missing/invalid fields
+        * NOT FOR PRODUCTION USE
+      ```
+    - Update test cases to verify validation mode behavior
+    - Maintain backward compatibility by keeping "strict" as the default mode
+
+11. **Config Debugging Tools** - ⏳ Pending
+    - Implement `analyze_config_file` tool to identify missing required fields
+    - Add validation level control to optionally relax validation for analysis
+    - Create visual representation of config structure (shared vs specific)
+    - Implement dynamic field value analyzer to trace field origins
+    - Add config comparison tool to highlight differences between config versions
+
+12. **Job Type Variant Usage Guide** - ⏳ Pending
+    - Create detailed guide on job type variants in pipeline configurations
+    - Document step name generation logic and how it affects loading
+    - Provide examples for creating and using variant-specific configs
+    - Add patterns for safely accessing configs with validation concerns
+    - Create reference guide mapping base classes to variant names
+
+13. **Enhanced Validation Error Recovery** - ⏳ Pending
+    - Implement partial loading option for analyzing problematic configs
+    - Add config repair utilities to fix common validation issues
+    - Create migration tools to update configs to new required field patterns
+    - Implement interactive mode for stepping through validation failures
+    - Add test coverage specifically for handling validation errors
+
+14. **Fix Config Types Format** - ⏳ Pending (New Task)
+    - Update `ConfigMerger.save()` method to use step names as keys instead of class names:
+      ```python
+      # Current problematic code:
+      'config_types': {
+          # This creates class name -> class name mapping
+          getattr(cfg, "step_name_override", cfg.__class__.__name__): cfg.__class__.__name__
+          for cfg in self.config_list
+      }
+      
+      # Fixed code:
+      'config_types': {
+          # This creates step name -> class name mapping
+          self._generate_step_name(cfg): cfg.__class__.__name__
+          for cfg in self.config_list
+      }
+      ```
+    - Add helper method for consistent step name generation:
+      ```python
+      def _generate_step_name(self, config: Any) -> str:
+          """Generate a consistent step name for a config object."""
+          class_name = config.__class__.__name__
+          
+          # Remove "Config" suffix if present
+          base_step = class_name
+          if base_step.endswith("Config"):
+              base_step = base_step[:-6]
+          
+          step_name = base_step
+          
+          # Append job type variants
+          for attr in ("job_type", "data_type", "mode"):
+              if hasattr(config, attr):
+                  val = getattr(config, attr)
+                  if val is not None:
+                      step_name = f"{step_name}_{val}"
+          
+          return getattr(config, "step_name_override", step_name)
+      ```
+    - Create backward compatibility fix utility:
+      ```python
+      def fix_config_types_format(input_file: str, output_file: str = None) -> str:
+          """Fix config_types format in an existing config file."""
+          # Implementation details in the separate plan
+      ```
+    - Add unit tests to verify the format is generated correctly
+    - Update documentation with clear examples of the expected format
+    - See full implementation details in [Config Types Format Fix Plan](./2025-07-18_fix_config_types_format.md)
+
+15. **Registry-Based Step Name Generation** - ⏳ Pending (New Task)
+    - Implement step name generation based on the pipeline registry as the single source of truth:
+      ```python
+      def _generate_step_name(self, config: Any) -> str:
+          """
+          Generate a consistent step name for a config object using the pipeline registry.
+          """
+          # First check for step_name_override - highest priority
+          if hasattr(config, "step_name_override") and config.step_name_override != config.__class__.__name__:
+              return config.step_name_override
+              
+          # Get class name
+          class_name = config.__class__.__name__
+          
+          # Look up the step name from the registry (primary source of truth)
+          from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+          if class_name in CONFIG_STEP_REGISTRY:
+              base_step = CONFIG_STEP_REGISTRY[class_name]
+          else:
+              # Fall back to the old behavior if not in registry
+              base_step = class_name
+              if base_step.endswith("Config"):
+                  base_step = base_step[:-6]  # Remove "Config" suffix
+          
+          step_name = base_step
+          
+          # Append distinguishing attributes (job_type, data_type, mode)
+          for attr in ("job_type", "data_type", "mode"):
+              if hasattr(config, attr):
+                  val = getattr(config, attr)
+                  if val is not None:
+                      step_name = f"{step_name}_{val}"
+          
+          return step_name
+      ```
+    - Update both `TypeAwareConfigSerializer` and `ConfigMerger` to use this registry-based approach
+    - Add unit tests to verify correct step name generation with registry
+    - Document the registry-based step name generation approach
+    - Add cross-references to step registry in configuration documentation
+
+16. **Registry-Based Type Resolution** - ⏳ Pending (New Task)
+    - Enhance type resolution to use the registry for improved class lookup:
+      ```python
+      def _get_class_by_name(self, class_name, module_name=None):
+          """
+          Get a class by name using registry, config_classes or by importing.
+          """
+          # First check registered classes from config class store
+          if class_name in self.config_classes:
+              return self.config_classes[class_name]
+              
+          # Then check pipeline registry
+          from src.pipeline_registry.step_names import STEP_NAMES
+          for step_name, info in STEP_NAMES.items():
+              if info["config_class"] == class_name:
+                  # Try to import from the corresponding module
+                  try:
+                      module_path = f"src.pipeline_steps.config_{step_name.lower()}"
+                      module = __import__(module_path, fromlist=[class_name])
+                      if hasattr(module, class_name):
+                          return getattr(module, class_name)
+                  except ImportError:
+                      pass
+      ```
+    - Create a unified registry lookup service:
+      ```python
+      class UnifiedRegistryLookup:
+          """
+          Service for unified registry lookup across different registries.
+          """
+          @classmethod
+          def get_class_by_name(cls, class_name):
+              """Get class by name from any available registry."""
+              # Look in ConfigRegistry
+              from src.config_field_manager import ConfigClassStore
+              if class_name in ConfigClassStore._registry:
+                  return ConfigClassStore._registry[class_name]
+                  
+              # Look in pipeline registry
+              from src.pipeline_registry.step_names import STEP_NAMES
+              for step_name, info in STEP_NAMES.items():
+                  if info["config_class"] == class_name:
+                      # Try to import
+                      try:
+                          module_path = f"src.pipeline_steps.config_{step_name.lower()}"
+                          module = __import__(module_path, fromlist=[class_name])
+                          if hasattr(module, class_name):
+                              return getattr(module, class_name)
+                      except ImportError:
+                          pass
+                          
+              # Look in hyperparameter registry
+              from src.pipeline_registry.hyperparameter_registry import HYPERPARAMETER_REGISTRY
+              if class_name in HYPERPARAMETER_REGISTRY:
+                  info = HYPERPARAMETER_REGISTRY[class_name]
+                  try:
+                      module = __import__(info["module_path"], fromlist=[class_name])
+                      if hasattr(module, class_name):
+                          return getattr(module, class_name)
+                  except ImportError:
+                      pass
+                      
+              # Not found in any registry
+              return None
+      ```
+    - Update deserialization to use the unified registry lookup
+    - Add test coverage for edge cases in class resolution
+    - Document the unified registry lookup approach
+
 ## Implementation Details
 
 ### File Structure
@@ -196,7 +469,9 @@ src/config_field_manager/             # New dedicated folder for configuration f
 ├── config_field_categorizer.py       # ConfigFieldCategorizer implementation
 ├── type_aware_config_serializer.py   # TypeAwareConfigSerializer implementation
 ├── config_merger.py                  # ConfigMerger implementation
-└── constants.py                      # Shared constants and enums
+├── constants.py                      # Shared constants and enums
+├── config_validation.py              # New validation utilities and helpers
+└── config_diagnostics.py             # New debugging and diagnostic tools
 
 src/pipeline_steps/
 └── utils.py                          # Updated to use the new implementation
@@ -231,6 +506,50 @@ This dedicated folder structure provides several benefits:
    - Use efficient data structures for lookups and comparisons
    - Avoid unnecessary computation or serialization
 
+5. **Validation Flexibility**
+   - Provide options for different validation strictness levels
+   - Implement field completion utilities for common validation patterns
+   - Create tools to analyze fields and their validation requirements
+   - Add graceful degradation for non-critical validation failures
+
+### Validation Modes Implementation
+
+The validation mode approach will provide three distinct levels of strictness:
+
+1. **Strict Mode** (Default):
+   ```python
+   # Production usage - enforce all validation
+   loaded_configs = load_configs(config_path, CONFIG_CLASSES)
+   ```
+   - Full Pydantic validation rules enforced
+   - Fails if required fields are missing
+   - Ensures data type constraints are met
+   - Proper for production usage
+
+2. **Relaxed Mode**:
+   ```python
+   # Development usage - try to load despite validation issues
+   loaded_configs = load_configs(config_path, CONFIG_CLASSES, validation_mode="relaxed")
+   ```
+   - Attempts normal validation first
+   - Falls back to partial validation if strict validation fails
+   - Skips field constraints but preserves type checking
+   - Logs detailed warnings about validation issues
+   - Suitable for development and debugging
+
+3. **Analysis Mode**:
+   ```python
+   # Analysis usage - maximum loading for diagnosis only
+   loaded_configs = load_configs(config_path, CONFIG_CLASSES, validation_mode="analysis")
+   ```
+   - Creates special diagnostic wrapper objects
+   - Loads all config entries regardless of validation issues
+   - Provides tools for analyzing missing fields and requirements
+   - Clearly marked as unsuitable for production use
+   - Supports additional diagnostic methods on returned objects
+
+The implementation will maintain backward compatibility by keeping "strict" as the default mode, ensuring existing code continues to work as expected while providing new capabilities for debugging and analysis.
+
 ## Migration Strategy
 
 1. **Staged Implementation** - ✅ Completed
@@ -245,17 +564,23 @@ This dedicated folder structure provides several benefits:
    - All new implementations will use clear, semantic names that don't clash with existing files
    - During the transition period, maintain clear documentation about which implementation to use
 
-2. **Testing Strategy**
+3. **Testing Strategy**
    - Create test cases using real-world config examples
    - Compare output of old vs. new implementations
    - Ensure all edge cases are covered
    - Verify special fields are handled correctly
 
-3. **Rollout Plan**
+4. **Rollout Plan**
    - Start with internal testing using non-production code
    - Roll out to testing environments
    - Monitor for any issues or regressions
    - Deploy to production once verified
+
+5. **User Education** - 🔄 In Progress
+   - Create targeted documentation for job type variant usage
+   - Provide explicit examples for accessing configs properly
+   - Update existing tutorials to use recommended patterns
+   - Add warnings to deprecated access patterns
 
 ## Backward Compatibility
 
@@ -267,6 +592,11 @@ This dedicated folder structure provides several benefits:
 2. **Data Compatibility**
    - Ensure saved configs can be loaded by both old and new code
    - Verify config formats are consistent before and after refactoring
+
+3. **Validation Differences**
+   - Document key differences in validation between old and new implementations
+   - Provide utility functions to help transition stricter validation
+   - Implement validation analysis tools to identify potential issues
 
 ## Testing Approach
 
@@ -285,15 +615,24 @@ This dedicated folder structure provides several benefits:
    - Test loading configs saved by old code
    - Test loading configs saved by new code with old code
 
+4. **Validation Tests**
+   - Test validation error handling for various scenarios
+   - Verify diagnostics provide useful information
+   - Test config repair tools effectively fix common issues
+   - Verify partial loading works correctly for analysis
+
 ## Milestones and Timeline
 
 | Milestone | Description | Timeline |
 |-----------|-------------|----------|
-| 1 | Core classes implemented | End of Week 1 |
+| 1 | Core classes implemented | End of Week 1 ✅ |
 | 2 | Public API updated | Mid Week 2 ✅ |
 | 3 | Migration completed | End of Week 2 ✅ |
 | 4 | Comprehensive testing | Mid Week 3 ✅ |
 | 5 | Documentation complete | End of Week 3 ✅ |
+| 6 | Enhanced validation tools | Mid Week 4 |
+| 7 | Job type variant usage guide | End of Week 4 |
+| 8 | Diagnostic tools completed | Mid Week 5 |
 
 ## Current Job Type Variant Implementation
 
@@ -358,6 +697,35 @@ The job type variant solution enables:
 
 Failure to properly handle job type variants would break compatibility with the step specification system and pipeline variant creation, so this feature must be carefully preserved during refactoring.
 
+### Job Type Variant Usage Best Practices
+
+For proper usage of job type variants in the new system:
+
+1. **Access by Variant Name**: Always access configs by their variant-specific step name
+   ```python
+   # Preferred - access by variant name
+   training_config = loaded_configs.get('XGBoostTraining')
+   calibration_config = loaded_configs.get('XGBoostModelEval_calibration')
+   
+   # Avoid - don't try to access base classes directly
+   # base_config = loaded_configs.get('XGBoostModelEvalConfig')  # May fail validation
+   ```
+
+2. **Check Validation Requirements**: Make sure all required fields are present in config files
+   - Check logs for validation errors when loading configs
+   - Use the new diagnostic tools to analyze config fields and requirements
+   - Add missing fields to config files for complete validation
+
+3. **Understand Fallback Behavior**: The new system is stricter with validation
+   - Only base classes with minimal validation may load directly
+   - Specialized configs need all required fields
+   - Job type variants ensure fields are properly categorized in specific sections
+
+4. **Config Structure Awareness**: Understanding the flattened config structure
+   - The simplified shared/specific structure is more strict
+   - Special fields like hyperparameters must be in specific sections
+   - Required fields must be present in either shared or specific sections
+
 ## Risks and Mitigations
 
 | Risk | Impact | Likelihood | Current Status | Mitigation |
@@ -368,6 +736,9 @@ Failure to properly handle job type variants would break compatibility with the 
 | Edge cases not handled | Medium | Medium | ✅ Mitigated | Fixed string serialization and comprehensive tests validate handling |
 | Special field handling issues | High | Medium | ✅ Mitigated | Special field verification in ConfigMerger confirms proper handling |
 | Test failures | High | High | ✅ Mitigated | Fixed all tests by improving mocking strategy and fixing serialization |
+| Validation strictness issues | Medium | High | 🔄 In Progress | Adding validation modes and diagnostic tools |
+| Confusion about job type variants | Medium | High | 🔄 In Progress | Creating detailed usage guide and examples |
+| Config validation failures | Medium | High | 🔄 In Progress | Implementing enhanced validation error handling |
 
 ## Success Criteria
 
@@ -379,9 +750,14 @@ Failure to properly handle job type variants would break compatibility with the 
 6. Performance is comparable or better than the existing implementation
 7. Comprehensive test coverage is in place
 8. Documentation is clear and complete
+9. Users understand job type variant usage patterns
+10. Validation errors are reported clearly with helpful guidance
+11. Diagnostic tools are available for analyzing config validation issues
 
 ## Conclusion
 
 This refactoring will transform the complex, monolithic field categorization system into a modular, maintainable architecture with clear separation of concerns. By breaking the functionality into discrete components with well-defined responsibilities, we'll improve code clarity, testability, and robustness while maintaining compatibility with existing code.
 
 The staged implementation approach will minimize disruption and allow for thorough testing at each step. With proper planning and careful execution, this refactoring will provide a more solid foundation for future development while resolving current pain points.
+
+In the upcoming Phase 5, we'll focus on enhancing validation handling, improving job type variant usage guidance, and creating diagnostic tools to help users understand and resolve validation issues. These additions will further improve the usability and robustness of the config management system, particularly by providing configurable validation modes that allow developers to balance strict correctness with diagnostic flexibility.
