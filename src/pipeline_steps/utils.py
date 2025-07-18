@@ -43,7 +43,8 @@ class CategoryType(Enum):
     SPECIFIC = auto()
 from src.config_field_manager.type_aware_config_serializer import (
     serialize_config as new_serialize_config,
-    deserialize_config
+    deserialize_config,
+    TypeAwareConfigSerializer
 )
 
 # Constants required for backward compatibility
@@ -66,16 +67,9 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
     
     # Ensure backward compatibility for step_name in metadata
     if "_metadata" not in serialized:
-        # Base step name from registry
-        base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
-        step_name = base_step
-        
-        # Append distinguishing attributes
-        for attr in ("job_type", "data_type", "mode"):
-            if hasattr(config, attr):
-                val = getattr(config, attr)
-                if val is not None:
-                    step_name = f"{step_name}_{val}"
+        # Generate step name using registry-based approach
+        serializer = TypeAwareConfigSerializer()
+        step_name = serializer.generate_step_name(config)
         
         # Add the metadata
         serialized["_metadata"] = {
@@ -187,6 +181,8 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
     
     return result
 
+
+# _generate_step_name removed as it's now directly used from TypeAwareConfigSerializer
 
 def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) -> Dict[str, BaseModel]:
     """

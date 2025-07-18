@@ -358,11 +358,29 @@ class TypeAwareConfigSerializer:
         Returns:
             str: Generated step name with job type and other variants included
         """
-        # Import here to avoid circular imports
-        from src.pipeline_steps.config_base import BasePipelineConfig
+        # First check for step_name_override - highest priority
+        if hasattr(config, "step_name_override") and config.step_name_override != config.__class__.__name__:
+            return config.step_name_override
+            
+        # Get class name
+        class_name = config.__class__.__name__
         
-        # Base step name from registry
-        base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
+        # Look up the step name from the registry (primary source of truth)
+        try:
+            from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+            if class_name in CONFIG_STEP_REGISTRY:
+                base_step = CONFIG_STEP_REGISTRY[class_name]
+            else:
+                # Fall back to the old behavior if not in registry
+                # Import here to avoid circular imports
+                from src.pipeline_steps.config_base import BasePipelineConfig
+                base_step = BasePipelineConfig.get_step_name(class_name)
+        except (ImportError, AttributeError):
+            # If registry not available, fall back to the old behavior
+            # Import here to avoid circular imports
+            from src.pipeline_steps.config_base import BasePipelineConfig
+            base_step = BasePipelineConfig.get_step_name(class_name)
+        
         step_name = base_step
         
         # Append distinguishing attributes - essential for job type variants
@@ -375,35 +393,7 @@ class TypeAwareConfigSerializer:
         return step_name
 
 
-def _generate_step_name(config: Any) -> str:
-    """
-    Generate a step name for a config, including job type and other distinguishing attributes.
-    
-    This implements the job type variant handling described in the July 4, 2025 solution document.
-    It creates distinct step names for different job types (e.g., "CradleDataLoading_training"),
-    which is essential for proper dependency resolution and pipeline variant creation.
-    
-    Args:
-        config: The configuration object
-        
-    Returns:
-        str: Generated step name with job type and other variants included
-    """
-    # Import here to avoid circular imports
-    from src.pipeline_steps.config_base import BasePipelineConfig
-    
-    # Base step name from registry
-    base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
-    step_name = base_step
-    
-    # Append distinguishing attributes - essential for job type variants
-    for attr in ("job_type", "data_type", "mode"):
-        if hasattr(config, attr):
-            val = getattr(config, attr)
-            if val is not None:
-                step_name = f"{step_name}_{val}"
-                
-    return step_name
+# Removed duplicate _generate_step_name function - now using TypeAwareConfigSerializer.generate_step_name instead
 
 
 def serialize_config(config: Any) -> Dict[str, Any]:

@@ -100,6 +100,51 @@ class ConfigMerger:
         # Check for missing required fields
         self._check_required_fields(merged)
         
+    def _generate_step_name(self, config: Any) -> str:
+        """
+        Generate a consistent step name for a config object using the pipeline registry.
+        
+        Args:
+            config: Config object
+            
+        Returns:
+            str: Step name
+        """
+        # First check for step_name_override - highest priority
+        if hasattr(config, "step_name_override") and config.step_name_override != config.__class__.__name__:
+            return config.step_name_override
+            
+        # Get class name
+        class_name = config.__class__.__name__
+        
+        # Look up the step name from the registry (primary source of truth)
+        try:
+            from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+            if class_name in CONFIG_STEP_REGISTRY:
+                base_step = CONFIG_STEP_REGISTRY[class_name]
+            else:
+                # Fall back to the old behavior if not in registry
+                base_step = class_name
+                if base_step.endswith("Config"):
+                    base_step = base_step[:-6]  # Remove "Config" suffix
+        except (ImportError, AttributeError):
+            # If registry not available, fall back to the old behavior
+            self.logger.debug(f"Pipeline registry not available, falling back to suffix removal")
+            base_step = class_name
+            if base_step.endswith("Config"):
+                base_step = base_step[:-6]  # Remove "Config" suffix
+        
+        step_name = base_step
+        
+        # Append distinguishing attributes (job_type, data_type, mode)
+        for attr in ("job_type", "data_type", "mode"):
+            if hasattr(config, attr):
+                val = getattr(config, attr)
+                if val is not None:
+                    step_name = f"{step_name}_{val}"
+        
+        return step_name
+        
     def _check_mutual_exclusivity(self, merged: Dict[str, Any]) -> None:
         """
         Check for field name collisions across categories in the simplified structure.
@@ -207,10 +252,10 @@ class ConfigMerger:
     
     def save(self, output_file: str) -> Dict[str, Any]:
         """
-        Merge configurations and save to a file using the simplified structure.
+        Save merged configuration to a file.
         
         Args:
-            output_file: Path to output file
+            output_file: Path to input file
             
         Returns:
             dict: Merged configuration
@@ -221,14 +266,16 @@ class ConfigMerger:
         # Merge configurations
         merged = self.merge()
         
-        # Create metadata for the simplified format
+        # Create metadata with proper step name -> class name mapping for config_types
+        config_types = {}
+        for cfg in self.config_list:
+            step_name = self._generate_step_name(cfg)
+            class_name = cfg.__class__.__name__
+            config_types[step_name] = class_name
+        
         metadata = {
             'created_at': datetime.now().isoformat(),
-            'config_types': {
-                # Extract step name from each config
-                getattr(cfg, "step_name_override", cfg.__class__.__name__): cfg.__class__.__name__
-                for cfg in self.config_list
-            }
+            'config_types': config_types
         }
         
         # Create the output structure with the simplified format
