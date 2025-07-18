@@ -89,7 +89,7 @@ class ModelRegistrationConfig(BasePipelineConfig):
     class Config(BasePipelineConfig.Config):
         arbitrary_types_allowed = True
         validate_assignment = True
-        extra = 'forbid'
+        extra = 'allow'  # Changed from 'forbid' to 'allow' to accept metadata fields during deserialization
         json_encoders = {
             VariableType: lambda v: v.value
         }

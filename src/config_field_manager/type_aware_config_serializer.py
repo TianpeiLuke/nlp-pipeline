@@ -44,6 +44,10 @@ class TypeAwareConfigSerializer:
         self.config_classes = config_classes or build_complete_config_classes()
         self.mode = mode
         self.logger = logging.getLogger(__name__)
+        # For recursion detection during deserialization
+        self._processing_stack = set()
+        self._recursion_depth = 0
+        self._max_recursion_depth = 100  # Reasonable limit to prevent stack overflow
         
     def serialize(self, val: Any) -> Any:
         """
@@ -185,8 +189,30 @@ class TypeAwareConfigSerializer:
         Returns:
             Deserialized value
         """
+        # Recursion detection
+        self._recursion_depth += 1
+        if self._recursion_depth > self._max_recursion_depth:
+            self.logger.error(f"Maximum recursion depth exceeded while deserializing {field_name}")
+            self._recursion_depth -= 1
+            return field_data
+
+        # Generate a hash to detect if we're processing the same object again
+        try:
+            object_id = hash(str(field_data))
+            if object_id in self._processing_stack:
+                self.logger.warning(f"Circular reference detected during deserialization of {field_name}")
+                self._recursion_depth -= 1
+                return field_data
+            self._processing_stack.add(object_id)
+        except (TypeError, ValueError):
+            # If object is not hashable, we can't track it for recursion
+            pass
+            
         # Handle None, primitives
         if field_data is None or isinstance(field_data, (str, int, float, bool)):
+            self._recursion_depth -= 1
+            if object_id in self._processing_stack:
+                self._processing_stack.remove(object_id)
             return field_data
             
         # Handle type-info dict - from preserved types
@@ -258,6 +284,25 @@ class TypeAwareConfigSerializer:
         Returns:
             Model instance or dict if instantiation fails
         """
+        # Increment recursion depth and check for maximum recursion
+        self._recursion_depth += 1
+        if self._recursion_depth > self._max_recursion_depth:
+            self.logger.error(f"Maximum recursion depth exceeded while deserializing model")
+            self._recursion_depth -= 1
+            return field_data
+            
+        # Generate a hash to detect if we're processing the same object again
+        try:
+            object_id = hash(str(field_data))
+            if object_id in self._processing_stack:
+                self.logger.warning(f"Circular reference detected during model deserialization")
+                self._recursion_depth -= 1
+                return field_data
+            self._processing_stack.add(object_id)
+        except (TypeError, ValueError):
+            # If object is not hashable, we can't track it for recursion
+            pass
+            
         # Check for type metadata - implementing Explicit Over Implicit
         type_name = field_data.get(self.MODEL_TYPE_FIELD)
         module_name = field_data.get(self.MODEL_MODULE_FIELD)
@@ -310,9 +355,18 @@ class TypeAwareConfigSerializer:
             filtered_data[k] = self.deserialize(v, k, nested_type)
         
         try:
-            return actual_class(**filtered_data)
+            result = actual_class(**filtered_data)
+            # Clean up recursion tracking
+            self._recursion_depth -= 1
+            if 'object_id' in locals() and object_id in self._processing_stack:
+                self._processing_stack.remove(object_id)
+            return result
         except Exception as e:
             self.logger.error(f"Failed to instantiate {actual_class.__name__}: {str(e)}")
+            # Clean up recursion tracking
+            self._recursion_depth -= 1
+            if 'object_id' in locals() and object_id in self._processing_stack:
+                self._processing_stack.remove(object_id)
             # Return as plain dict if instantiation fails
             return filtered_data
             

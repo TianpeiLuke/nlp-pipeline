@@ -477,6 +477,11 @@ class CradleDataLoadConfig(BasePipelineConfig):
       - cradle_job_spec: CradleJobSpecificationConfig
       - (optional) s3_input_override
     """
+    
+    class Config(BasePipelineConfig.Config):
+        arbitrary_types_allowed = True
+        validate_assignment = True
+        extra = 'allow'  # Allow extra fields like __model_type__ and __model_module__ for type-aware serialization
 
     job_type: str = Field(
         ...,

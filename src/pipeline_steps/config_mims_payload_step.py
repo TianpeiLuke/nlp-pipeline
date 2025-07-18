@@ -118,7 +118,7 @@ class PayloadConfig(ProcessingStepConfigBase):
     class Config:
         arbitrary_types_allowed = True
         validate_assignment = True
-        extra = 'forbid'
+        extra = 'allow'  # Changed from 'forbid' to 'allow' to accept metadata fields during deserialization
         json_encoders = {
             VariableType: lambda v: v.value,
             Path: str
@@ -163,11 +163,10 @@ class PayloadConfig(ProcessingStepConfigBase):
             payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
             if self.model_registration_objective:
                 payload_file_name += f'_{self.model_registration_objective}'
+            # Direct assignment instead of model_copy to prevent recursion
             self.sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
         
-        # Update model with sample payload S3 key
-        self = self.model_copy(update={"sample_payload_s3_key": self.sample_payload_s3_key})
-        
+        # No model_copy - this was causing infinite recursion during deserialization
         return self
         
     @model_validator(mode='after')

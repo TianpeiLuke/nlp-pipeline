@@ -61,7 +61,7 @@ class BasePipelineConfig(BaseModel):
     class Config:
         arbitrary_types_allowed = True
         validate_assignment = True
-        # extra = 'forbid' # Or 'allow' / 'ignore' as per your preference
+        extra = 'allow'  # Allow extra fields like __model_type__ and __model_module__ for type-aware serialization
         protected_namespaces = ()
 
     @model_validator(mode='before')

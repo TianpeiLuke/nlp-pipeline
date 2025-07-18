@@ -21,7 +21,9 @@ class PackageStepConfig(ProcessingStepConfigBase):
     )
 
     class Config(ProcessingStepConfigBase.Config):
-        pass
+        arbitrary_types_allowed = True
+        validate_assignment = True
+        extra = 'allow'  # Allow extra fields like __model_type__ and __model_module__ for type-aware serialization
 
     @model_validator(mode='after')
     def validate_config(self) -> 'PackageStepConfig':
