@@ -84,12 +84,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         if not hasattr(self.config, 'bucket') or not self.config.bucket:
             raise ValueError("PayloadConfig missing required attribute: bucket")
         
-        # Make sure sample_payload_s3_key is set or can be constructed
-        if not hasattr(self.config, 'sample_payload_s3_key') or not self.config.sample_payload_s3_key:
-            try:
-                self.config.ensure_payload_path()
-            except Exception as e:
-                raise ValueError(f"Could not construct payload path: {e}")
+        # Note: sample_payload_s3_key validation removed since it's not used by the script
         
         # Validate other required attributes
         required_attrs = [
@@ -135,28 +130,48 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
     def _get_environment_variables(self) -> Dict[str, str]:
         """
         Constructs a dictionary of environment variables to be passed to the processing job.
+        Uses the script contract from the payload specification to determine which
+        environment variables to include, following the Single Source of Truth principle.
 
         Returns:
             A dictionary of environment variables.
         """        
-        env_vars = {
-            "PIPELINE_NAME": self.config.pipeline_name,
-            "REGION": self.config.region,
-        }
+        env_vars = {}
         
-        # Add content types
-        if hasattr(self.config, 'source_model_inference_content_types'):
-            env_vars["CONTENT_TYPES"] = ",".join(self.config.source_model_inference_content_types)
-            
-        # Add optional configurations
-        for key, env_key in [
-            ('default_numeric_value', 'DEFAULT_NUMERIC_VALUE'),
-            ('default_string_value', 'DEFAULT_STRING_VALUE'),
-            ('sample_payload_s3_key', 'PAYLOAD_S3_KEY'),
-            ('bucket', 'BUCKET_NAME')
-        ]:
-            if hasattr(self.config, key) and getattr(self.config, key) is not None:
-                env_vars[env_key] = str(getattr(self.config, key))
+        # If we have a contract available, use it to determine the environment variables
+        if self.contract:
+            # First handle required environment variables from the contract
+            for env_name in self.contract.required_env_vars:
+                # Try to find a matching config attribute
+                config_attr = env_name.lower()
+                if hasattr(self.config, config_attr) and getattr(self.config, config_attr) is not None:
+                    env_vars[env_name] = str(getattr(self.config, config_attr))
+                else:
+                    self.log_warning(f"Required environment variable {env_name} not found in config")
+                    
+            # Then handle optional environment variables from the contract
+            for env_name, default_value in self.contract.optional_env_vars.items():
+                # For content types, use the config if available
+                if env_name == "CONTENT_TYPES" and hasattr(self.config, 'source_model_inference_content_types'):
+                    env_vars[env_name] = ",".join(self.config.source_model_inference_content_types)
+                
+                # For numeric default, use config if available
+                elif env_name == "DEFAULT_NUMERIC_VALUE" and hasattr(self.config, 'default_numeric_value'):
+                    env_vars[env_name] = str(self.config.default_numeric_value)
+                
+                # For text default, use config if available
+                elif env_name == "DEFAULT_TEXT_VALUE" and hasattr(self.config, 'default_text_value'):
+                    env_vars[env_name] = str(self.config.default_text_value)
+                
+                # Otherwise use default from contract
+                else:
+                    env_vars[env_name] = default_value
+        
+        # Add special field values if defined in config - this is a special case
+        # that follows the SPECIAL_FIELD_ prefix pattern defined in the script
+        if hasattr(self.config, 'special_field_values') and self.config.special_field_values:
+            for field_name, template in self.config.special_field_values.items():
+                env_vars[f"SPECIAL_FIELD_{field_name}"] = template
         
         self.log_info("Payload environment variables: %s", env_vars)
         return env_vars

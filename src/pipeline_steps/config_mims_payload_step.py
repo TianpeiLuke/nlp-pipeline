@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator, PrivateAttr
 from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING
 from pathlib import Path
 from datetime import datetime
@@ -57,15 +57,15 @@ class PayloadConfig(ProcessingStepConfigBase):
         description="Response type for model inference output. Must be exactly ['text/csv'] or ['application/json']"
     )
 
-    # Variable lists for input and output
-    source_model_inference_output_variable_list: Dict[str, VariableType] = Field(
+    # Variable lists for input and output (using strings instead of VariableType)
+    source_model_inference_output_variable_list: Dict[str, str] = Field(
         default={
-            'legacy-score': VariableType.NUMERIC
+            'legacy-score': "NUMERIC"
         },
         description="Dictionary of output variables and their types (NUMERIC or TEXT)"
     )
     
-    source_model_inference_input_variable_list: Union[Dict[str, Union[VariableType, str]], List[List[str]]] = Field(
+    source_model_inference_input_variable_list: Union[Dict[str, str], List[List[str]]] = Field(
         default_factory=dict,
         description="Input variables and their types. Can be either:\n"
                    "1. Dictionary: {'var1': 'NUMERIC', 'var2': 'TEXT'}\n"
@@ -91,11 +91,14 @@ class PayloadConfig(ProcessingStepConfigBase):
         description="Maximum acceptable error rate (0-1)"
     )
     
-    # S3 path configuration
-    sample_payload_s3_key: Optional[str] = Field(
-        default=None,
-        description="S3 key for sample payload file"
-    )
+    # S3 path configuration using PrivateAttr (not a model field)
+    _sample_payload_s3_key = PrivateAttr(default=None)
+    
+    # Property for read-only access to sample_payload_s3_key
+    @property
+    def sample_payload_s3_key(self) -> Optional[str]:
+        """Get the S3 key for sample payload file (read-only)"""
+        return self._sample_payload_s3_key
     
     # Default values for payload generation
     default_numeric_value: float = Field(
@@ -115,83 +118,129 @@ class PayloadConfig(ProcessingStepConfigBase):
     
     # Note: We use processing_script_arguments from ProcessingStepConfigBase instead of payload_script_arguments
 
-    class Config:
-        arbitrary_types_allowed = True
-        validate_assignment = True
-        extra = 'allow'  # Changed from 'forbid' to 'allow' to accept metadata fields during deserialization
-        json_encoders = {
-            VariableType: lambda v: v.value,
+    # Update to Pydantic V2 style model_config
+    model_config = {
+        'arbitrary_types_allowed': True,
+        'validate_assignment': False,  # Changed from True to False to prevent recursion
+        'extra': 'allow',  # Changed from 'forbid' to 'allow' to accept metadata fields during deserialization
+        'json_encoders': {
             Path: str
         }
+    }
         
-    @model_validator(mode='before')
-    @classmethod
-    def _preprocess_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """Preprocess input values"""
-        # Handle variable type conversion if needed
-        if 'source_model_inference_input_variable_list' in values:
-            input_vars = values['source_model_inference_input_variable_list']
-            if isinstance(input_vars, dict):
-                # Convert string values to VariableType enum for dictionary format
-                values['source_model_inference_input_variable_list'] = {
-                    k: VariableType(v) if isinstance(v, str) else v
-                    for k, v in input_vars.items()
-                }
-            elif isinstance(input_vars, list):
-                # Convert string values to VariableType enum for list format
-                values['source_model_inference_input_variable_list'] = [
-                    [name, VariableType(type_str) if isinstance(type_str, str) else type_str]
-                    for name, type_str in input_vars
-                ]
-        
-        if 'source_model_inference_output_variable_list' in values:
-            output_vars = values['source_model_inference_output_variable_list']
-            if isinstance(output_vars, dict):
-                # Convert string values to VariableType enum
-                values['source_model_inference_output_variable_list'] = {
-                    k: VariableType(v) if isinstance(v, str) else v
-                    for k, v in output_vars.items()
-                }
-        
-        return values
+    # Remove the _preprocess_values validator that was causing recursion issues
+    # Instead, we'll use field validators that validate without modifying the data
     
-    @model_validator(mode='after')
-    def construct_payload_path(self) -> 'PayloadConfig':
-        """Construct S3 key for payload if not provided"""
-        # Construct S3 key for payload if not provided
-        if not self.sample_payload_s3_key:
-            payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
-            if self.model_registration_objective:
-                payload_file_name += f'_{self.model_registration_objective}'
-            # Direct assignment instead of model_copy to prevent recursion
-            self.sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
+    @field_validator('source_model_inference_input_variable_list')
+    @classmethod
+    def validate_input_variable_list(
+        cls, 
+        v: Union[Dict[str, str], List[List[str]]]
+    ) -> Union[Dict[str, str], List[List[str]]]:
+        """
+        Validate input variable list format with string types.
         
-        # No model_copy - this was causing infinite recursion during deserialization
-        return self
+        Args:
+            v: Either a dictionary of variable names to types,
+               or a list of [variable_name, variable_type] pairs
+               
+        Returns:
+            Original value if valid, without modification
+        """
+        if not v:  # If empty
+            return v
+
+        valid_types = ["NUMERIC", "TEXT"]
+
+        # Handle dictionary format
+        if isinstance(v, dict):
+            for key, value in v.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"Key must be string, got {type(key)} for key: {key}")
+                
+                # Check if string value is valid
+                if not isinstance(value, str):
+                    raise ValueError(f"Value must be string, got {type(value)}")
+                
+                if value.upper() not in valid_types:
+                    raise ValueError(f"Value must be 'NUMERIC' or 'TEXT', got: {value}")
+            return v
+
+        # Handle list format
+        elif isinstance(v, list):
+            for item in v:
+                if not isinstance(item, list) or len(item) != 2:
+                    raise ValueError("Each item must be a list of [variable_name, variable_type]")
+                
+                var_name, var_type = item
+                if not isinstance(var_name, str):
+                    raise ValueError(f"Variable name must be string, got {type(var_name)}")
+                
+                if not isinstance(var_type, str):
+                    raise ValueError(f"Type must be string, got {type(var_type)}")
+                
+                if var_type.upper() not in valid_types:
+                    raise ValueError(f"Type must be 'NUMERIC' or 'TEXT', got: {var_type}")
+            return v
+
+        else:
+            raise ValueError("Must be either a dictionary or a list of pairs")
+            
+    @field_validator('source_model_inference_output_variable_list')
+    @classmethod
+    def validate_output_variable_list(cls, v: Dict[str, str]) -> Dict[str, str]:
+        """
+        Validate output variable dictionary format with string types.
         
-    @model_validator(mode='after')
-    def validate_registration_configs(self) -> 'PayloadConfig':
-        """Override the parent validator to validate registration-specific fields"""
-        # Validate model registration objective
-        if not self.model_registration_objective:
+        Args:
+            v: Dictionary mapping variable names to types
+            
+        Returns:
+            Original dictionary if valid, without modification
+        """
+        if not v:  # If empty dictionary
+            return v
+        
+        valid_types = ["NUMERIC", "TEXT"]
+        
+        for key, value in v.items():
+            # Validate key is a string
+            if not isinstance(key, str):
+                raise ValueError(f"Key must be string, got {type(key)} for key: {key}")
+        
+            # Check if string value is valid
+            if not isinstance(value, str):
+                raise ValueError(f"Value must be string, got {type(value)}")
+            
+            if value.upper() not in valid_types:
+                raise ValueError(f"Value must be 'NUMERIC' or 'TEXT', got: {value}")
+        
+        return v
+    
+    # Remove the automatic construct_payload_path validator
+    # Now paths are only constructed when explicitly needed by calling ensure_payload_path
+        
+    # Replace the model validator with a simple field validator
+    @field_validator('model_registration_objective')
+    @classmethod
+    def validate_model_registration_objective(cls, v: Optional[str]) -> str:
+        """Validate model registration objective is provided"""
+        if not v:
             raise ValueError("model_registration_objective must be provided")
-        
-        # Use the effective source directory instead of just source_dir
-        effective_source_dir = self.get_effective_source_dir()
-        if effective_source_dir and not effective_source_dir.startswith('s3://'):
-            entry_point_path = Path(effective_source_dir) / self.processing_entry_point
-            if not entry_point_path.exists():
-                raise ValueError(f"Processing entry point script not found: {entry_point_path}")
-        
-        return self
+        return v
         
     def ensure_payload_path(self) -> None:
-        """Ensure S3 key for payload is set. This is a regular method that can be called directly."""
-        if not self.sample_payload_s3_key:
-            payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
-            if self.model_registration_objective:
-                payload_file_name += f'_{self.model_registration_objective}'
-            self.sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
+        """Ensure S3 key for payload is set. Only called when needed."""
+        # Early exit if already set to avoid unnecessary work
+        if self._sample_payload_s3_key:
+            return
+
+        # Generate path without using model validators
+        payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
+        if self.model_registration_objective:
+            payload_file_name += f'_{self.model_registration_objective}'
+        # Direct assignment to private field
+        self._sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
 
     @model_validator(mode='after')
     def validate_special_fields(self) -> 'PayloadConfig':
@@ -209,7 +258,7 @@ class PayloadConfig(ProcessingStepConfigBase):
                     invalid_fields.append(field_name)
                 else:
                     field_type = input_vars[field_name]
-                    if field_type != VariableType.TEXT:
+                    if field_type.upper() != "TEXT":
                         raise ValueError(
                             f"Special field '{field_name}' must be of type TEXT, "
                             f"got {field_type}"
@@ -219,7 +268,7 @@ class PayloadConfig(ProcessingStepConfigBase):
                 for var_name, var_type in input_vars:
                     if var_name == field_name:
                         field_found = True
-                        if var_type != VariableType.TEXT:
+                        if var_type.upper() != "TEXT":
                             raise ValueError(
                                 f"Special field '{field_name}' must be of type TEXT, "
                                 f"got {var_type}"
@@ -233,15 +282,20 @@ class PayloadConfig(ProcessingStepConfigBase):
                 f"Special fields not found in input variable list: {invalid_fields}"
             )
             
+        # No model_copy - just return self directly
         return self
 
     def get_full_payload_path(self) -> str:
         """Get full S3 path for payload"""
-        return f"s3://{self.bucket}/{self.sample_payload_s3_key}"
+        # Ensure path is set before accessing
+        if not self._sample_payload_s3_key:
+            self.ensure_payload_path()
+        return f"s3://{self.bucket}/{self._sample_payload_s3_key}"
 
-    def get_field_default_value(self, field_name: str, var_type: VariableType) -> str:
+    def get_field_default_value(self, field_name: str, var_type: str) -> str:
         """Get default value for a field"""
-        if var_type == VariableType.TEXT:
+        var_type_upper = var_type.upper()
+        if var_type_upper == "TEXT":
             if self.special_field_values and field_name in self.special_field_values:
                 template = self.special_field_values[field_name]
                 try:
@@ -251,7 +305,7 @@ class PayloadConfig(ProcessingStepConfigBase):
                 except KeyError as e:
                     raise ValueError(f"Invalid placeholder in template for field '{field_name}': {str(e)}")
             return self.default_text_value
-        elif var_type == VariableType.NUMERIC:
+        elif var_type_upper == "NUMERIC":
             return str(self.default_numeric_value)
         else:
             raise ValueError(f"Unknown variable type: {var_type}")   
@@ -377,8 +431,9 @@ class PayloadConfig(ProcessingStepConfigBase):
         if not self.bucket:
             raise ValueError("Bucket not specified in configuration")
         
-        if not self.sample_payload_s3_key:
-            raise ValueError("sample_payload_s3_key not specified in configuration")
+        # Ensure payload path is set
+        if not self._sample_payload_s3_key:
+            self.ensure_payload_path()
         
         try:
             # Create temporary directory for tar.gz creation
@@ -393,7 +448,7 @@ class PayloadConfig(ProcessingStepConfigBase):
             
                 # Use bucket and key from config
                 bucket = self.bucket
-                key = self.sample_payload_s3_key
+                key = self._sample_payload_s3_key
                 s3_uri = f"s3://{bucket}/{key}"
             
                 logger.info(f"Uploading payloads archive to bucket: {bucket}")
@@ -426,9 +481,9 @@ class PayloadConfig(ProcessingStepConfigBase):
             Exception: If any step fails
         """
         # Ensure S3 path is constructed
-        if not self.sample_payload_s3_key:
+        if not self._sample_payload_s3_key:
             self.ensure_payload_path()
-            logger.info(f"Constructed S3 key: {self.sample_payload_s3_key}")
+            logger.info(f"Constructed S3 key: {self._sample_payload_s3_key}")
             
         try:
             # Create temporary directory for payload files
@@ -499,8 +554,54 @@ class PayloadConfig(ProcessingStepConfigBase):
         """
         return MIMS_PAYLOAD_CONTRACT
 
+    def get_normalized_input_variables(self) -> List[List[str]]:
+        """
+        Get input variables normalized to list format with string types.
+        Compatible with format from create_model_variable_list.
+        
+        Returns:
+            List of [name, type] pairs with string types
+        """
+        input_vars = self.source_model_inference_input_variable_list
+        result = []
+        
+        if isinstance(input_vars, dict):
+            # Convert dict to list format
+            for name, var_type in input_vars.items():
+                type_str = str(var_type).upper()
+                result.append([name, type_str])
+        else:
+            # Already list format, just standardize types
+            for name, var_type in input_vars:
+                type_str = str(var_type).upper()
+                result.append([name, type_str])
+        
+        return result
+    
+    def get_input_variables_as_dict(self) -> Dict[str, str]:
+        """
+        Get input variables as a dictionary mapping names to string types.
+        Compatible with the second return value from create_model_variable_json.
+        
+        Returns:
+            Dictionary mapping variable names to string types
+        """
+        input_vars = self.source_model_inference_input_variable_list
+        result = {}
+        
+        # Already in dict format
+        if isinstance(input_vars, dict):
+            for name, var_type in input_vars.items():
+                result[name] = str(var_type).upper()
+        
+        # Convert list format to dict format
+        else:
+            for name, var_type in input_vars:
+                result[name] = str(var_type).upper()
+        
+        return result
+
     def model_dump(self, **kwargs) -> Dict[str, Any]:
-        """Custom serialization"""
+        """Custom serialization - simplified for string types"""
         data = super().model_dump(**kwargs)
-        # No special handling needed since we're using standard fields from ProcessingStepConfigBase
         return data

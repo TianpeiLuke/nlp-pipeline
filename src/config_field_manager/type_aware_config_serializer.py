@@ -194,18 +194,32 @@ class TypeAwareConfigSerializer:
         if self._recursion_depth > self._max_recursion_depth:
             self.logger.error(f"Maximum recursion depth exceeded while deserializing {field_name}")
             self._recursion_depth -= 1
-            return field_data
+            return None  # Return None instead of potentially recursive structure
 
-        # Generate a hash to detect if we're processing the same object again
+        # Generate a more reliable object identifier
+        object_id = None
         try:
-            object_id = hash(str(field_data))
+            # For dictionaries with model type info, create a composite ID
+            if isinstance(field_data, dict) and self.MODEL_TYPE_FIELD in field_data:
+                type_name = field_data.get(self.MODEL_TYPE_FIELD)
+                id_parts = [type_name]
+                # Add key identifiers if available
+                for key in ['name', 'pipeline_name', 'id']:
+                    if key in field_data and isinstance(field_data[key], (str, int, float, bool)):
+                        id_parts.append(f"{key}:{field_data[key]}")
+                object_id = hash(tuple(id_parts))
+            else:
+                # For other objects use a simpler approach
+                object_id = id(field_data)
+            
+            # Check for circular references
             if object_id in self._processing_stack:
                 self.logger.warning(f"Circular reference detected during deserialization of {field_name}")
                 self._recursion_depth -= 1
-                return field_data
+                return None  # Return None for circular references
             self._processing_stack.add(object_id)
         except (TypeError, ValueError):
-            # If object is not hashable, we can't track it for recursion
+            # If we can't create a reliable ID, just continue without recursion detection
             pass
             
         # Handle None, primitives
@@ -291,16 +305,26 @@ class TypeAwareConfigSerializer:
             self._recursion_depth -= 1
             return field_data
             
-        # Generate a hash to detect if we're processing the same object again
+        # Generate a more reliable object identifier for models
+        object_id = None
         try:
-            object_id = hash(str(field_data))
+            # For models, use type and key field values for identification
+            type_name = field_data.get(self.MODEL_TYPE_FIELD)
+            id_parts = [type_name]
+            # Add key identifiers if available
+            for key in ['name', 'pipeline_name', 'id']:
+                if key in field_data and isinstance(field_data[key], (str, int, float, bool)):
+                    id_parts.append(f"{key}:{field_data[key]}")
+            object_id = hash(tuple(id_parts))
+            
+            # Check for circular references
             if object_id in self._processing_stack:
                 self.logger.warning(f"Circular reference detected during model deserialization")
                 self._recursion_depth -= 1
-                return field_data
+                return None  # Return None instead of potentially recursive structure
             self._processing_stack.add(object_id)
         except (TypeError, ValueError):
-            # If object is not hashable, we can't track it for recursion
+            # If we can't create a reliable ID, just continue without recursion detection
             pass
             
         # Check for type metadata - implementing Explicit Over Implicit

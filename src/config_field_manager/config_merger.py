@@ -185,70 +185,72 @@ class ConfigMerger:
                 
     def _check_required_fields(self, merged: Dict[str, Any]) -> None:
         """
-        Check that all required fields are present in the merged output.
+        Check that common fields are consistently placed across configurations.
         
-        This verifies that mandatory fields for each config type are included.
+        This method dynamically determines which fields appear in multiple config
+        classes and checks their placement in the merged configuration.
         
         Args:
             merged: Merged configuration structure
-            
-        Raises:
-            ValueError: If required fields are missing
         """
-        # Common required fields that should be present for all pipeline steps
-        common_required_fields = {
-            "bucket",
-            "pipeline_name",
-            "pipeline_version",
-            "pipeline_description",
-        }
+        if not self.config_list:
+            return  # Nothing to check if no configs
+            
+        # Get all fields from each config
+        config_fields = {}
+        for config in self.config_list:
+            step_name = self._generate_step_name(config)
+            config_fields[step_name] = set(
+                field for field in dir(config) 
+                if not field.startswith('_') and not callable(getattr(config, field))
+            )
         
-        # Process-specific required fields
-        processing_required_fields = {
-            "input_path",
-            "output_path",
-        }
+        # Find fields that appear in all configs
+        if config_fields:
+            common_fields = set.intersection(*config_fields.values())
+        else:
+            common_fields = set()
+            
+        # Remove special fields that should stay in specific sections
+        from src.config_field_manager.constants import SPECIAL_FIELDS_TO_KEEP_SPECIFIC
+        common_fields -= set(SPECIAL_FIELDS_TO_KEEP_SPECIFIC)
         
-        # Training-specific required fields
-        training_required_fields = {
-            "model_path",
-        }
+        # Fields that should be common (appear in multiple configs)
+        potential_shared_fields = set()
+        for field in set().union(*config_fields.values()):
+            if field in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
+                continue  # Skip special fields
+                
+            # Count configs that have this field
+            count = sum(1 for fields in config_fields.values() if field in fields)
+            if count > 1:
+                # Field appears in multiple configs, should be shared
+                potential_shared_fields.add(field)
         
-        # Check for common required fields in shared section or in each specific section
-        missing_required = {}
-        
-        # Get all fields in shared
+        # Get fields from shared section
         shared_fields = set(merged["shared"].keys())
         
-        # Check each specific section
-        for step_name, fields in merged["specific"].items():
-            # Combine shared fields with specific fields for this step
-            step_fields = shared_fields.union(set(fields.keys()))
-            
-            # Check for common required fields
-            missing_common = common_required_fields - step_fields
-            
-            # Check for specialized required fields
-            if "processing" in step_name.lower():
-                missing_processing = processing_required_fields - step_fields
-                if missing_processing:
-                    missing_required[step_name] = missing_common.union(missing_processing)
-                else:
-                    missing_required[step_name] = missing_common
-            elif "training" in step_name.lower() or "model" in step_name.lower():
-                missing_training = training_required_fields - step_fields
-                if missing_training:
-                    missing_required[step_name] = missing_common.union(missing_training)
-                else:
-                    missing_required[step_name] = missing_common
-            else:
-                # For steps we can't identify as processing or training, just check common fields
-                missing_required[step_name] = missing_common
+        # Find potentially shared fields that aren't in the shared section
+        missing_from_shared = potential_shared_fields - shared_fields
         
-        # Log any missing required fields
-        for step_name, missing in missing_required.items():
-            if missing:
-                self.logger.warning(f"Step '{step_name}' is missing required fields: {missing}")
+        if not missing_from_shared:
+            # All potential shared fields are already in shared section - perfect!
+            return
+            
+        # Check if any of these fields appear in specific sections instead
+        misplaced_fields = {}
+        for step_name, fields in merged["specific"].items():
+            step_fields = set(fields.keys())
+            for field in missing_from_shared:
+                if field in step_fields:
+                    if field not in misplaced_fields:
+                        misplaced_fields[field] = []
+                    misplaced_fields[field].append(step_name)
+        
+        # Log fields that should be moved from specific to shared
+        if misplaced_fields:
+            for field, steps in misplaced_fields.items():
+                self.logger.info(f"Field '{field}' appears in multiple configs but is in specific section(s): {steps}")
     
     def save(self, output_file: str) -> Dict[str, Any]:
         """

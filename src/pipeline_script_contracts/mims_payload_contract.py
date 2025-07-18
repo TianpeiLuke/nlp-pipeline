@@ -22,6 +22,7 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
         # No strictly required environment variables - script has defaults
     ],
     optional_env_vars={
+        # Only these environment variables are actually used by the script:
         "CONTENT_TYPES": "application/json",
         "DEFAULT_NUMERIC_VALUE": "0.0",
         "DEFAULT_TEXT_VALUE": "DEFAULT_TEXT",
@@ -37,6 +38,10 @@ MIMS_PAYLOAD_CONTRACT = ScriptContract(
     2. Creates model variable list from field information
     3. Generates sample payloads in multiple formats (JSON, CSV)
     4. Archives payload files for deployment
+    
+    Note: This script extracts pipeline name, version, and model objective from hyperparameters,
+    not from environment variables. It does not use PIPELINE_NAME, REGION, PAYLOAD_S3_KEY, or 
+    BUCKET_NAME environment variables.
     
     Input Structure:
     - /opt/ml/processing/input/model: Model artifacts containing hyperparameters.json
