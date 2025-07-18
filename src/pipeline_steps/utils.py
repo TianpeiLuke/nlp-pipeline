@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from enum import Enum
 from pydantic import BaseModel
+from collections import defaultdict
 
 from .config_base import BasePipelineConfig
 from .config_processing_step_base import ProcessingStepConfigBase
@@ -127,6 +128,11 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
     
     This is a wrapper for the new implementation in src.config_field_manager.
     
+    NOTE: This function adds field_sources data to the metadata section, tracking which
+    fields come from which configs. The structure is completely flattened as:
+    
+        metadata.field_sources = { field_name: [config_name, ...], ... }
+    
     Simplified Field Categorization Rules:
     -------------------------------------
     1. **Field is special** → Place in `specific`
@@ -158,8 +164,28 @@ def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Di
     
     Under "metadata" → "config_types" we map each unique step_name → config class name.
     """
-    # Simply delegate to the new implementation
-    return new_merge_and_save_configs(config_list, output_file)
+    # Generate field sources for backward compatibility
+    field_sources = get_field_sources(config_list)
+    
+    # Call the implementation from config_field_manager
+    result = new_merge_and_save_configs(config_list, output_file)
+    
+    # Read the file to add field_sources metadata
+    with open(output_file, 'r') as f:
+        data = json.load(f)
+    
+    # Add completely flattened field sources to metadata
+    if 'metadata' not in data:
+        data['metadata'] = {}
+    
+    # Take only the 'all' category and add it directly under field_sources
+    data['metadata']['field_sources'] = field_sources['all']
+    
+    # Write the updated data back to the file
+    with open(output_file, 'w') as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+    
+    return result
 
 
 def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) -> Dict[str, BaseModel]:
@@ -227,6 +253,87 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
         result_configs = loaded_configs_dict
     
     return result_configs
+
+
+def get_field_sources(config_list: List[BaseModel]) -> Dict[str, Dict[str, List[str]]]:
+    """
+    Extract field sources from config list.
+    
+    Returns a dictionary with three categories:
+    - 'all': All fields and their source configs
+    - 'processing': Fields from processing configs
+    - 'specific': Fields from non-processing configs
+    
+    This is used for backward compatibility with the legacy field categorization.
+    
+    Args:
+        config_list: List of configuration objects to analyze
+        
+    Returns:
+        Dictionary of field sources by category
+    """
+    field_sources = defaultdict(lambda: defaultdict(list))
+    
+    # First categorize the configs
+    processing_configs = [cfg for cfg in config_list if isinstance(cfg, ProcessingStepConfigBase)]
+    non_processing_configs = [cfg for cfg in config_list if not isinstance(cfg, ProcessingStepConfigBase)]
+
+    # Collect field values and sources
+    all_fields = {}
+    step_names = {}
+    for cfg in config_list:
+        serialized = serialize_config(cfg)
+        step_name = serialized.get("_metadata", {}).get("step_name", "unknown")
+        step_names[id(cfg)] = step_name
+        
+        for field_name, value in serialized.items():
+            if field_name == "_metadata":
+                continue
+            
+            if field_name not in all_fields:
+                all_fields[field_name] = []
+            all_fields[field_name].append((cfg, step_name))
+    
+    # Now populate field_sources based on where each field appears
+    for field_name, cfg_list in all_fields.items():
+        # Add all occurrences to the 'all' category
+        for cfg, step_name in cfg_list:
+            field_sources['all'][field_name].append(step_name)
+        
+        # Determine if this field appears in processing configs
+        processing_occurrences = [(cfg, step_name) for cfg, step_name in cfg_list 
+                                if isinstance(cfg, ProcessingStepConfigBase)]
+        
+        # Determine if this field appears in non-processing configs
+        non_processing_occurrences = [(cfg, step_name) for cfg, step_name in cfg_list 
+                                    if not isinstance(cfg, ProcessingStepConfigBase)]
+        
+        # Add to processing category if it appears in any processing config
+        for _, step_name in processing_occurrences:
+            field_sources['processing'][field_name].append(step_name)
+            
+        # Add to specific category if:
+        # 1. It only appears in non-processing configs, or
+        # 2. It's a special field like 'hyperparameters' that should always be specific
+        # 3. It's unique to DummyTrainingConfig (not in the base ProcessingStepConfigBase)
+        special_fields = {'hyperparameters', 'hyperparameters_s3_uri', 'pretrained_model_path', 'job_type'}
+        
+        if non_processing_occurrences or field_name in special_fields:
+            for _, step_name in (non_processing_occurrences if non_processing_occurrences else processing_occurrences):
+                field_sources['specific'][field_name].append(step_name)
+    
+    # Identify cross-type fields (appear in both processing and non-processing configs)
+    cross_type_fields = set()
+    for field_name in field_sources['all'].keys():
+        # Check if this field appears in both types
+        processing_has_field = any(hasattr(cfg, field_name) for cfg in processing_configs)
+        non_processing_has_field = any(hasattr(cfg, field_name) for cfg in non_processing_configs)
+        
+        if processing_has_field and non_processing_has_field:
+            cross_type_fields.add(field_name)
+            logger.debug(f"Cross-type field detected: {field_name}")
+    
+    return field_sources
 
 
 def build_complete_config_classes() -> Dict[str, Type[BaseModel]]:
