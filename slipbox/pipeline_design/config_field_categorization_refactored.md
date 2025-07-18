@@ -4,6 +4,13 @@
 
 The Simplified Config Field Categorization System provides a **streamlined architecture for managing configuration fields** across multiple configurations. It improves upon the previous implementation by introducing a flattened structure, clearer categorization rules, and enhanced usability while maintaining type-safety and modularity.
 
+This document provides a high-level overview of the entire system. For detailed information about specific components, please refer to the dedicated design documents:
+
+- [Simplified Config Field Categorization](./simplified_config_field_categorization.md): Details of the field categorization rules and structure
+- [Registry-Based Step Name Generation](./registry_based_step_name_generation.md): How step names are derived from the pipeline registry
+- [Job Type Variant Handling](./job_type_variant_handling.md): How job type variants are supported in configurations
+- [Config Types Format](./config_types_format.md): Format requirements for the config_types metadata
+
 ## Core Purpose
 
 The simplified system provides a **maintainable field categorization framework** that enables:
@@ -57,812 +64,49 @@ Making categorization decisions explicit improves maintainability and helps deve
 
 ## Key Components
 
+The Simplified Config Field Categorization system consists of several key components, each with its own detailed design document:
+
 ### 1. ConfigFieldCategorizer
 
-A dedicated class responsible for applying categorization rules:
+Responsible for categorizing configuration fields based on their characteristics. This component applies explicit rules with clear precedence to determine which fields should be shared and which should be specific to each step.
 
-```python
-class ConfigFieldCategorizer:
-    """
-    Responsible for categorizing configuration fields based on their characteristics.
-    
-    Analyzes field values and metadata across configs to determine proper placement.
-    Uses explicit rules with clear precedence for categorization decisions.
-    """
-    
-    def __init__(self, config_list):
-        self.config_list = config_list
-        self.processing_configs = [c for c in config_list if isinstance(c, ProcessingStepConfigBase)]
-        self.non_processing_configs = [c for c in config_list if not isinstance(c, ProcessingStepConfigBase)]
-        self.field_info = self._collect_field_info()
-        self.categorization = self._categorize_fields()
-        
-    def _collect_field_info(self):
-        """
-        Collect comprehensive information about all fields across configs.
-        
-        Returns:
-            dict: Field information including values, sources, types, etc.
-        """
-        field_info = {
-            'values': defaultdict(set),            # field_name -> set of values (as JSON strings)
-            'sources': defaultdict(list),          # field_name -> list of step names
-            'processing_sources': defaultdict(list), # field_name -> list of processing step names
-            'non_processing_sources': defaultdict(list), # field_name -> list of non-processing step names
-            'is_static': defaultdict(bool),        # field_name -> bool (is this field likely static)
-            'is_special': defaultdict(bool),       # field_name -> bool (is this a special field)
-            'is_cross_type': defaultdict(bool),    # field_name -> bool (appears in both processing/non-processing)
-            'raw_values': defaultdict(dict)        # field_name -> {step_name: actual value}
-        }
-        
-        # Collect information from all configs
-        for config in self.config_list:
-            serialized = serialize_config(config)
-            step_name = serialized["_metadata"]["step_name"]
-            
-            # Process each field
-            for field_name, value in serialized.items():
-                if field_name == "_metadata":
-                    continue
-                    
-                # Track raw value
-                field_info['raw_values'][field_name][step_name] = value
-                
-                # Track serialized value for comparison
-                try:
-                    value_str = json.dumps(value, sort_keys=True)
-                    field_info['values'][field_name].add(value_str)
-                except (TypeError, ValueError):
-                    # If not JSON serializable, use object ID as placeholder
-                    field_info['values'][field_name].add(f"__non_serializable_{id(value)}__")
-                
-                # Track sources
-                field_info['sources'][field_name].append(step_name)
-                
-                # Track processing/non-processing sources
-                if isinstance(config, ProcessingStepConfigBase):
-                    field_info['processing_sources'][field_name].append(step_name)
-                else:
-                    field_info['non_processing_sources'][field_name].append(step_name)
-                
-                # Determine if cross-type
-                is_processing = bool(field_info['processing_sources'][field_name])
-                is_non_processing = bool(field_info['non_processing_sources'][field_name])
-                field_info['is_cross_type'][field_name] = is_processing and is_non_processing
-                
-                # Check if special
-                field_info['is_special'][field_name] = self._is_special_field(field_name, value, config)
-                
-                # Check if static
-                field_info['is_static'][field_name] = self._is_likely_static(field_name, value)
-                
-        return field_info
-    
-    def _is_special_field(self, field_name, value, config):
-        """
-        Determine if a field should be treated as special.
-        
-        Special fields are always kept in specific sections.
-        
-        Args:
-            field_name: Name of the field
-            value: Value of the field
-            config: The config containing this field
-            
-        Returns:
-            bool: True if the field is special
-        """
-        # Check against known special fields
-        if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-            return True
-            
-        # Check if it's a Pydantic model
-        if isinstance(value, BaseModel):
-            return True
-            
-        return False
-    
-    def _is_likely_static(self, field_name, value):
-        """
-        Determine if a field is likely static based on name and value.
-        
-        Static fields are those that don't change at runtime.
-        
-        Args:
-            field_name: Name of the field
-            value: Value of the field
-            
-        Returns:
-            bool: True if the field is likely static
-        """
-        # Special fields are never static
-        if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-            return False
-            
-        # Pydantic models are never static
-        if isinstance(value, BaseModel):
-            return False
-        
-        # Check name patterns that suggest non-static fields
-        non_static_patterns = {"_names", "input_", "output_", "_specific", "_count"}
-        if any(pattern in field_name for pattern in non_static_patterns):
-            return False
-            
-        # Check complex values
-        if isinstance(value, dict) and len(value) > 3:
-            return False
-        if isinstance(value, list) and len(value) > 5:
-            return False
-            
-        # Default to static
-        return True
-        
-    def _categorize_fields(self):
-        """
-        Apply categorization rules to all fields.
-        
-        Returns:
-            dict: Field categorization results
-        """
-        # Following the Declarative Over Imperative principle with clear structure
-        categorization = {
-            'shared': {},
-            'processing': {
-                'processing_shared': {},
-                'processing_specific': defaultdict(dict)
-            },
-            'specific': defaultdict(dict)
-        }
-        
-        # Apply categorization rules to each field
-        for field_name in self.field_info['sources']:
-            # Explicit categorization following Explicit Over Implicit principle
-            category = self._categorize_field(field_name)
-            
-            # Place field in the appropriate category
-            self._place_field(field_name, category, categorization)
-            
-        return categorization
-    
-    def _categorize_field(self, field_name):
-        """
-        Determine the category for a field based on explicit rules.
-        
-        Args:
-            field_name: Name of the field to categorize
-            
-        Returns:
-            str: Category name ('shared', 'processing_shared', 'processing_specific', 'specific')
-        """
-        info = self.field_info
-        
-        # Rule 1: Special fields always go to their specific sections
-        if info['is_special'][field_name]:
-            if field_name in info['processing_sources']:
-                return 'processing_specific'
-            else:
-                return 'specific'
-                
-        # Rule 2: Fields that only appear in one config are specific
-        if len(info['sources'][field_name]) <= 1:
-            if field_name in info['processing_sources']:
-                return 'processing_specific'
-            else:
-                return 'specific'
-                
-        # Rule 3: Fields with different values across configs are specific
-        if len(info['values'][field_name]) > 1:
-            if field_name in info['processing_sources']:
-                return 'processing_specific'
-            else:
-                return 'specific'
-                
-        # Rule 4: Non-static fields are specific
-        if not info['is_static'][field_name]:
-            if field_name in info['processing_sources']:
-                return 'processing_specific'
-            else:
-                return 'specific'
-                
-        # Rule 5: Cross-type fields with identical values go to shared
-        if info['is_cross_type'][field_name] and len(info['values'][field_name]) == 1:
-            # If in ALL configs, can be in shared
-            if len(info['sources'][field_name]) == len(self.config_list):
-                return 'shared'
-            else:
-                # Not in all configs, must be specific
-                return 'specific' if not info['processing_sources'][field_name] else 'processing_specific'
-        
-        # Rule 6: Processing-only fields with identical values
-        if field_name in info['processing_sources'] and not info['is_cross_type'][field_name]:
-            # If in ALL processing configs, can be in processing_shared
-            if len(info['processing_sources'][field_name]) == len(self.processing_configs):
-                return 'processing_shared'
-            else:
-                return 'processing_specific'
-                
-        # Rule 7: Non-processing fields with identical values go to shared
-        if field_name in info['non_processing_sources'] and not info['is_cross_type'][field_name]:
-            return 'shared'
-            
-        # Default case: if we can't determine clearly, be safe and make it specific
-        if field_name in info['processing_sources']:
-            return 'processing_specific'
-        else:
-            return 'specific'
-    
-    def _place_field(self, field_name, category, categorization):
-        """
-        Place a field into the appropriate category in the categorization structure.
-        
-        Args:
-            field_name: Name of the field
-            category: Category to place the field in
-            categorization: Categorization structure to update
-        """
-        info = self.field_info
-        
-        # Handle each category
-        if category == 'shared':
-            # Use the common value for all configs
-            value_str = next(iter(info['values'][field_name]))
-            categorization['shared'][field_name] = json.loads(value_str)
-            
-        elif category == 'processing_shared':
-            # Use the common value for all processing configs
-            value_str = next(iter(info['values'][field_name]))
-            categorization['processing']['processing_shared'][field_name] = json.loads(value_str)
-            
-        elif category == 'processing_specific':
-            # Add to each processing config that has this field
-            for config in self.processing_configs:
-                if hasattr(config, field_name):
-                    step_name = serialize_config(config)["_metadata"]["step_name"]
-                    value = getattr(config, field_name)
-                    categorization['processing']['processing_specific'][step_name][field_name] = value
-                    
-        elif category == 'specific':
-            # Add to each non-processing config that has this field
-            for config in self.non_processing_configs:
-                if hasattr(config, field_name):
-                    step_name = serialize_config(config)["_metadata"]["step_name"]
-                    value = getattr(config, field_name)
-                    categorization['specific'][step_name][field_name] = value
-    
-    def get_category_for_field(self, field_name, config=None):
-        """
-        Get the category for a specific field, optionally in a specific config.
-        
-        Args:
-            field_name: Name of the field
-            config: Optional config instance
-            
-        Returns:
-            str: Category name or None if field not found
-        """
-        if field_name not in self.field_info['sources']:
-            return None
-            
-        if config is None:
-            # Return general category
-            return self._categorize_field(field_name)
-        else:
-            # Check if this config has this field
-            if not hasattr(config, field_name):
-                return None
-                
-            # Get category for this specific instance
-            is_processing = isinstance(config, ProcessingStepConfigBase)
-            category = self._categorize_field(field_name)
-            
-            # Adjust category based on config type
-            if category == 'shared':
-                return 'shared'
-            elif category == 'processing_shared' and is_processing:
-                return 'processing_shared'
-            elif is_processing:
-                return 'processing_specific'
-            else:
-                return 'specific'
-```
+For detailed information, see [Simplified Config Field Categorization](./simplified_config_field_categorization.md).
 
-### 2. Step Name Generation with Job Type Variants
+### 2. Registry-Based Step Name Generation
 
-A critical aspect of the configuration system is proper generation of step names, especially for configurations that represent job type variants (training, calibration, validation, testing). The legacy implementation ensured that attributes like `job_type`, `data_type`, and `mode` were appended to step names:
+A critical aspect that ensures consistent step name generation across the system using the pipeline registry as the single source of truth. This component is essential for proper handling of job type variants and configuration loading.
 
-```python
-# From legacy implementation
-def serialize_config(config: BaseModel) -> Dict[str, Any]:
-    # ...
-    # Base step name from registry
-    base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
-    step_name = base_step
-    
-    # Append distinguishing attributes
-    for attr in ("job_type", "data_type", "mode"):
-        if hasattr(config, attr):
-            val = getattr(config, attr)
-            if val is not None:
-                step_name = f"{step_name}_{val}"
-```
+For detailed information, see [Registry-Based Step Name Generation](./registry_based_step_name_generation.md).
 
-This step name generation is essential for the job type variant solution, which relies on distinct step names for different job types. The refactored system preserves this crucial functionality in the serializer:
+### 3. Job Type Variant Handling
 
-```python
-# In TypeAwareConfigSerializer
-def _generate_step_name(self, config: BaseModel) -> str:
-    """
-    Generate a step name for a config, including job type and other distinguishing attributes.
-    
-    Args:
-        config: The configuration object
-        
-    Returns:
-        str: Generated step name
-    """
-    # Base step name from registry
-    base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
-    step_name = base_step
-    
-    # Append distinguishing attributes - essential for job type variants
-    for attr in ("job_type", "data_type", "mode"):
-        if hasattr(config, attr):
-            val = getattr(config, attr)
-            if val is not None:
-                step_name = f"{step_name}_{val}"
-                
-    return step_name
-```
+Supports job type variants (training, calibration, validation, testing) by creating distinct step names with job type suffixes and ensuring proper configuration handling for each variant.
 
-This ensures that distinct step names are generated for different job type variants (e.g., "CradleDataLoading_training", "CradleDataLoading_calibration"), which is essential for:
+For detailed information, see [Job Type Variant Handling](./job_type_variant_handling.md).
 
-1. **Proper dependency resolution** between job type variants
-2. **Pipeline variant creation** (training-only, evaluation-only, end-to-end)
-3. **Semantic keyword matching** in the step specification system
+### 4. TypeAwareSerializer
 
-### 3. TypeAwareSerializer
+A robust system for serializing and deserializing complex types with complete type information preservation. This component ensures configurations can be correctly reconstructed during loading.
 
-A dedicated class for robust type-aware serialization that implements the Type-Safe Specifications principle:
+For detailed information, see [Type-Aware Serializer](./type_aware_serializer.md).
 
-```python
-class TypeAwareSerializer:
-    """
-    Handles serialization and deserialization of complex types with type information.
-    
-    Maintains type information during serialization and uses it for correct
-    instantiation during deserialization.
-    """
-    
-    # Constants for metadata fields - following Single Source of Truth principle
-    MODEL_TYPE_FIELD = "__model_type__"
-    MODEL_MODULE_FIELD = "__model_module__"
-    
-    def __init__(self, config_classes=None):
-        """
-        Initialize with optional config classes.
-        
-        Args:
-            config_classes: Optional dictionary mapping class names to class objects
-        """
-        self.config_classes = config_classes or build_complete_config_classes()
-        self.logger = logging.getLogger(__name__)
-        
-    def serialize(self, val):
-        """
-        Serialize a value with type information when needed.
-        
-        Args:
-            val: The value to serialize
-            
-        Returns:
-            Serialized value suitable for JSON
-        """
-        if isinstance(val, datetime):
-            return val.isoformat()
-        if isinstance(val, Enum):
-            return val.value
-        if isinstance(val, Path):
-            return str(val)
-        if isinstance(val, BaseModel):  # Handle Pydantic models
-            try:
-                # Get class details
-                cls = val.__class__
-                module_name = cls.__module__
-                cls_name = cls.__name__
-                
-                # Create serialized dict with type metadata - implementing Type-Safe Specifications
-                result = {
-                    self.MODEL_TYPE_FIELD: cls_name,
-                    self.MODEL_MODULE_FIELD: module_name,
-                    **{k: self.serialize(v) for k, v in val.model_dump().items()}
-                }
-                return result
-            except Exception as e:
-                self.logger.warning(f"Error serializing {val.__class__.__name__}: {str(e)}")
-                return f"<Serialization error: {str(e)}>"
-        if isinstance(val, dict):
-            return {k: self.serialize(v) for k, v in val.items()}
-        if isinstance(val, list):
-            return [self.serialize(v) for v in val]
-        return val
-        
-    def deserialize(self, field_data, field_name=None, expected_type=None):
-        """
-        Deserialize data with proper type handling.
-        
-        Args:
-            field_data: The serialized data
-            field_name: Optional name of the field (for logging)
-            expected_type: Optional expected type
-            
-        Returns:
-            Deserialized value
-        """
-        # Skip if not a dict or no type info needed
-        if not isinstance(field_data, dict):
-            return field_data
-            
-        # Check for type metadata - implementing Explicit Over Implicit
-        type_name = field_data.get(self.MODEL_TYPE_FIELD)
-        module_name = field_data.get(self.MODEL_MODULE_FIELD)
-        
-        if not type_name:
-            # No type information, use the expected_type if applicable
-            if expected_type and isinstance(expected_type, type) and issubclass(expected_type, BaseModel):
-                return self._deserialize_model(field_data, expected_type)
-            return field_data
-            
-        # Get the actual class to use - implementing Single Source of Truth
-        actual_class = self._get_class_by_name(type_name, module_name)
-        
-        # If we couldn't find the class, log warning and use expected_type
-        if not actual_class:
-            self.logger.warning(
-                f"Could not find class {type_name} for field {field_name or 'unknown'}, "
-                f"using {expected_type.__name__ if expected_type else 'dict'}"
-            )
-            actual_class = expected_type
-            
-        # If still no class, return as is
-        if not actual_class:
-            return field_data
-            
-        return self._deserialize_model(field_data, actual_class)
-    
-    def _deserialize_model(self, field_data, model_class):
-        """
-        Deserialize a model instance.
-        
-        Args:
-            field_data: Serialized model data
-            model_class: Class to instantiate
-            
-        Returns:
-            Model instance
-        """
-        # Remove metadata fields
-        filtered_data = {k: v for k, v in field_data.items() 
-                       if k not in (self.MODEL_TYPE_FIELD, self.MODEL_MODULE_FIELD)}
-                       
-        # Recursively deserialize nested models
-        for k, v in list(filtered_data.items()):
-            if isinstance(v, dict) and self.MODEL_TYPE_FIELD in v:
-                # Get nested field type if available
-                nested_type = None
-                if hasattr(model_class, 'model_fields') and k in model_class.model_fields:
-                    nested_type = model_class.model_fields[k].annotation
-                filtered_data[k] = self.deserialize(v, k, nested_type)
-        
-        try:
-            return model_class(**filtered_data)
-        except Exception as e:
-            self.logger.error(f"Failed to instantiate {model_class.__name__}: {str(e)}")
-            # Return as plain dict if instantiation fails
-            return filtered_data
-            
-    def _get_class_by_name(self, class_name, module_name=None):
-        """
-        Get a class by name, from config_classes or by importing.
-        
-        Args:
-            class_name: Name of the class
-            module_name: Optional module to import from
-            
-        Returns:
-            Class or None if not found
-        """
-        # First check registered classes
-        if class_name in self.config_classes:
-            return self.config_classes[class_name]
-            
-        # Try to import from module if provided
-        if module_name:
-            try:
-                self.logger.debug(f"Attempting to import {class_name} from {module_name}")
-                module = __import__(module_name, fromlist=[class_name])
-                if hasattr(module, class_name):
-                    return getattr(module, class_name)
-            except ImportError as e:
-                self.logger.warning(f"Failed to import {class_name} from {module_name}: {str(e)}")
-        
-        self.logger.warning(f"Class {class_name} not found")
-        return None
-```
+### 5. ConfigMerger
 
-### 3. ConfigMerger
+Handles the merging of multiple configuration objects into a unified structure with shared and specific sections, orchestrating the field categorization and serialization processes.
 
-A class to handle the merging process, implementing the Separation of Concerns design principle:
+For detailed information, see [Config Merger](./config_merger.md).
 
-```python
-class ConfigMerger:
-    """
-    Handles the merging of multiple configs based on field categorization.
-    
-    Coordinates the categorization, serialization, and validation processes
-    to produce a properly merged configuration.
-    """
-    
-    def __init__(self, config_list, categorizer=None, serializer=None):
-        """
-        Initialize with configs and optional components.
-        
-        Args:
-            config_list: List of config objects to merge
-            categorizer: Optional ConfigFieldCategorizer instance
-            serializer: Optional TypeAwareSerializer instance
-        """
-        self.config_list = config_list
-        # Dependency injection following Separation of Concerns
-        self.categorizer = categorizer or ConfigFieldCategorizer(config_list)
-        self.serializer = serializer or TypeAwareSerializer()
-        self.logger = logging.getLogger(__name__)
-        
-    def merge(self):
-        """
-        Merge configs based on field categorization.
-        
-        Returns:
-            dict: Merged configuration
-        """
-        merged = self.categorizer.categorization
-        
-        # Serialize all values
-        self._serialize_all_values(merged)
-        
-        # Handle special fields to ensure they're in the right place
-        self._handle_special_fields(merged)
-        
-        # Ensure mutual exclusivity
-        self._ensure_mutual_exclusivity(merged)
-        
-        return merged
-        
-    def _serialize_all_values(self, merged):
-        """
-        Serialize all values in the merged config.
-        
-        Args:
-            merged: The merged configuration to update
-        """
-        # Serialize shared fields
-        for k, v in list(merged['shared'].items()):
-            merged['shared'][k] = self.serializer.serialize(v)
-            
-        # Serialize processing_shared fields
-        for k, v in list(merged['processing']['processing_shared'].items()):
-            merged['processing']['processing_shared'][k] = self.serializer.serialize(v)
-            
-        # Serialize processing_specific fields
-        for step, fields in merged['processing']['processing_specific'].items():
-            for k, v in list(fields.items()):
-                merged['processing']['processing_specific'][step][k] = self.serializer.serialize(v)
-                
-        # Serialize specific fields
-        for step, fields in merged['specific'].items():
-            for k, v in list(fields.items()):
-                merged['specific'][step][k] = self.serializer.serialize(v)
-    
-    def _handle_special_fields(self, merged):
-        """
-        Ensure special fields are in their appropriate sections.
-        
-        Args:
-            merged: The merged configuration to update
-        """
-        # Handle special fields in shared - implementing Single Source of Truth
-        for field_name in list(merged['shared'].keys()):
-            if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-                self.logger.info(f"Moving special field '{field_name}' from shared")
-                shared_value = merged['shared'].pop(field_name)
-                
-                # Add to specific configs that have this field
-                for config in self.config_list:
-                    if hasattr(config, field_name):
-                        step = serialize_config(config)["_metadata"]["step_name"]
-                        value = getattr(config, field_name)
-                        serialized_value = self.serializer.serialize(value)
-                        
-                        if isinstance(config, ProcessingStepConfigBase):
-                            if step not in merged['processing']['processing_specific']:
-                                merged['processing']['processing_specific'][step] = {}
-                            merged['processing']['processing_specific'][step][field_name] = serialized_value
-                        else:
-                            merged['specific'][step][field_name] = serialized_value
-                            
-        # Handle special fields in processing_shared
-        for field_name in list(merged['processing']['processing_shared'].keys()):
-            if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-                self.logger.info(f"Moving special field '{field_name}' from processing_shared")
-                shared_value = merged['processing']['processing_shared'].pop(field_name)
-                
-                # Add to processing_specific configs that have this field
-                for config in self.config_list:
-                    if isinstance(config, ProcessingStepConfigBase) and hasattr(config, field_name):
-                        step = serialize_config(config)["_metadata"]["step_name"]
-                        value = getattr(config, field_name)
-                        serialized_value = self.serializer.serialize(value)
-                        
-                        if step not in merged['processing']['processing_specific']:
-                            merged['processing']['processing_specific'][step] = {}
-                        merged['processing']['processing_specific'][step][field_name] = serialized_value
-                        
-        # Final verification for special fields - implementing Build-Time Validation
-        for config in self.config_list:
-            step = serialize_config(config)["_metadata"]["step_name"]
-            
-            for field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-                if hasattr(config, field_name):
-                    if isinstance(config, ProcessingStepConfigBase):
-                        # Check if field exists in processing_specific
-                        if (step not in merged['processing']['processing_specific'] or
-                           field_name not in merged['processing']['processing_specific'][step]):
-                            # Add the field
-                            value = getattr(config, field_name)
-                            serialized_value = self.serializer.serialize(value)
-                            
-                            if step not in merged['processing']['processing_specific']:
-                                merged['processing']['processing_specific'][step] = {}
-                                
-                            merged['processing']['processing_specific'][step][field_name] = serialized_value
-                    else:
-                        # Check if field exists in specific
-                        if field_name not in merged['specific'].get(step, {}):
-                            # Add the field
-                            value = getattr(config, field_name)
-                            serialized_value = self.serializer.serialize(value)
-                            
-                            if step not in merged['specific']:
-                                merged['specific'][step] = {}
-                                
-                            merged['specific'][step][field_name] = serialized_value
-    
-    def _ensure_mutual_exclusivity(self, merged):
-        """
-        Ensure mutual exclusivity between shared/specific sections.
-        
-        Args:
-            merged: The merged configuration to update
-        """
-        # Check shared vs specific - implementing Build-Time Validation
-        shared_fields = set(merged['shared'].keys())
-        for step, fields in merged['specific'].items():
-            overlap = shared_fields.intersection(set(fields.keys()))
-            if overlap:
-                self.logger.warning(f"Found fields {overlap} in both 'shared' and 'specific' for step {step}")
-                for field in overlap:
-                    merged['specific'][step].pop(field)
-        
-        # Check processing_shared vs processing_specific
-        proc_shared_fields = set(merged['processing']['processing_shared'].keys())
-        for step, fields in merged['processing']['processing_specific'].items():
-            overlap = proc_shared_fields.intersection(set(fields.keys()))
-            if overlap:
-                self.logger.warning(f"Found fields {overlap} in both 'processing_shared' and 'processing_specific'")
-                for field in overlap:
-                    merged['processing']['processing_specific'][step].pop(field)
-    
-    def save(self, output_file):
-        """
-        Save merged config to a file.
-        
-        Args:
-            output_file: Path to output file
-            
-        Returns:
-            dict: The merged configuration
-        """
-        merged = self.merge()
-        
-        # Create metadata - implementing Explicit Over Implicit
-        metadata = {
-            'created_at': datetime.now().isoformat(),
-            'config_types': {
-                serialize_config(c)['_metadata']['step_name']: c.__class__.__name__
-                for c in self.config_list
-            }
-        }
-        
-        output = {'metadata': metadata, 'configuration': merged}
-        
-        try:
-            with open(output_file, 'w') as f:
-                json.dump(output, f, indent=2, sort_keys=True)
-            self.logger.info(f"Successfully wrote config to {output_file}")
-        except Exception as e:
-            self.logger.error(f"Error writing JSON: {str(e)}")
-            
-        return merged
-```
+### 6. Config Registry
 
-### 4. ConfigRegistry
+A centralized registration system for configuration classes, implementing the Single Source of Truth principle to ensure classes are easily discoverable and consistently used.
 
-A registry for config classes that implements the Single Source of Truth principle:
+For detailed information, see [Config Registry](./config_registry.md).
 
-```python
-class ConfigRegistry:
-    """
-    Registry of configuration classes for serialization and deserialization.
-    
-    Maintains a centralized registry of config classes that can be easily extended.
-    """
-    
-    # Single registry instance - implementing Single Source of Truth
-    _registry = {}
-    
-    @classmethod
-    def register(cls, config_class):
-        """
-        Register a config class.
-        
-        Can be used as a decorator:
-        
-        @ConfigRegistry.register
-        class MyConfig(BasePipelineConfig):
-            ...
-        
-        Args:
-            config_class: The class to register
-            
-        Returns:
-            The registered class (for decorator usage)
-        """
-        cls._registry[config_class.__name__] = config_class
-        return config_class
-        
-    @classmethod
-    def get_class(cls, class_name):
-        """
-        Get a registered class by name.
-        
-        Args:
-            class_name: Name of the class
-            
-        Returns:
-            The class or None if not found
-        """
-        return cls._registry.get(class_name)
-        
-    @classmethod
-    def get_all_classes(cls):
-        """
-        Get all registered classes.
-        
-        Returns:
-            dict: Mapping of class names to classes
-        """
-        return cls._registry.copy()
-        
-    @classmethod
-    def register_many(cls, *config_classes):
-        """
-        Register multiple config classes at once.
-        
-        Args:
-            *config_classes: Classes to register
-        """
-        for config_class in config_classes:
-            cls.register(config_class)
-```
+### 7. Config Types Format
+
+Defines the format requirements for the `config_types` metadata in configuration files, including how step names are mapped to class names.
+
+For detailed information, see [Config Types Format](./config_types_format.md).
 
 ## Field Sources Tracking
 
@@ -912,6 +156,53 @@ This function maintains backward compatibility with the legacy field tracking sy
     }
   }
 }
+```
+
+### Config Types Format Requirements
+
+The `config_types` mapping in the metadata section is critical for proper configuration loading. It must follow this specific format:
+
+```json
+"config_types": {
+  "XGBoostTraining": "XGBoostTrainingConfig",        // step_name: class_name
+  "CradleDataLoading_training": "CradleDataLoadConfig"  // step_name with job_type: class_name
+}
+```
+
+**Format Requirements:**
+
+1. **Keys must be step names**, not class names
+   - Step names are derived from class names (typically without the "Config" suffix)
+   - For variants with job_type, data_type, or mode attributes, these are appended to the step name
+   - Example: "CradleDataLoading_training" for a CradleDataLoadConfig with job_type="training"
+
+2. **Values must be full class names**
+   - The complete class name including the "Config" suffix
+   - Used during loading to instantiate the correct class
+
+Using class names as keys (e.g., "XGBoostTrainingConfig": "XGBoostTrainingConfig") will cause validation failures during loading because:
+
+1. The `load_configs` function looks for entries in the `specific` section using keys from `config_types`
+2. The `specific` section uses step names as keys, not class names
+3. When keys are class names, no matching data is found in the `specific` section
+4. This causes the system to fall back to using only `shared` data, which often lacks required fields
+
+Step names are generated using this logic:
+
+```python
+# Base step name from class name
+base_step = class_name
+if base_step.endswith("Config"):
+    base_step = base_step[:-6]  # Remove "Config" suffix
+
+step_name = base_step
+
+# Append distinguishing attributes
+for attr in ("job_type", "data_type", "mode"):
+    if hasattr(config, attr):
+        val = getattr(config, attr)
+        if val is not None:
+            step_name = f"{step_name}_{val}"
 ```
 
 This allows for:
@@ -1105,3 +396,63 @@ The refactored Config Field Categorization system transforms a complex, error-pr
 The clear separation of responsibilities across dedicated classes makes the system easier to test, debug, and maintain, while preserving backward compatibility with existing code. This refactoring serves as an example of how applying our core architectural principles can significantly improve the quality and maintainability of our codebase.
 
 Through this refactored design, we've demonstrated that following well-defined architectural principles doesn't just produce cleaner code—it creates more robust systems that are better prepared to handle evolving requirements and edge cases. The careful application of type safety, clear rule definition, and explicit interfaces ensures that configuration field categorization is no longer an error-prone process, but rather a reliable foundation for pipeline configuration management.
+
+## Single Source of Truth Implementation
+
+To fully embrace the Single Source of Truth principle, we've consolidated the step name generation logic to a single implementation in `TypeAwareConfigSerializer.generate_step_name()`. This method is used consistently throughout the system:
+
+```python
+def generate_step_name(self, config: Any) -> str:
+    """
+    Generate a step name for a config, including job type and other distinguishing attributes.
+    
+    This implements the job type variant handling described in the July 4, 2025 solution document.
+    It creates distinct step names for different job types (e.g., "CradleDataLoading_training"),
+    which is essential for proper dependency resolution and pipeline variant creation.
+    
+    Args:
+        config: The configuration object
+        
+    Returns:
+        str: Generated step name with job type and other variants included
+    """
+    # First check for step_name_override - highest priority
+    if hasattr(config, "step_name_override") and config.step_name_override != config.__class__.__name__:
+        return config.step_name_override
+        
+    # Get class name
+    class_name = config.__class__.__name__
+    
+    # Look up the step name from the registry (primary source of truth)
+    try:
+        from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+        if class_name in CONFIG_STEP_REGISTRY:
+            base_step = CONFIG_STEP_REGISTRY[class_name]
+        else:
+            # Fall back to the old behavior if not in registry
+            from src.pipeline_steps.config_base import BasePipelineConfig
+            base_step = BasePipelineConfig.get_step_name(class_name)
+    except (ImportError, AttributeError):
+        # If registry not available, fall back to the old behavior
+        from src.pipeline_steps.config_base import BasePipelineConfig
+        base_step = BasePipelineConfig.get_step_name(class_name)
+    
+    step_name = base_step
+    
+    # Append distinguishing attributes - essential for job type variants
+    for attr in ("job_type", "data_type", "mode"):
+        if hasattr(config, attr):
+            val = getattr(config, attr)
+            if val is not None:
+                step_name = f"{step_name}_{val}"
+                
+    return step_name
+```
+
+This consolidated implementation is now used by:
+
+1. **ConfigMerger**: Through the `TypeAwareConfigSerializer` instance when saving configurations
+2. **utils.serialize_config**: By directly using the `TypeAwareConfigSerializer` implementation
+3. **TypeAwareConfigSerializer**: As a core method of the serialization system
+
+By eliminating duplication and having a single source of truth for step name generation, we've made the system more maintainable and reduced the risk of inconsistencies between different parts of the codebase.
