@@ -1,138 +1,55 @@
-from typing import List, Dict, Any, Type, Set, Optional, Tuple
-import json
+"""
+Configuration utility functions for merging, saving, and loading multiple Pydantic configs.
+
+IMPORTANT: This module is maintained for backward compatibility.
+For new code, please import directly from src.config_field_manager:
+
+    from src.config_field_manager import merge_and_save_configs, load_configs
+
+This module provides a high-level API for configuration management, leveraging
+the optimized implementation in src.config_field_manager while maintaining
+backward compatibility with existing code.
+"""
+
+from typing import List, Dict, Any, Type, Set, Optional, Tuple, Union
 import logging
 import os
+import json
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
 from pydantic import BaseModel
-from collections import defaultdict
 
 from .config_base import BasePipelineConfig
 from .config_processing_step_base import ProcessingStepConfigBase
 
+# Import from the advanced implementation
+# RECOMMENDED: Use these imports directly in your code:
+#     from src.config_field_manager import merge_and_save_configs, load_configs
+from src.config_field_manager import (
+    merge_and_save_configs as new_merge_and_save_configs,
+    load_configs as new_load_configs,
+    serialize_config as new_serialize_config,
+    deserialize_config as new_deserialize_config,
+    ConfigClassStore,
+    register_config_class
+)
+
+# Constants for the simplified categorization model
+from enum import Enum, auto
+class CategoryType(Enum):
+    SHARED = auto()
+    SPECIFIC = auto()
+from src.config_field_manager.type_aware_config_serializer import (
+    serialize_config as new_serialize_config,
+    deserialize_config
+)
+
+# Constants required for backward compatibility
+MODEL_TYPE_FIELD = "__model_type__"
+MODEL_MODULE_FIELD = "__model_module__"
+
 logger = logging.getLogger(__name__)
-
-# Define fields that should always be kept specific
-SPECIAL_FIELDS_TO_KEEP_SPECIFIC = {"hyperparameters", "data_sources_spec", "transform_spec", "output_spec", "output_schema"}
-
-# Recursive serializer for complex types
-def _serialize(val: Any) -> Any:
-    """Convert complex types including Pydantic models to JSON-serializable values."""
-    if isinstance(val, datetime):
-        return val.isoformat()
-    if isinstance(val, Enum):
-        return val.value
-    if isinstance(val, Path):
-        return str(val)
-    if isinstance(val, BaseModel):  # Handle Pydantic models
-        try:
-            result = {k: _serialize(v) for k, v in val.model_dump().items()}
-            return result
-        except Exception as e:
-            logger.warning(f"Error serializing {val.__class__.__name__}: {str(e)}")
-            return f"<Serialization error: {str(e)}>"
-    if isinstance(val, dict):
-        return {k: _serialize(v) for k, v in val.items()}
-    if isinstance(val, list):
-        return [_serialize(v) for v in val]
-    return val
-
-def get_field_default(cls, field_name: str) -> Optional[Any]:
-    """
-    Get default value for a field if it exists, without creating an instance.
-    This avoids validation errors with required fields.
-    """
-    if not hasattr(cls, "model_fields"):
-        return None
-        
-    if field_name not in cls.model_fields:
-        return None
-        
-    field = cls.model_fields[field_name]
-    
-    # Check if field has a default value
-    if hasattr(field, "default") and field.default is not None and field.default != ...:
-        return field.default
-    
-    # Check if field has a default_factory
-    if hasattr(field, "default_factory") and field.default_factory is not None:
-        try:
-            return field.default_factory()
-        except Exception as e:
-            logger.debug(f"Error calling default_factory for {cls.__name__}.{field_name}: {e}")
-            return None
-            
-    return None
-
-# These field patterns get default values based on naming pattern
-DICT_FIELD_PATTERNS = {"_names", "channel", "_values"}
-PATH_FIELD_PATTERNS = {"_dir", "_path"}
-
-def should_keep_specific(config, field_name, all_configs=None):
-    """
-    Determine if a field should be kept specific to this config based STRICTLY on
-    whether the field has different values across configs.
-
-    Categorization model:
-    1. "shared" section: Fields with identical values across all configs
-       - Static configuration values that apply to all configs
-       - Example: author, bucket, pipeline_name that are the same across configs
-
-    2. "specific" section: Fields that either:
-       - Have different values across configs (e.g., input_names that differ)
-       - Are unique to just one config (e.g., derived1_field)
-
-    Args:
-        config: The config instance being checked
-        field_name: The name of the field to check
-        all_configs: Optional list of all config instances for comparison
-        
-    Returns:
-        bool: True if the field should be kept specific to this config
-    """
-    # Check for special fields that should always be kept specific
-    if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-        return True
-        
-    # Check if this field is a Pydantic model
-    value = getattr(config, field_name, None)
-    if isinstance(value, BaseModel):
-        # Complex Pydantic models should be kept specific
-        return True
-        
-    # If we don't have all configs for comparison, we can't make a proper decision
-    # So default to keeping it specific for safety
-    if all_configs is None:
-        return True
-        
-    # Count how many configs have this field
-    configs_with_field = 0
-    for cfg in all_configs:
-        if hasattr(cfg, field_name):
-            configs_with_field += 1
-    
-    # If only one config has this field, it's definitely specific
-    if configs_with_field <= 1:
-        return True
-        
-    # For fields present in multiple configs, check if values differ
-    values = set()
-    for cfg in all_configs:
-        if hasattr(cfg, field_name):
-            # Use json.dumps to handle complex objects like dicts/lists
-            value = getattr(cfg, field_name, None)
-            if value is not None:
-                try:
-                    value_str = json.dumps(value, sort_keys=True)
-                    values.add(value_str)
-                except (TypeError, ValueError):
-                    # If we can't serialize for comparison, be safe and keep specific
-                    return True
-    
-    # If we have multiple different values, keep field specific
-    # Otherwise (all values identical), it can be shared
-    return len(values) > 1
 
 
 def serialize_config(config: BaseModel) -> Dict[str, Any]:
@@ -140,505 +57,109 @@ def serialize_config(config: BaseModel) -> Dict[str, Any]:
     Serialize a single Pydantic config to a JSON‐serializable dict,
     embedding metadata including a unique 'step_name'.
     Enhanced to include default values from Pydantic model definitions.
-    """
-    # Dump model to plain dict using Pydantic v2's model_dump() method
-    config_dict = config.model_dump()
     
-    # Add default values for fields that are None or missing in config_dict
-    # Use the field definitions directly instead of creating a temp instance
-    cls = config.__class__
-    if hasattr(cls, "model_fields"):
-        for field_name in cls.model_fields.keys():
-            if field_name not in config_dict or config_dict[field_name] is None:
-                # Try to get default from field definition
-                default_value = get_field_default(cls, field_name)
-                if default_value is not None:
-                    config_dict[field_name] = default_value
-    
-    # Base step name from registry
-    base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
-    step_name = base_step
-    # Append distinguishing attributes
-    for attr in ("job_type", "data_type", "mode"):
-        if hasattr(config, attr):
-            val = getattr(config, attr)
-            if val is not None:
-                step_name = f"{step_name}_{val}"
-
-    # Inject metadata
-    config_dict["_metadata"] = {
-        "step_name": step_name,
-        "config_type": config.__class__.__name__,
-    }
-    
-    # Use pattern matching to handle default values for different field types
-    for field_name in cls.model_fields.keys():
-        if hasattr(config, field_name) and field_name not in config_dict:
-            if field_name.endswith("_names") or "channel" in field_name or field_name.endswith("_values"):
-                # Dictionary-like fields get empty dict defaults
-                config_dict[field_name] = getattr(config, field_name) or {}
-            elif field_name.endswith("_dir") or field_name.endswith("_path"):
-                # Path-like fields get empty string defaults
-                config_dict[field_name] = getattr(config, field_name) or ""
-
-    return {k: _serialize(v) for k, v in config_dict.items()}
-
-
-def _is_likely_static(field_name: str, value: Any) -> bool:
+    This function maintains backward compatibility while using the new implementation.
     """
-    Determine if a field is likely to be static based on its name and value.
-    Static fields are those where:
-    1. The value doesn't change during runtime
-    2. The field represents configuration rather than dynamic data
-o
-    Returns:
-        bool: True if the field is likely static, False otherwise
-    """
-    # Special fields that should never be considered static
-    if field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-        return False
+    # Get the serialized dict from the new implementation
+    serialized = new_serialize_config(config)
+    
+    # Ensure backward compatibility for step_name in metadata
+    if "_metadata" not in serialized:
+        # Base step name from registry
+        base_step = BasePipelineConfig.get_step_name(config.__class__.__name__)
+        step_name = base_step
         
-    # Pydantic models are typically not static configuration values
-    if isinstance(value, BaseModel):
-        return False
-    
-    # Fields that are generally not static
-    non_static_patterns = {"_names", "input_", "output_", "_specific", "_count"}
-    
-    # Check if field name indicates it's not static
-    if any(pattern in field_name for pattern in non_static_patterns):
-        return False
+        # Append distinguishing attributes
+        for attr in ("job_type", "data_type", "mode"):
+            if hasattr(config, attr):
+                val = getattr(config, attr)
+                if val is not None:
+                    step_name = f"{step_name}_{val}"
         
-    # Check if value type indicates it's not static
-    if isinstance(value, (dict, list)):
-        # Complex types are less likely to be static unless they're small
-        if isinstance(value, dict) and len(value) > 3:
-            return False
-        if isinstance(value, list) and len(value) > 5:
-            return False
+        # Add the metadata
+        serialized["_metadata"] = {
+            "step_name": step_name,
+            "config_type": config.__class__.__name__,
+        }
+    
+    # Remove model type fields for backward compatibility
+    if MODEL_TYPE_FIELD in serialized:
+        del serialized[MODEL_TYPE_FIELD]
+    if MODEL_MODULE_FIELD in serialized:
+        del serialized[MODEL_MODULE_FIELD]
+    
+    return serialized
+
+
+def verify_configs(config_list: List[BaseModel]) -> None:
+    """
+    Verify that the configurations are valid.
+    
+    Args:
+        config_list: List of configurations to verify
+        
+    Raises:
+        ValueError: If configurations are invalid (e.g., duplicate step names)
+    """
+    # Ensure unique step names
+    step_names = set()
+    for config in config_list:
+        serialized = serialize_config(config)
+        step_name = serialized["_metadata"]["step_name"]
+        if step_name in step_names:
+            raise ValueError(f"Duplicate step name: {step_name}")
+        step_names.add(step_name)
+    
+    # Add more validation logic as needed
+    # For example, ensure required fields are present
+    for config in config_list:
+        if not hasattr(config, 'pipeline_name'):
+            raise ValueError(f"Config of type {config.__class__.__name__} missing pipeline_name")
             
-    # Default to considering it static
-    return True
+    # Log validation success
+    logger.info(f"Verified {len(config_list)} configurations successfully")
+
 
 def merge_and_save_configs(config_list: List[BaseModel], output_file: str) -> Dict[str, Any]:
     """
     Merge and save multiple configs to JSON. Handles multiple instantiations with unique step_name.
     Better handles class hierarchy for fields like input_names that should be kept specific.
+    
+    This is a wrapper for the new implementation in src.config_field_manager.
+    
+    Simplified Field Categorization Rules:
+    -------------------------------------
+    1. **Field is special** → Place in `specific`
+       - Special fields include those in the `SPECIAL_FIELDS_TO_KEEP_SPECIFIC` list
+       - Pydantic models are considered special fields
+       - Complex nested structures are considered special fields
 
-    # Field Categorization Rules:
-    # ---------------------------
-    # 1. For fields that appear in BOTH processing and non-processing configs (cross-type fields):
-    #    - If the field has identical values across ALL configs (both types): place in "shared"
-    #    - Otherwise: place in appropriate specific sections ("processing_specific" or "specific")
-    #
-    # 2. For fields EXCLUSIVE to processing configs:
-    #    - If the field exists in ALL processing configs AND has identical values: place in "processing_shared"
-    #    - Otherwise: place in "processing_specific" for each config
-    #
-    # 3. For fields EXCLUSIVE to non-processing configs:
-    #    - If the field exists in multiple configs AND has identical values: place in "shared"
-    #    - Otherwise: place in "specific" for each config
+    2. **Field appears only in one config** → Place in `specific`
+       - If a field exists in only one configuration instance, it belongs in that instance's specific section
 
-    We build a nested structure:
-      - "shared": fields that appear (with identical values) in two or more configs; and the values of these fields are static
-      - "processing": configuration for ProcessingStepConfigBase subclasses
-          - "processing_shared": fields common across all processing configs with identical values
-          - "processing_specific": 1) fields unique to specific processing configs; 2) fields that are shared across multiple processing configs, but the values of them are different for different processing config; grouped by step name
-      - "specific": 1) fields unique to specific configs; 2) fields that are shared across multiple configs, but the values of them are different for different config; grouped by step name
+    3. **Field has different values across configs** → Place in `specific`
+       - If a field has the same name but different values across multiple configs, each instance goes in specific
 
-    The following categories are mutually exclusive (fields appear in only one location):
-      - "shared" and "specific" sections have no overlapping fields
-      - "processing_shared" and "processing_specific" sections have no overlapping fields
+    4. **Field is non-static** → Place in `specific`
+       - Fields identified as non-static (runtime values, input/output fields, etc.) go in specific
+
+    5. **Field has identical value across all configs** → Place in `shared`
+       - If a field has the same value across all configs and is not caught by the above rules, it belongs in shared
+
+    6. **Default case** → Place in `specific`
+       - When in doubt, place in specific to ensure proper functioning
+    
+    We build a simplified structure:
+      - "shared": fields that appear with identical values across all configs and are static
+      - "specific": fields that are unique to specific configs or have different values across configs
       
-    Finally, under "metadata" → "config_types" we map each unique step_name → config class name.
+    The following categories are mutually exclusive:
+      - "shared" and "specific" sections have no overlapping fields
+    
+    Under "metadata" → "config_types" we map each unique step_name → config class name.
     """
-    
-    merged = {
-        "shared": {}, 
-        "processing": {
-            "processing_shared": {},
-            "processing_specific": defaultdict(dict)
-        }, 
-        "specific": defaultdict(dict)
-    }
-    field_values = defaultdict(set)
-    field_sources = defaultdict(lambda: defaultdict(list))
-    field_static = defaultdict(bool)  # Track if fields are considered static
-    cross_type_fields = set()  # Track fields that appear in both processing and non-processing configs
-
-    # Collect all values and sources
-    for cfg in config_list:
-        # Use serialize_config to get all values including defaults
-        d = serialize_config(cfg)
-        step = d["_metadata"]["step_name"]
-        valid = set(cfg.__class__.model_fields.keys())
-        
-        # Handle all fields in the serialized dict
-        for k, v in d.items():
-            if k == "_metadata":
-                continue
-            
-            # Skip invalid fields (not in model_fields)
-            if k not in valid:
-                continue
-            
-            try:
-                txt = json.dumps(v, sort_keys=True)
-                field_values[k].add(txt)
-                field_sources['all'][k].append(step)
-            except Exception as e:
-                logger.debug(f"Failed to serialize '{k}' in {cfg.__class__.__name__}: {str(e)}")
-                # Continue without this field value
-            
-            # Properly categorize processing fields vs specific fields
-            if isinstance(cfg, ProcessingStepConfigBase) and k in ProcessingStepConfigBase.model_fields:
-                field_sources['processing'][k].append(step)
-            else:
-                field_sources['specific'][k].append(step)
-            
-            # Track cross-type fields (appearing in both processing and non-processing configs)
-            # We'll accumulate this information across all fields and configs
-                
-            # Determine if field is likely static (can only be a candidate for shared section)
-            # Static fields are those that don't vary across configs and are generally simple types
-            field_static[k] = _is_likely_static(k, v)
-        
-        # Add a special check for ProcessingStepConfigBase fields
-        if isinstance(cfg, ProcessingStepConfigBase):
-            print(f"Special check for ProcessingStepConfigBase fields in {cfg.__class__.__name__}:")
-            for field_name, field_info in ProcessingStepConfigBase.model_fields.items():
-                if field_name not in d:  # Field wasn't in serialized dict
-                    print(f"  Found missing field: {field_name}")
-                    # Get the value directly from the instance
-                    val = getattr(cfg, field_name)
-                    try:
-                        txt = json.dumps(val, sort_keys=True)
-                        print(f"  Adding {field_name} = {txt}")
-                        field_values[field_name].add(txt)
-                        field_sources['all'][field_name].append(step)
-                        field_sources['processing'][field_name].append(step)
-                    except (TypeError, ValueError):
-                        print(f"  Couldn't serialize {field_name}")
-
-    # Get list of processing configs and non-processing configs
-    processing_configs = [cfg for cfg in config_list if isinstance(cfg, ProcessingStepConfigBase)]
-    non_processing_configs = [cfg for cfg in config_list if not isinstance(cfg, ProcessingStepConfigBase)]
-    
-    # Identify cross-type fields (fields present in both processing and non-processing configs)
-    for field_name in field_sources['all']:
-        # Check how many processing and non-processing configs have this field
-        processing_configs_with_field = [cfg for cfg in processing_configs if hasattr(cfg, field_name)]
-        non_processing_configs_with_field = [cfg for cfg in non_processing_configs if hasattr(cfg, field_name)]
-        
-        processing_has_field = len(processing_configs_with_field) > 0
-        non_processing_has_field = len(non_processing_configs_with_field) > 0
-        
-        # Only consider it a cross-type field if it appears in BOTH types of configs
-        if processing_has_field and non_processing_has_field:
-            cross_type_fields.add(field_name)
-            print(f"Cross-type field detected: {field_name} (appears in both processing and non-processing configs)")
-    
-    # Debug: Print processing configs info
-    print(f"Found {len(processing_configs)} processing configs:")
-    for cfg in processing_configs:
-        print(f" - {cfg.__class__.__name__}")
-    
-    # Debug processing fields
-    if len(processing_configs) > 0:
-        first_proc_config = processing_configs[0]
-        print(f"ProcessingStepConfigBase fields: {list(ProcessingStepConfigBase.model_fields.keys())}")
-        print(f"First processing config fields: {list(first_proc_config.__class__.model_fields.keys())}")
-        for field_name in dir(first_proc_config):
-            if not field_name.startswith('_') and not callable(getattr(first_proc_config, field_name)):
-                print(f"Attribute: {field_name} = {getattr(first_proc_config, field_name)}")
-    
-    # Distribute into shared/processing/specific
-    for k, vals in field_values.items():
-        sources = field_sources['all'][k]
-        
-        # Check each config to see if this field should be kept specific for any of them
-        is_special_field = any(should_keep_specific(cfg, k, config_list) for cfg in config_list if hasattr(cfg, k))
-        is_cross_type = k in cross_type_fields
-        
-        # Count how many processing and non-processing configs have this field
-        processing_configs_with_field = [cfg for cfg in processing_configs if hasattr(cfg, k)]
-        non_processing_configs_with_field = [cfg for cfg in non_processing_configs if hasattr(cfg, k)]
-        
-        # First check: fields that should NEVER be shared
-        # 1. Fields that only appear in one config - these are clearly specific to that config
-        # 2. Fields with different values across configs - these can't be shared
-        # 3. Fields that are already identified as special via should_keep_specific
-        # 4. Non-static fields
-        never_share = (
-            len(sources) <= 1 or           # Only in one config
-            len(vals) > 1 or               # Different values
-            is_special_field or            # Already deemed special
-            not field_static[k]            # Not a static field
-        )
-        
-        # Then identify fields that only exist in processing or non-processing configs,
-        # but not both (these are not cross-type fields, but "type-specific" fields)
-        is_type_specific = (
-            (len(processing_configs_with_field) > 0 and len(non_processing_configs_with_field) == 0) or
-            (len(processing_configs_with_field) == 0 and len(non_processing_configs_with_field) > 0)
-        )
-        
-        # For type-specific fields to be eligible for shared, they must be in
-        # ALL configs of that type
-        configs_of_relevant_type = None
-        if is_type_specific:
-            configs_of_relevant_type = processing_configs if len(processing_configs_with_field) > 0 else non_processing_configs
-            if len(sources) != len(configs_of_relevant_type):
-                # Not in all configs of its type, keep it in specifics
-                never_share = True
-        
-        # Special handling for fields with names suggesting they are specific to a type
-        # or fields that have "varying" in their name (indicating they vary between configs)
-        type_specific_patterns = ["_only", "only_", "standard_", "processing_", "varying"]
-        if any(pattern in k for pattern in type_specific_patterns):
-            never_share = True
-        
-        # Enhanced logic for shared fields:
-        # 1) Must have identical values across all configs where it appears
-        # 2) Must be present in multiple configs
-        # 3) Must be considered static
-        # 4) Must not be determined as special field
-        # 5) For cross-type fields (appearing in both processing and non-processing), 
-        #    must be in ALL configs to be shared
-        if not never_share and (not is_cross_type or len(sources) == len(config_list)):
-            # Shared fields (identical values across configs, considered static)
-            merged['shared'][k] = json.loads(next(iter(vals)))
-        elif k in field_sources['processing']:
-            # Handle processing fields differently
-            # Check if this processing field is common across all processing configs
-            processing_values = set()
-            processing_configs_with_field = []
-            
-            print(f"Processing field: {k}")
-            
-            for cfg in processing_configs:
-                if hasattr(cfg, k):
-                    processing_configs_with_field.append(cfg)
-                    val = getattr(cfg, k)
-                    try:
-                        value_str = json.dumps(val, sort_keys=True)
-                        print(f"  {cfg.__class__.__name__}.{k} = {value_str}")
-                        processing_values.add(value_str)
-                    except (TypeError, ValueError):
-                        # If we can't serialize, treat it as specific
-                        print(f"  {cfg.__class__.__name__}.{k} is not serializable")
-                        processing_values.add(id(val))
-            
-            print(f"  Processing field {k}:")
-            print(f"  - Values count: {len(processing_values)}")
-            print(f"  - Configs with field count: {len(processing_configs_with_field)}")
-            
-            # For processing_shared - must have identical values across ALL processing configs
-            # AND must not be a cross-type field (otherwise it belongs in specific sections)
-            if len(processing_values) == 1 and len(processing_configs_with_field) == len(processing_configs) and not is_cross_type:
-                # Common value across ALL processing configs - put in processing_shared
-                value_str = next(iter(processing_values))
-                print(f"  ✓ Adding {k} to processing_shared with value {value_str}")
-                merged['processing']['processing_shared'][k] = json.loads(value_str)
-            else:
-                # Different values or not in all processing configs - put in processing_specific
-                # This covers fields unique to specific processing configs or shared with different values
-                # Log why field is not eligible for processing_shared
-                if logger.isEnabledFor(logging.DEBUG):
-                    reasons = []
-                    if len(processing_values) > 1:
-                        reasons.append(f"Values differ across configs ({len(processing_values)} different values)")
-                    if len(processing_configs_with_field) < len(processing_configs):
-                        reasons.append(f"Not present in all processing configs ({len(processing_configs_with_field)} of {len(processing_configs)})")
-                    if is_cross_type:
-                        reasons.append("It's a cross-type field (appears in both processing and non-processing configs)")
-                    logger.debug(f"Field '{k}' not eligible for processing_shared because: {', '.join(reasons)}")
-                    
-                # Process the field for all processing configs that have it
-                for cfg in processing_configs:
-                    if hasattr(cfg, k):
-                        d = serialize_config(cfg)
-                        step = d['_metadata']['step_name']
-                        val = getattr(cfg, k)
-                        
-                        # Use the recursive serializer for potentially complex values
-                        try:
-                            serialized_val = _serialize(val)
-                            
-                            # Check if step exists in processing_specific
-                            if step not in merged['processing']['processing_specific']:
-                                merged['processing']['processing_specific'][step] = {}
-                                
-                            # Add the field to processing_specific
-                            merged['processing']['processing_specific'][step][k] = serialized_val
-                        except Exception as e:
-                            logger.warning(f"Failed to serialize '{k}' for {step}: {str(e)}")
-                        
-        # Special handling for cross-type fields
-        if is_cross_type and k not in merged['shared']:
-            # For processing configs - add to processing_specific only if not in processing_shared
-            for cfg in processing_configs:
-                if (hasattr(cfg, k) and 
-                    isinstance(cfg, ProcessingStepConfigBase) and 
-                    k not in merged['processing']['processing_shared']):
-                    d = serialize_config(cfg)
-                    step = d['_metadata']['step_name']
-                    val = getattr(cfg, k)
-                    # Use the recursive serializer for potentially complex values
-                    if step not in merged['processing']['processing_specific']:
-                        merged['processing']['processing_specific'][step] = {}
-                    merged['processing']['processing_specific'][step][k] = _serialize(val)
-                    
-            # For non-processing configs - add to standard specific only if not in shared
-            for cfg in non_processing_configs:
-                if hasattr(cfg, k) and k not in merged['shared']:
-                    d = serialize_config(cfg)
-                    step = d['_metadata']['step_name']
-                    val = getattr(cfg, k)
-                    # Use the recursive serializer for potentially complex values
-                    merged['specific'][step][k] = _serialize(val)
-        else:
-            # Regular specific fields - only add if not already in shared section
-            # This covers fields unique to specific configs or shared with different values
-            for cfg in config_list:
-                if (not isinstance(cfg, ProcessingStepConfigBase) and 
-                    hasattr(cfg, k) and 
-                    k not in merged['shared']):
-                    d = serialize_config(cfg)
-                    step = d['_metadata']['step_name']
-                    val = getattr(cfg, k)
-                    # Use the recursive serializer for potentially complex values
-                    merged['specific'][step][k] = _serialize(val)
-    
-    # Double-check that special fields are never in shared section
-    # Get all fields that any config needs to keep specific
-    all_special_fields = set()
-    for cfg in config_list:
-        if hasattr(cfg.__class__, 'model_fields'):
-            for field_name in cfg.__class__.model_fields.keys():
-                if should_keep_specific(cfg, field_name, config_list):
-                    all_special_fields.add(field_name)
-    
-    # Move any special fields from shared to their specific configs
-    for field_name in all_special_fields:
-        if field_name in merged['shared']:
-            # Move this field from shared to all specific configs
-            shared_value = merged['shared'].pop(field_name)
-            
-            # Add to all configs that need it
-            for cfg in config_list:
-                if hasattr(cfg, field_name):
-                    step = serialize_config(cfg)["_metadata"]["step_name"]
-                    # Either use the config's specific value or the shared value
-                    value = getattr(cfg, field_name, shared_value)
-                    
-                    # Add to the right section based on config type
-                    if isinstance(cfg, ProcessingStepConfigBase) and field_name in ProcessingStepConfigBase.model_fields:
-                        # Put in processing_specific for this specific processing step
-                        merged['processing']['processing_specific'][step][field_name] = _serialize(value)
-                    else:
-                        # Put in regular specific section
-                        merged['specific'][step][field_name] = _serialize(value)
-
-    # Special handling for hyperparameters - always keep them in their specific sections
-    for field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-        # If it's in shared, move it to specific configs
-        if field_name in merged['shared']:
-            logger.info(f"Moving special field '{field_name}' from shared section to specific sections")
-            shared_value = merged['shared'].pop(field_name)
-            # Add to all configs that had this field
-            for cfg in config_list:
-                if hasattr(cfg, field_name):
-                    step = serialize_config(cfg)["_metadata"]["step_name"]
-                    value = getattr(cfg, field_name, shared_value)
-                    try:
-                        serialized = _serialize(value)
-                        if isinstance(cfg, ProcessingStepConfigBase):
-                            if step not in merged['processing']['processing_specific']:
-                                merged['processing']['processing_specific'][step] = {}
-                            merged['processing']['processing_specific'][step][field_name] = serialized
-                        else:
-                            merged['specific'][step][field_name] = serialized
-                    except Exception as e:
-                        logger.warning(f"Failed to add '{field_name}' to {'processing_specific' if isinstance(cfg, ProcessingStepConfigBase) else 'specific'}.{step}: {str(e)}")
-        
-        # If it's in processing_shared, move to processing_specific
-        if field_name in merged['processing']['processing_shared']:
-            logger.info(f"Moving special field '{field_name}' from processing_shared section to processing_specific sections")
-            shared_value = merged['processing']['processing_shared'].pop(field_name)
-            for cfg in processing_configs:
-                if hasattr(cfg, field_name):
-                    step = serialize_config(cfg)["_metadata"]["step_name"]
-                    value = getattr(cfg, field_name, shared_value)
-                    merged['processing']['processing_specific'][step][field_name] = _serialize(value)
-
-    # Note: "Force add" section removed - this was causing issues with processing_source_dir
-    # being incorrectly placed in processing_shared when values differed between configs
-
-    # Enforce mutual exclusivity by removing any duplicated fields
-    # 1. Check for overlaps between shared and specific
-    shared_fields = set(merged['shared'].keys())
-    for step, fields in merged['specific'].items():
-        overlap = shared_fields.intersection(set(fields.keys()))
-        if overlap:
-            print(f"WARNING: Found fields {overlap} in both 'shared' and 'specific' for step {step}")
-            print(f"  The values in shared: {[merged['shared'][f] for f in overlap]}")
-            print(f"  The values in specific.{step}: {[fields[f] for f in overlap]}")
-            for field in overlap:
-                merged['specific'][step].pop(field)
-    
-    # 2. Check for overlaps between processing_shared and processing_specific
-    proc_shared_fields = set(merged['processing']['processing_shared'].keys())
-    for step, fields in merged['processing']['processing_specific'].items():
-        overlap = proc_shared_fields.intersection(set(fields.keys()))
-        if overlap:
-            print(f"WARNING: Found fields {overlap} in both 'processing_shared' and 'processing_specific' for step {step}")
-            print(f"  The values in processing_shared: {[merged['processing']['processing_shared'][f] for f in overlap]}")
-            print(f"  The values in processing_specific.{step}: {[fields[f] for f in overlap]}")
-            for field in overlap:
-                merged['processing']['processing_specific'][step].pop(field)
-
-    # Final check for special fields - ensure all special fields are in the correct sections
-    logger.debug("Final verification for special fields")
-    
-    # Check all processing configs to see if they have special fields that should be in processing_specific
-    for cfg in processing_configs:
-        step = serialize_config(cfg)["_metadata"]["step_name"]
-        
-        for field_name in SPECIAL_FIELDS_TO_KEEP_SPECIFIC:
-            if hasattr(cfg, field_name):
-                # Check if the field is already in the correct section
-                is_in_specific = (step in merged['processing']['processing_specific'] and 
-                                 field_name in merged['processing']['processing_specific'][step])
-                
-                if not is_in_specific:
-                    # Field is missing from processing_specific - force add it
-                    logger.info(f"Ensuring special field '{field_name}' is in processing_specific.{step}")
-                    try:
-                        value = getattr(cfg, field_name)
-                        serialized = _serialize(value)
-                        if step not in merged['processing']['processing_specific']:
-                            merged['processing']['processing_specific'][step] = {}
-                        merged['processing']['processing_specific'][step][field_name] = serialized
-                    except Exception as e:
-                        logger.warning(f"Failed to add special field '{field_name}' to processing_specific.{step}: {str(e)}")
-
-    metadata = {
-        'created_at': datetime.now().isoformat(),
-        'field_sources': field_sources,
-        'config_types': {
-            serialize_config(c)['_metadata']['step_name']: c.__class__.__name__
-            for c in config_list
-        }
-    }
-    out = {'metadata': metadata, 'configuration': merged}
-    try:
-        with open(output_file, 'w') as f:
-            json.dump(out, f, indent=2, sort_keys=True)
-        logger.debug(f"Successfully wrote config to {output_file}")
-    except Exception as e:
-        logger.error(f"Error writing JSON: {str(e)}")
-    return merged
+    # Simply delegate to the new implementation
+    return new_merge_and_save_configs(config_list, output_file)
 
 
 def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) -> Dict[str, BaseModel]:
@@ -646,151 +167,161 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
     Load multiple Pydantic configs from JSON, reconstructing each instantiation uniquely.
     Mirrors the saving algorithm's logic for where fields should come from.
     
-    Config fields are loaded with the following priority order:
-    1. Specific values for this exact config (highest priority)
-    2. Processing-specific values (if applicable)
-    3. Processing-shared values (if applicable)
-    4. Shared values (lowest priority)
+    This is a wrapper for the new implementation in src.config_field_manager.
     
-    This ensures we respect the mutual exclusivity of the categories and properly
-    handle inheritance relationships.
+    Config fields are loaded with the following simplified priority order:
+    1. Specific values for this exact config (highest priority) 
+    2. Shared values (lowest priority)
+    
+    This simplified approach makes it easy to understand where each field's value 
+    comes from, eliminating the complexity of the nested processing hierarchy.
     """
+    # Use ConfigClassStore to ensure we have all classes registered
+    for _, cls in config_classes.items():
+        ConfigClassStore.register(cls)
+        
+    # Load configs from file - this will give us a dict with only step names to config instances
+    loaded_configs_dict = new_load_configs(input_file, config_classes)
     
-    with open(input_file) as f:
-        data = json.load(f)
-    meta = data['metadata']
-    cfgs = data['configuration']
-    types = meta['config_types']  # step_name -> class_name
-    rebuilt = {}
-
-    # First, identify all processing and non-processing configs
-    processing_steps = set()
-    for step, cls_name in types.items():
-        if cls_name not in config_classes:
-            raise ValueError(f"Unknown config class: {cls_name}")
-        cls = config_classes[cls_name]
-        if issubclass(cls, ProcessingStepConfigBase):
-            processing_steps.add(step)
+    # For backward compatibility, we may need to process some special fields 
+    # or ensure certain config objects are properly reconstructed
+    result_configs = {}
     
-    # Now build each config with the correct field hierarchy
-    for step, cls_name in types.items():
-        cls = config_classes[cls_name]
-        is_processing = step in processing_steps
+    with open(input_file, 'r') as f:
+        file_data = json.load(f)
+    
+    # Extract metadata for proper config reconstruction
+    if "metadata" in file_data and "config_types" in file_data["metadata"]:
+        config_types = file_data["metadata"]["config_types"]
         
-        # Build the field dictionary with strict priority order
-        fields = {}
-        
-        # 1. Start with an empty field set
-        valid_fields = set(cls.model_fields.keys())
-        
-        # 2. Get field values from shared (lowest priority)
-        for k, v in cfgs['shared'].items():
-            if k in valid_fields:
-                fields[k] = v
-        
-        # 3. If processing, add processing-shared values (overrides shared)
-        if is_processing:
-            for k, v in cfgs['processing'].get('processing_shared', {}).items():
-                if k in valid_fields:
-                    fields[k] = v
+        # Make sure all configs in the metadata are properly loaded
+        for step_name, class_name in config_types.items():
+            if step_name in loaded_configs_dict:
+                result_configs[step_name] = loaded_configs_dict[step_name]
+            elif class_name in config_classes:
+                # Create an instance using the appropriate class
+                logger.info(f"Creating additional config instance for {step_name} ({class_name})")
+                try:
+                    # Get shared data from file_data
+                    shared_data = {}
+                    specific_data = {}
                     
-        # 4. If processing, add processing-specific values for this step (overrides processing-shared)
-        if is_processing:
-            for k, v in cfgs['processing'].get('processing_specific', {}).get(step, {}).items():
-                if k in valid_fields:
-                    fields[k] = v
+                    # Get from the correct location based on structure
+                    if "configuration" in file_data:
+                        config_data = file_data["configuration"]
+                        if "shared" in config_data:
+                            shared_data = config_data["shared"]
+                        if "specific" in config_data and step_name in config_data["specific"]:
+                            specific_data = config_data["specific"][step_name]
+                    
+                    # Combine data with specific overriding shared
+                    combined_data = {**shared_data, **specific_data}
+                    
+                    # Create the config instance
+                    config_class = config_classes[class_name]
+                    result_configs[step_name] = config_class(**combined_data)
+                except Exception as e:
+                    logger.warning(f"Failed to create config for {step_name}: {str(e)}")
+    else:
+        # Just use the loaded configs as is
+        result_configs = loaded_configs_dict
+    
+    return result_configs
+
+
+def build_complete_config_classes() -> Dict[str, Type[BaseModel]]:
+    """
+    Build a complete dictionary of all relevant config classes using
+    both step and hyperparameter registries as the single source of truth.
+    
+    IMPORTANT: Consider using ConfigClassStore to register your config classes instead:
+    
+        from src.config_field_manager import ConfigClassStore, register_config_class
         
-        # 5. Add specific values (highest priority, overrides everything)
-        for k, v in cfgs['specific'].get(step, {}).items():
-            if k in valid_fields:
-                fields[k] = v
-        
-        # 6. For any remaining fields, use class defaults
-        for field_name in valid_fields:
-            if field_name not in fields:
-                # Get default from field definition
-                default_value = get_field_default(cls, field_name)
-                if default_value is not None:
-                    fields[field_name] = default_value
-                # Use naming patterns for appropriate defaults
-                elif any(pattern in field_name for pattern in DICT_FIELD_PATTERNS):
-                    fields[field_name] = {}
-                elif any(pattern in field_name for pattern in PATH_FIELD_PATTERNS):
-                    fields[field_name] = ""
-        
-        # Create the instance with the collected fields
+        # Register a class
+        @ConfigClassStore.register
+        class MyConfig:
+            ...
+            
+        # Or use the register_config_class alias
+        @register_config_class
+        class AnotherConfig:
+            ...
+    
+    Returns:
+        Dictionary mapping class names to class types
+    """
+    from src.pipeline_registry import STEP_NAMES, HYPERPARAMETER_REGISTRY
+    
+    # Initialize an empty dictionary to store the classes
+    config_classes = {}
+    
+    # Import step config classes from registry
+    for step_name, info in STEP_NAMES.items():
+        class_name = info["config_class"]
         try:
-            instance = cls(**fields)
+            # Most config classes follow a naming pattern of config_<step_name_lowercase>.py
+            module_name = f"config_{step_name.lower()}"
+            # Try to import from pipeline_steps package
+            try:
+                # First try as a relative import within the package
+                module = __import__(f".{module_name}", globals(), locals(), [class_name], 1)
+                if hasattr(module, class_name):
+                    config_classes[class_name] = getattr(module, class_name)
+                    logger.debug(f"Registered {class_name} from relative import")
+                    continue
+            except (ImportError, AttributeError):
+                # Fall back to an absolute import
+                try:
+                    module = __import__(f"src.pipeline_steps.{module_name}", fromlist=[class_name])
+                    if hasattr(module, class_name):
+                        config_classes[class_name] = getattr(module, class_name)
+                        logger.debug(f"Registered {class_name} from absolute import")
+                        continue
+                except (ImportError, AttributeError):
+                    pass
             
-            # Explicitly verify mutually exclusive fields
-            # to ensure we haven't duplicated any
-            for k in fields.keys():
-                if k in cfgs['shared'] and step in cfgs['specific'] and k in cfgs['specific'][step]:
-                    logger.warning(f"Field '{k}' appears in both shared and specific.{step}")
-                
-                if is_processing and k in cfgs['processing'].get('processing_shared', {}) and \
-                   step in cfgs['processing'].get('processing_specific', {}) and \
-                   k in cfgs['processing'].get('processing_specific', {}).get(step, {}):
-                    logger.warning(f"Field '{k}' appears in both processing_shared and processing_specific.{step}")
-            
-        except ValueError as e:
-            # Log the error for debugging purposes
-            logger.error(f"Failed to create instance for {step}: {str(e)}")
-            # Re-raise the exception - validation errors are the user's responsibility to fix
-            raise
-        
-        rebuilt[step] = instance
-
-    return rebuilt
-
-
-
-
-def verify_configs(
-    original_list: List[BaseModel],
-    loaded: Dict[str, BaseModel]
-) -> bool:
-    """
-    Compare originals to reloaded configs, allowing multiple instantiations.
-    Also checks that required fields are present.
-    """
-    ok = True
+            # If still not found, import base config classes directly
+            if class_name in ["BasePipelineConfig", "ProcessingStepConfigBase"]:
+                module_name = class_name.lower()
+                try:
+                    module = __import__(f".{module_name}", globals(), locals(), [class_name], 1)
+                    if hasattr(module, class_name):
+                        config_classes[class_name] = getattr(module, class_name)
+                        logger.debug(f"Registered {class_name} from base config")
+                except (ImportError, AttributeError):
+                    logger.debug(f"Could not import {class_name} from any location")
+        except Exception as e:
+            logger.debug(f"Error importing {class_name}: {str(e)}")
     
-    # Fields that should be checked
-    required_fields = ["input_names", "output_names"]
+    # Import hyperparameter classes from registry
+    for class_name, info in HYPERPARAMETER_REGISTRY.items():
+        try:
+            module_path = info["module_path"]
+            module_parts = module_path.split(".")
+            module = __import__(module_path, fromlist=[class_name])
+            if hasattr(module, class_name):
+                config_classes[class_name] = getattr(module, class_name)
+                logger.debug(f"Registered hyperparameter class {class_name}")
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"Could not import {class_name}: {str(e)}")
     
-    for orig in original_list:
-        base = BasePipelineConfig.get_step_name(orig.__class__.__name__)
-        step = base
-        for attr in ("job_type","data_type","mode"):
-            if hasattr(orig, attr):
-                val = getattr(orig, attr)
-                if val is not None:
-                    step = f"{step}_{val}"
-        print(f"Verifying '{step}'")
-        if step not in loaded:
-            print(f"  Missing loaded config for '{step}'")
-            ok = False
-            continue
+    # Basic fallback for core classes in case the dynamic imports failed
+    try:
+        from .config_base import BasePipelineConfig
+        config_classes.setdefault('BasePipelineConfig', BasePipelineConfig)
         
-        r = loaded[step]
+        from .config_processing_step_base import ProcessingStepConfigBase
+        config_classes.setdefault('ProcessingStepConfigBase', ProcessingStepConfigBase)
         
-        # Check that required fields are present and not None
-        for field in required_fields:
-            if hasattr(r, field):
-                if getattr(r, field) is None:
-                    print(f"  Warning: '{step}' has {field}=None")
-                    ok = False
+        from .hyperparameters_base import ModelHyperparameters
+        config_classes.setdefault('ModelHyperparameters', ModelHyperparameters)
+    except ImportError as e:
+        logger.warning(f"Could not import core classes: {str(e)}")
+    
+    # Register all classes with the ConfigClassStore
+    for class_name, cls in config_classes.items():
+        ConfigClassStore.register(cls)
+        logger.debug(f"Registered with ConfigClassStore: {class_name}")
         
-        o_ser = serialize_config(orig).copy()
-        n_ser = serialize_config(r).copy()
-        o_ser.pop('_metadata',None)
-        n_ser.pop('_metadata',None)
-        if o_ser == n_ser:
-            print(f"  '{step}' matches.")
-        else:
-            print(f"  '{step}' differs:")
-            diffs = {k: (o_ser.get(k), n_ser.get(k)) for k in set(o_ser)|set(n_ser) if o_ser.get(k)!=n_ser.get(k)}
-            print("    Differences:", diffs)
-            ok = False
-    return ok
+    return config_classes

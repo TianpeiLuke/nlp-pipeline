@@ -261,3 +261,81 @@ To verify field categorization is working correctly:
 ---
 
 This design document provides a comprehensive overview of the configuration field categorization system, including the decision logic, implementation details, and solutions to common issues. The system is designed to be robust and flexible, handling a wide variety of field types and ensuring that special fields like hyperparameters are always placed in the appropriate sections.
+
+## Type-Aware Model Serialization and Deserialization
+
+### The Derived Class Challenge
+
+A significant challenge in the configuration system is handling derived model classes, particularly with hyperparameters. For example:
+
+1. `DummyTrainingConfig` accepts a base `ModelHyperparameters` field:
+   ```python
+   hyperparameters: ModelHyperparameters = Field(...)
+   ```
+
+2. In practice, derived classes like `BSMModelHyperparameters` or `XGBoostHyperparameters` are used, which contain additional fields not present in the base class.
+
+3. When saving, all fields (including derived class fields) are serialized.
+
+4. When loading, the system attempts to reconstruct a `ModelHyperparameters` instance with all these additional fields, causing validation errors since the base class has `extra='forbid'` in its configuration.
+
+### Type-Aware Serialization Solution
+
+To solve this issue, we've implemented type-aware serialization and deserialization:
+
+1. **Track Type Information During Serialization**:
+   ```python
+   # Constants for metadata fields
+   MODEL_TYPE_FIELD = "__model_type__"
+   MODEL_MODULE_FIELD = "__model_module__"
+   
+   # In _serialize function
+   if isinstance(val, BaseModel):
+       result = {
+           MODEL_TYPE_FIELD: val.__class__.__name__,
+           MODEL_MODULE_FIELD: val.__class__.__module__,
+           **{k: _serialize(v) for k, v in val.model_dump().items()}
+       }
+   ```
+
+2. **Use Correct Type During Deserialization**:
+   ```python
+   # In load_configs function, when processing fields
+   if field_name in fields and isinstance(fields[field_name], dict):
+       if MODEL_TYPE_FIELD in fields[field_name]:
+           model_type = fields[field_name][MODEL_TYPE_FIELD]
+           if model_type in config_classes:
+               hyper_cls = config_classes[model_type]
+               fields[field_name] = hyper_cls(**{k: v for k, v in fields[field_name].items() 
+                                                if k not in (MODEL_TYPE_FIELD, MODEL_MODULE_FIELD)})
+   ```
+
+### Implementation Details
+
+The system uses these key components:
+
+1. **Type Tracking**: When serializing Pydantic models, the class name and module are stored as metadata.
+
+2. **Class Registry**: A comprehensive registry of all model classes (`CONFIG_CLASSES`) includes both configuration classes and model classes like hyperparameter classes.
+
+3. **Type-Aware Deserialization**: When deserializing fields, the system checks for type metadata and instantiates the correct class.
+
+4. **Fallback Mechanism**: If the exact class can't be found, the system falls back to the field's declared type.
+
+5. **Recursive Handling**: The system handles nested models with different types at any depth.
+
+### Best Practices for Derived Model Classes
+
+When working with derived model classes:
+
+1. **Register All Classes**: Ensure all derived model classes are registered in the `CONFIG_CLASSES` dictionary.
+
+2. **Maintain Base Class Minimalism**: Keep the base class minimal and focused on core functionality.
+
+3. **Use Strict Validation**: Continue to use `extra='forbid'` in base classes to ensure strict validation during normal usage.
+
+4. **Document Derived Fields**: Clearly document fields added in derived classes to assist in troubleshooting.
+
+5. **Test Serialization Cycle**: Always test the full serialization/deserialization cycle when adding new derived classes.
+
+This approach maintains the design principle of having minimal base classes with strict validation while still allowing for specialized derived classes with additional fields. It ensures that configurations can be properly saved and loaded regardless of which hyperparameter class is used.

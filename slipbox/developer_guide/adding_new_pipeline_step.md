@@ -14,6 +14,7 @@ Our pipeline architecture follows a specification-driven approach with a four-la
 2. **Script Contracts**: Define container paths for script inputs/outputs
 3. **Step Builders**: Connect specifications and contracts via SageMaker
 4. **Processing Scripts**: Implement the actual business logic
+5. **Hyperparameters**: Define model-specific configuration parameters (for training steps)
 
 ## Table of Contents
 
@@ -23,6 +24,7 @@ Our pipeline architecture follows a specification-driven approach with a four-la
    - [Script Contract Development](script_contract.md)
    - [Step Specification Development](step_specification.md)
    - [Step Builder Implementation](step_builder.md)
+   - [Adding a New Hyperparameter Class](hyperparameter_class.md)
 4. [Design Principles](design_principles.md)
 5. [Best Practices](best_practices.md)
 6. [Standardization Rules](standardization_rules.md)
@@ -40,6 +42,19 @@ To add a new step to the pipeline:
 3. Validate your implementation using the [validation checklist](validation_checklist.md)
 
 For detailed guidance on specific components, refer to the relevant sections in the [detailed component guide](component_guide.md).
+
+## Adding a New Hyperparameter Class
+
+When adding a new training step, you will likely need to create a custom hyperparameter class that inherits from the base `ModelHyperparameters` class.
+
+For detailed guidance, see the [Adding a New Hyperparameter Class](hyperparameter_class.md) guide, which covers:
+
+- Creating the hyperparameter class file
+- Registering the class in the hyperparameter registry
+- Integrating with training config classes
+- Setting up training scripts to use hyperparameters
+- Configuring step builders to pass hyperparameters to SageMaker
+- Testing your hyperparameter implementation
 
 ## Additional Resources
 
