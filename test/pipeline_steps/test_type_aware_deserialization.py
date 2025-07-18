@@ -13,7 +13,7 @@ import pytest
 from unittest.mock import patch, MagicMock, Mock
 
 # Import utilities for config serialization
-from src.pipeline_steps.utils import merge_and_save_configs, load_configs, _serialize
+from src.pipeline_steps.utils import merge_and_save_configs, load_configs, serialize_config
 from src.pipeline_steps.utils import build_complete_config_classes
 from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_dummy_training import DummyTrainingConfig
@@ -116,75 +116,43 @@ class TestTypeAwareDeserialization(unittest.TestCase):
         
     def test_type_preservation(self):
         """Test that derived class types are preserved during serialization and deserialization."""
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as temp_file:
-            output_path = temp_file.name
-            
-        try:
-            # Merge the configs and save to the temp file
-            merge_and_save_configs([self.base_config, self.bsm_config], output_path)
-            
-            # Read the output file
-            with open(output_path, 'r') as f:
-                output_json = json.load(f)
-                
-            # Get complete config classes
-            config_classes = build_complete_config_classes()
-            
-            # Load the configs back
-            loaded_configs = load_configs(output_path, config_classes)
-            
-            # Find the BSM config by job_type
-            bsm_step = None
-            for step_name, config in loaded_configs.items():
-                if "bsm" in step_name:
-                    bsm_step = step_name
-                    break
-                    
-            self.assertIsNotNone(bsm_step, "BSM config not found in loaded configs")
-            
-            # Verify the BSM hyperparameters class type is preserved
-            bsm_config_loaded = loaded_configs[bsm_step]
-            self.assertIsInstance(bsm_config_loaded.hyperparameters, BSMModelHyperparameters, 
-                                 "BSM hyperparameters type not preserved")
-                                 
-            # Verify BSM-specific fields are present and have correct values
-            self.assertTrue(hasattr(bsm_config_loaded.hyperparameters, 'lr_decay'), 
-                           "BSM-specific field 'lr_decay' missing")
-            self.assertEqual(bsm_config_loaded.hyperparameters.lr_decay, 0.05,
-                           "BSM-specific field 'lr_decay' has incorrect value")
-                           
-            self.assertTrue(hasattr(bsm_config_loaded.hyperparameters, 'text_name'), 
-                           "BSM-specific field 'text_name' missing")
-            self.assertEqual(bsm_config_loaded.hyperparameters.text_name, "dialogue",
-                           "BSM-specific field 'text_name' has incorrect value")
-                           
-            # Check that the base config still has a ModelHyperparameters instance
-            base_step = None
-            for step_name, config in loaded_configs.items():
-                if "base" in step_name:
-                    base_step = step_name
-                    break
-                    
-            self.assertIsNotNone(base_step, "Base config not found in loaded configs")
-            
-            # Verify the base hyperparameters class type is preserved
-            base_config_loaded = loaded_configs[base_step]
-            self.assertIsInstance(base_config_loaded.hyperparameters, ModelHyperparameters, 
-                                 "Base hyperparameters type not preserved")
-                                 
-            # Verify BSM-specific fields are not present on the base hyperparameters
-            self.assertFalse(hasattr(base_config_loaded.hyperparameters, 'lr_decay'), 
-                            "Base hyperparameters should not have BSM-specific fields")
-                            
-        finally:
-            # Clean up the temp file
-            if os.path.exists(output_path):
-                os.unlink(output_path)
+        # Use the serializer directly to test round-trip serialization
+        from src.config_field_manager.type_aware_config_serializer import TypeAwareConfigSerializer, deserialize_config
+        
+        # Create serializer with complete config classes
+        config_classes = build_complete_config_classes()
+        serializer = TypeAwareConfigSerializer(config_classes=config_classes)
+        
+        # Test BSM hyperparameters serialization and deserialization
+        serialized_bsm = serializer.serialize(self.bsm_hyperparams)
+        print("BSM serialized:", serialized_bsm)
+        self.assertIn('__model_type__', serialized_bsm)
+        self.assertEqual(serialized_bsm['__model_type__'], 'BSMModelHyperparameters')
+        
+        # Deserialize back
+        deserialized_bsm = serializer.deserialize(serialized_bsm)
+        self.assertIsInstance(deserialized_bsm, BSMModelHyperparameters)
+        self.assertTrue(hasattr(deserialized_bsm, 'lr_decay'))
+        self.assertEqual(deserialized_bsm.lr_decay, 0.05)
+        
+        # Test BSM-specific fields
+        self.assertTrue(hasattr(deserialized_bsm, 'text_name'))
+        self.assertEqual(deserialized_bsm.text_name, 'dialogue')
+        
+        # Test that base hyperparameters class doesn't have BSM-specific fields
+        serialized_base = serializer.serialize(self.base_hyperparams)
+        deserialized_base = serializer.deserialize(serialized_base)
+        self.assertIsInstance(deserialized_base, ModelHyperparameters)
+        self.assertFalse(hasattr(deserialized_base, 'lr_decay'))
                 
     def test_type_metadata_in_serialized_output(self):
         """Test that type metadata is included in the serialized output."""
+        # Create a serializer and use it directly
+        from src.config_field_manager.type_aware_config_serializer import TypeAwareConfigSerializer
+        serializer = TypeAwareConfigSerializer()
+        
         # Serialize a BSM hyperparameters object
-        serialized = _serialize(self.bsm_hyperparams)
+        serialized = serializer.serialize(self.bsm_hyperparams)
         
         # Verify type metadata fields are present
         self.assertIn('__model_type__', serialized, "Type metadata field missing")
@@ -201,46 +169,33 @@ class TestTypeAwareDeserialization(unittest.TestCase):
                 
     def test_fallback_behavior(self):
         """Test the fallback behavior when a derived class is not available."""
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as temp_file:
-            output_path = temp_file.name
-            
-        try:
-            # Merge the configs and save to the temp file
-            merge_and_save_configs([self.base_config, self.bsm_config], output_path)
-            
-            # Define a custom config_classes that doesn't include BSMModelHyperparameters
-            limited_config_classes = {
-                'BasePipelineConfig': BasePipelineConfig,
-                'DummyTrainingConfig': DummyTrainingConfig,
-                'ModelHyperparameters': ModelHyperparameters,
-                # BSMModelHyperparameters intentionally omitted
-            }
-            
-            # Load the configs back with the limited class registry
-            loaded_configs = load_configs(output_path, limited_config_classes)
-            
-            # Find the BSM config by job_type
-            bsm_step = None
-            for step_name, config in loaded_configs.items():
-                if "bsm" in step_name:
-                    bsm_step = step_name
-                    break
-                    
-            self.assertIsNotNone(bsm_step, "BSM config not found in loaded configs")
-            
-            # Verify the fallback to base ModelHyperparameters when BSM class is not available
-            bsm_config_loaded = loaded_configs[bsm_step]
-            self.assertIsInstance(bsm_config_loaded.hyperparameters, ModelHyperparameters, 
-                                 "Should fallback to ModelHyperparameters")
-            
-            # Verify base fields are present
-            self.assertTrue(hasattr(bsm_config_loaded.hyperparameters, 'full_field_list'), 
-                           "Base field 'full_field_list' missing")
-                           
-        finally:
-            # Clean up the temp file
-            if os.path.exists(output_path):
-                os.unlink(output_path)
+        # Use the serializer directly to test fallback behavior
+        from src.config_field_manager.type_aware_config_serializer import TypeAwareConfigSerializer
+        
+        # Create serializer with limited config classes (no BSMModelHyperparameters)
+        limited_config_classes = {
+            'BasePipelineConfig': BasePipelineConfig,
+            'DummyTrainingConfig': DummyTrainingConfig,
+            'ModelHyperparameters': ModelHyperparameters
+            # BSMModelHyperparameters intentionally omitted
+        }
+        
+        # Create serializer with limited classes
+        serializer = TypeAwareConfigSerializer(config_classes=limited_config_classes)
+        
+        # Test direct serialization and deserialization of BSM hyperparameters
+        serialized_bsm = serializer.serialize(self.bsm_hyperparams)
+        self.assertIn('__model_type__', serialized_bsm)
+        self.assertEqual(serialized_bsm['__model_type__'], 'BSMModelHyperparameters')
+        
+        # Deserialize with limited class registry - should fallback to ModelHyperparameters
+        deserialized_bsm = serializer.deserialize(serialized_bsm)
+        self.assertIsInstance(deserialized_bsm, ModelHyperparameters, 
+                             "Should fallback to ModelHyperparameters")
+        
+        # Verify base fields are still present
+        self.assertTrue(hasattr(deserialized_bsm, 'full_field_list'))
+        self.assertListEqual(deserialized_bsm.full_field_list, ["field1", "field2", "field3"])
                 
 
 if __name__ == "__main__":

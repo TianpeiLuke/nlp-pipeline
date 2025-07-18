@@ -100,18 +100,15 @@ class TypeAwareConfigSerializer:
                 cls_name = cls.__name__
                 
                 # Create serialized dict with type metadata - implementing Type-Safe Specifications
-                if self.mode == SerializationMode.PRESERVE_TYPES:
-                    result = {
-                        self.MODEL_TYPE_FIELD: cls_name,
-                        self.MODEL_MODULE_FIELD: module_name,
-                    }
-                    # Add fields with serialized values
-                    for k, v in val.model_dump().items():
-                        result[k] = self.serialize(v)
-                    return result
-                else:
-                    # Simple mode - just serialize the fields without type info
-                    return {k: self.serialize(v) for k, v in val.model_dump().items()}
+                # Always add type metadata for Pydantic models
+                result = {
+                    self.MODEL_TYPE_FIELD: cls_name,
+                    self.MODEL_MODULE_FIELD: module_name,
+                }
+                # Add fields with serialized values
+                for k, v in val.model_dump().items():
+                    result[k] = self.serialize(v)
+                return result
             except Exception as e:
                 self.logger.warning(f"Error serializing {val.__class__.__name__}: {str(e)}")
                 return f"<Serialization error: {str(e)}>"
@@ -428,10 +425,15 @@ def serialize_config(config: Any) -> Dict[str, Any]:
     # If serialization resulted in a non-dict, wrap it in a dictionary
     if not isinstance(result, dict):
         step_name = serializer.generate_step_name(config) if hasattr(config, "__class__") else "unknown"
+        model_type = config.__class__.__name__ if hasattr(config, "__class__") else "unknown"
+        model_module = config.__class__.__module__ if hasattr(config, "__class__") else "unknown"
+        
         return {
+            "__model_type__": model_type,
+            "__model_module__": model_module,
             "_metadata": {
                 "step_name": step_name,
-                "config_type": config.__class__.__name__ if hasattr(config, "__class__") else "unknown",
+                "config_type": model_type,
                 "serialization_note": "Object could not be fully serialized"
             },
             "value": result
