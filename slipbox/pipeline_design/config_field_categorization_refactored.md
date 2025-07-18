@@ -864,6 +864,61 @@ class ConfigRegistry:
             cls.register(config_class)
 ```
 
+## Field Sources Tracking
+
+The refactored system includes a critical enhancement for field source tracking:
+
+```python
+def get_field_sources(config_list: List[BaseModel]) -> Dict[str, Dict[str, List[str]]]:
+    """
+    Extract field sources from config list.
+    
+    Returns a dictionary with three categories:
+    - 'all': All fields and their source configs
+    - 'processing': Fields from processing configs
+    - 'specific': Fields from non-processing configs
+    
+    This is used for backward compatibility with the legacy field categorization.
+    
+    Args:
+        config_list: List of configuration objects to analyze
+        
+    Returns:
+        Dictionary of field sources by category
+    """
+```
+
+This function maintains backward compatibility with the legacy field tracking system, providing valuable information about which configs contribute to each field. When configurations are merged and saved, the 'all' category of field sources is included in the metadata section:
+
+```json
+{
+  "metadata": {
+    "created_at": "timestamp",
+    "config_types": {
+      "StepName1": "ConfigClass1",
+      "StepName2": "ConfigClass2"
+    },
+    "field_sources": {
+      "field1": ["StepName1", "StepName2"],
+      "field2": ["StepName1"],
+      "field3": ["StepName2"]
+    }
+  },
+  "configuration": {
+    "shared": { "shared fields across all configs" },
+    "specific": {
+      "StepName1": { "step-specific fields" },
+      "StepName2": { "step-specific fields" }
+    }
+  }
+}
+```
+
+This allows for:
+1. **Traceability**: Identify which configs contribute to each field
+2. **Conflict Resolution**: Understand when multiple configs provide the same field
+3. **Dependency Analysis**: Better understand relationships between configurations
+
 ## Public API Functions
 
 Enhanced utility functions for the public API follow our Hybrid Design Approach:

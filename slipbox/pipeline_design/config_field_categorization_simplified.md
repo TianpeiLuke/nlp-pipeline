@@ -43,6 +43,42 @@ This structure provides several advantages:
 - **Reduced Complexity**: Simpler to understand and reason about
 - **Better Maintainability**: Less special handling for different config types
 
+## Field Sources Tracking
+
+The simplified field categorization system includes field source tracking functionality:
+
+```json
+{
+  "metadata": {
+    "created_at": "timestamp",
+    "config_types": {
+      "StepName1": "ConfigClass1",
+      "StepName2": "ConfigClass2"
+    },
+    "field_sources": {
+      "field1": ["StepName1", "StepName2"],
+      "field2": ["StepName1"],
+      "field3": ["StepName2"]
+    }
+  },
+  "configuration": {
+    "shared": { "shared fields across all configs" },
+    "specific": {
+      "StepName1": { "step-specific fields" },
+      "StepName2": { "step-specific fields" }
+    }
+  }
+}
+```
+
+This `field_sources` metadata provides critical information about field origins:
+- Lists which config steps contribute each field
+- Enables traceability of field sources
+- Supports conflict resolution and dependency analysis
+- Maintains backward compatibility with legacy field tracking
+
+The field_sources tracking simplifies debugging and understanding complex configurations by clearly showing where each field originates.
+
 ## Explicit Categorization Rules
 
 The simplified categorization rules are:
