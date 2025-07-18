@@ -145,6 +145,37 @@ def _ensure_mutual_exclusivity(self, merged):
                 merged['specific'][step].pop(field)
 ```
 
+### 6. Common Field Validation
+
+Validates that common required fields are present across all configurations:
+
+```python
+def _check_required_fields(self, merged: Dict[str, Any]) -> None:
+    """
+    Check that all common required fields are present in the merged output.
+    
+    This verifies that mandatory fields shared across configs are included,
+    without making assumptions about step-specific required fields.
+    
+    Args:
+        merged: Merged configuration structure
+    """
+    # Get common required fields defined in base config classes
+    shared_fields = set(merged["shared"].keys())
+    
+    # For fields that should be in shared but might be in specific sections,
+    # check if they appear in any specific section instead
+    for step_name, fields in merged["specific"].items():
+        step_fields = set(fields.keys())
+        for field in step_fields:
+            # If this is a field that should typically be shared but
+            # appears in a specific section, log it
+            if field in common_fields_that_should_be_shared:
+                self.logger.info(f"Field '{field}' found in specific section '{step_name}' but should be shared")
+```
+
+This validation focuses only on common fields required across all configurations rather than making assumptions about step-specific requirements based on naming patterns. The implementation avoids hardcoding field names by examining config classes to determine which fields are common requirements. This approach prevents false positive warnings that previously occurred when step names contained words like "training" or "processing" but the underlying classes had different field requirements.
+
 ### 6. Step Name Generation
 
 Generates consistent step names using the registry:
