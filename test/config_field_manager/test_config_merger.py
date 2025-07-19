@@ -168,13 +168,20 @@ class TestConfigMerger(unittest.TestCase):
         test_configs = [object(), object()]  # Simple objects for testing
         merger = ConfigMerger(test_configs, MockProcessingBase)
         
-        # Test with correct structure
+        # Mock the logger directly in the instance
+        merger.logger = mock.MagicMock()
+        
+        # Test with correct structure - ensure no field name collisions
         correct_structure = {
-            "shared": {"field": "value"},
-            "specific": {"Config": {"field": "value"}}
+            "shared": {"shared_field": "value"},
+            "specific": {"Config": {"specific_field": "value"}}
         }
-        # Should not raise exception
+        # Should not raise exception or log warnings
         merger._verify_merged_output(correct_structure)
+        merger.logger.warning.assert_not_called()
+        
+        # Reset logger mock
+        merger.logger.reset_mock()
         
         # Test with incorrect structure
         incorrect_structure = {
@@ -183,8 +190,10 @@ class TestConfigMerger(unittest.TestCase):
             "extra_key": {}
         }
         # Should log a warning but not fail
-        with self.assertLogs(level='WARNING'):
-            merger._verify_merged_output(incorrect_structure)
+        merger._verify_merged_output(incorrect_structure)
+        
+        # Verify warning was called
+        merger.logger.warning.assert_called()
         
     @mock.patch('src.config_field_manager.config_merger.ConfigFieldCategorizer')
     def test_check_mutual_exclusivity(self, mock_categorizer_class):
@@ -197,6 +206,9 @@ class TestConfigMerger(unittest.TestCase):
         test_configs = [object(), object()]  # Simple objects for testing
         merger = ConfigMerger(test_configs, MockProcessingBase)
         
+        # Mock the logger directly in the instance
+        merger.logger = mock.MagicMock()
+        
         # Test with no collisions
         no_collision_structure = {
             "shared": {"shared_field": "value"},
@@ -207,6 +219,10 @@ class TestConfigMerger(unittest.TestCase):
         }
         # Should not log warnings
         merger._check_mutual_exclusivity(no_collision_structure)
+        merger.logger.warning.assert_not_called()
+        
+        # Reset logger mock
+        merger.logger.reset_mock()
         
         # Test with collisions
         collision_structure = {
@@ -216,8 +232,10 @@ class TestConfigMerger(unittest.TestCase):
             }
         }
         # Should log a warning
-        with self.assertLogs(level='WARNING'):
-            merger._check_mutual_exclusivity(collision_structure)
+        merger._check_mutual_exclusivity(collision_structure)
+        
+        # Verify warning was called
+        merger.logger.warning.assert_called()
         
     @mock.patch('src.config_field_manager.config_merger.ConfigFieldCategorizer')
     def test_check_special_fields_placement(self, mock_categorizer_class):
@@ -229,6 +247,9 @@ class TestConfigMerger(unittest.TestCase):
         # Create merger with simple test objects
         test_configs = [object(), object()]  # Simple objects for testing
         merger = ConfigMerger(test_configs, MockProcessingBase)
+        
+        # Mock the logger directly in the instance
+        merger.logger = mock.MagicMock()
         
         # Choose a special field from constants
         special_field = next(iter(SPECIAL_FIELDS_TO_KEEP_SPECIFIC))
@@ -242,6 +263,10 @@ class TestConfigMerger(unittest.TestCase):
         }
         # Should not log warnings
         merger._check_special_fields_placement(correct_structure)
+        merger.logger.warning.assert_not_called()
+        
+        # Reset logger mock
+        merger.logger.reset_mock()
         
         # Test with special field in shared
         incorrect_structure = {
@@ -249,8 +274,10 @@ class TestConfigMerger(unittest.TestCase):
             "specific": {}
         }
         # Should log a warning
-        with self.assertLogs(level='WARNING'):
-            merger._check_special_fields_placement(incorrect_structure)
+        merger._check_special_fields_placement(incorrect_structure)
+        
+        # Verify warning was called
+        merger.logger.warning.assert_called()
     
     def test_config_types_format(self):
         """Test that config_types uses step names as keys instead of class names."""
