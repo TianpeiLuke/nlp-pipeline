@@ -20,7 +20,7 @@ from src.config_field_manager.config_field_categorizer import ConfigFieldCategor
 from src.config_field_manager.constants import CategoryType, SPECIAL_FIELDS_TO_KEEP_SPECIFIC
 
 
-class TestConfig:
+class BaseTestConfig:
     """Base test config class for testing categorization."""
     def __init__(self, **kwargs):
         for key, value in kwargs.items():
@@ -28,17 +28,17 @@ class TestConfig:
         self.step_name_override = self.__class__.__name__
 
 
-class SharedFieldsConfig(TestConfig):
+class SharedFieldsConfig(BaseTestConfig):
     """Config with shared fields for testing."""
     pass
 
 
-class SpecificFieldsConfig(TestConfig):
+class SpecificFieldsConfig(BaseTestConfig):
     """Config with specific fields for testing."""
     pass
 
 
-class SpecialFieldsConfig(TestConfig):
+class SpecialFieldsConfig(BaseTestConfig):
     """Config with special fields for testing."""
     pass
 
@@ -48,7 +48,7 @@ class MockProcessingBase:
     pass
 
 
-class ProcessingConfig(MockProcessingBase, TestConfig):
+class ProcessingConfig(MockProcessingBase, BaseTestConfig):
     """Mock processing config for testing."""
     pass
 
@@ -185,9 +185,9 @@ class TestConfigFieldCategorizer(unittest.TestCase):
         mock_serialize.side_effect = mock_serialize_impl
         
         # Create test configs
-        config1 = TestConfig(shared="value", common="value", unique1="value")
-        config2 = TestConfig(shared="value", common="value", unique2="value")
-        config3 = TestConfig(shared="value", common="different", hyperparameters={"param": 1})
+        config1 = BaseTestConfig(shared="value", common="value", unique1="value")
+        config2 = BaseTestConfig(shared="value", common="value", unique2="value")
+        config3 = BaseTestConfig(shared="value", common="different", hyperparameters={"param": 1})
         
         categorizer = ConfigFieldCategorizer([config1, config2, config3], None)
         
@@ -217,8 +217,8 @@ class TestConfigFieldCategorizer(unittest.TestCase):
         mock_serialize.side_effect = mock_serialize_impl
         
         # Create test configs
-        config1 = TestConfig(shared="value", common="value", unique1="value")
-        config2 = TestConfig(shared="value", common="value", unique2="value")
+        config1 = BaseTestConfig(shared="value", common="value", unique1="value")
+        config2 = BaseTestConfig(shared="value", common="value", unique2="value")
         
         categorizer = ConfigFieldCategorizer([config1, config2], None)
         

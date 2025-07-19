@@ -18,14 +18,13 @@ from pydantic import BaseModel, Field
 from src.config_field_manager.type_aware_config_serializer import (
     TypeAwareConfigSerializer,
     serialize_config,
-    deserialize_config,
-    _generate_step_name
+    deserialize_config
 )
 from src.config_field_manager.constants import SerializationMode
 
 
 # Test model classes
-class TestEnum(Enum):
+class SampleEnum(Enum):
     A = "a"
     B = "b"
 
@@ -33,13 +32,13 @@ class NestedModel(BaseModel):
     value: str = "nested"
     numbers: List[int] = [1, 2, 3]
 
-class TestConfig(BaseModel):
+class SampleConfig(BaseModel):
     """Base config for testing."""
     name: str
     value: int = 42
     nested: Optional[NestedModel] = None
 
-class JobTypeConfig(TestConfig):
+class JobTypeConfig(SampleConfig):
     """Config with job type for testing variants."""
     job_type: Optional[str] = None
     data_type: Optional[str] = None
@@ -51,8 +50,8 @@ class TestTypeAwareSerialization(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.test_config = TestConfig(name="test")
-        self.nested_config = TestConfig(
+        self.test_config = SampleConfig(name="test")
+        self.nested_config = SampleConfig(
             name="nested_test",
             nested=NestedModel(value="custom", numbers=[4, 5, 6])
         )
@@ -88,15 +87,15 @@ class TestTypeAwareSerialization(unittest.TestCase):
         self.assertEqual(result["nested"]["value"], "custom")
         
     def test_generate_step_name_basic(self):
-        """Test _generate_step_name with a basic config."""
+        """Test generate_step_name with a basic config."""
         with mock.patch('src.pipeline_steps.config_base.BasePipelineConfig.get_step_name') as mock_get_step_name:
-            mock_get_step_name.return_value = "TestConfig"
-            step_name = _generate_step_name(self.test_config)
-            self.assertEqual(step_name, "TestConfig")
-            mock_get_step_name.assert_called_once_with("TestConfig")
+            mock_get_step_name.return_value = "SampleConfig"
+            step_name = self.serializer.generate_step_name(self.test_config)
+            self.assertEqual(step_name, "SampleConfig")
+            mock_get_step_name.assert_called_once_with("SampleConfig")
             
     def test_generate_step_name_job_type(self):
-        """Test both _generate_step_name and instance generate_step_name with job type variants."""
+        """Test instance generate_step_name with job type variants."""
         configs_and_expected = [
             (self.training_config, "JobTypeConfig_training"),
             (self.calibration_config, "JobTypeConfig_calibration"),
@@ -107,21 +106,16 @@ class TestTypeAwareSerialization(unittest.TestCase):
         with mock.patch('src.pipeline_steps.config_base.BasePipelineConfig.get_step_name') as mock_get_step_name:
             mock_get_step_name.return_value = "JobTypeConfig"
             
-            # Test standalone function
-            for config, expected in configs_and_expected:
-                step_name = _generate_step_name(config)
-                self.assertEqual(step_name, expected)
-                
             # Test instance method
             for config, expected in configs_and_expected:
                 step_name = self.serializer.generate_step_name(config)
                 self.assertEqual(step_name, expected)
     
     def test_generate_step_name_multiple_attributes(self):
-        """Test _generate_step_name with multiple variant attributes."""
+        """Test generate_step_name with multiple variant attributes."""
         with mock.patch('src.pipeline_steps.config_base.BasePipelineConfig.get_step_name') as mock_get_step_name:
             mock_get_step_name.return_value = "JobTypeConfig"
-            step_name = _generate_step_name(self.complex_variant_config)
+            step_name = self.serializer.generate_step_name(self.complex_variant_config)
             self.assertEqual(step_name, "JobTypeConfig_training_tabular_incremental")
     
     def test_serialize_config_includes_step_name(self):

@@ -23,7 +23,7 @@ from src.config_field_manager.config_merger import ConfigMerger
 from src.config_field_manager.constants import CategoryType, MergeDirection, SPECIAL_FIELDS_TO_KEEP_SPECIFIC
 
 
-class TestConfig:
+class BaseTestConfig:
     """Base test config class for testing merger."""
     def __init__(self, **kwargs):
         # Set default step_name_override
@@ -33,17 +33,17 @@ class TestConfig:
             setattr(self, key, value)
 
 
-class SharedFieldsConfig(TestConfig):
+class SharedFieldsConfig(BaseTestConfig):
     """Config with shared fields for testing."""
     pass
 
 
-class SpecificFieldsConfig(TestConfig):
+class SpecificFieldsConfig(BaseTestConfig):
     """Config with specific fields for testing."""
     pass
 
 
-class SpecialFieldsConfig(TestConfig):
+class SpecialFieldsConfig(BaseTestConfig):
     """Config with special fields for testing."""
     pass
 
@@ -53,7 +53,7 @@ class MockProcessingBase:
     pass
 
 
-class ProcessingConfig(MockProcessingBase, TestConfig):
+class ProcessingConfig(MockProcessingBase, BaseTestConfig):
     """Mock processing config for testing."""
     pass
 
@@ -255,15 +255,15 @@ class TestConfigMerger(unittest.TestCase):
     def test_config_types_format(self):
         """Test that config_types uses step names as keys instead of class names."""
         # Create test configs including ones with job_type
-        test_config1 = TestConfig(field1="value1", step_name_override="CustomStepName")
-        test_config2 = TestConfig(field2="value2", job_type="training")
+        test_config1 = BaseTestConfig(field1="value1", step_name_override="CustomStepName")
+        test_config2 = BaseTestConfig(field2="value2", job_type="training")
         
         # Directly test the _generate_step_name method
         merger = ConfigMerger([test_config1, test_config2])
         
         # Verify step name generation
         self.assertEqual("CustomStepName", merger._generate_step_name(test_config1))
-        self.assertEqual("Test_training", merger._generate_step_name(test_config2))
+        self.assertEqual("BaseTest_training", merger._generate_step_name(test_config2))
         
         # Create a minimal test file
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -288,11 +288,11 @@ class TestConfigMerger(unittest.TestCase):
             
             # Keys should be step names
             self.assertIn("CustomStepName", config_types)  # Using step_name_override
-            self.assertIn("Test_training", config_types)  # Using job_type
+            self.assertIn("BaseTest_training", config_types)  # Using job_type
             
             # Values should be class names
-            self.assertEqual("TestConfig", config_types["CustomStepName"])
-            self.assertEqual("TestConfig", config_types["Test_training"])
+            self.assertEqual("BaseTestConfig", config_types["CustomStepName"])
+            self.assertEqual("BaseTestConfig", config_types["BaseTest_training"])
             
             # Remove the temp file
             os.unlink(tmp.name)
