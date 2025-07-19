@@ -69,13 +69,16 @@ class YourStepBuilder(StepBuilderBase):
         """Get outputs for the processor using the specification and contract."""
         return self._get_spec_driven_processor_outputs(outputs)
     
-    def _get_processor_env_vars(self) -> Dict[str, str]:
+    def _get_environment_variables(self) -> Dict[str, str]:
         """Get environment variables for the processor."""
-        env_vars = {
-            "REQUIRED_PARAM_1": self.config.param1,
-            "REQUIRED_PARAM_2": str(self.config.param2)
-            # Add any other environment variables needed by your script
-        }
+        # Use the standardized method from the base class
+        env_vars = super()._get_environment_variables()
+        
+        # Add any additional environment variables needed by your script
+        env_vars.update({
+            "ADDITIONAL_PARAM": self.config.additional_param
+        })
+        
         return env_vars
     
     def _get_processor(self):
@@ -114,7 +117,7 @@ class YourStepBuilder(StepBuilderBase):
         processor = self._get_processor()
         
         # Set environment variables
-        env_vars = self._get_processor_env_vars()
+        env_vars = self._get_environment_variables()
         
         # Create and return the step
         step_name = kwargs.get('step_name', 'YourStep')
@@ -123,7 +126,7 @@ class YourStepBuilder(StepBuilderBase):
             outputs=outputs,
             container_arguments=[],
             container_entrypoint=["python", self.config.get_script_path()],
-            job_name=self._generate_job_name(step_name),
+            job_name=self._generate_job_name(),
             wait=False,
             environment=env_vars
         )
@@ -252,13 +255,13 @@ def create_step(self, **kwargs) -> ProcessingStep:
     env_vars = self._get_processor_env_vars()
     
     # Create and return the step
-    step_name = kwargs.get('step_name', self._get_default_step_name())
+    # Use automatic step naming - no parameter needed for _get_step_name()
     step = processor.run(
         inputs=inputs,
         outputs=outputs,
         container_arguments=[],
         container_entrypoint=["python", self.config.get_script_path()],
-        job_name=self._generate_job_name(step_name),
+        job_name=self._generate_job_name(),  # Automatic step type detection - no parameter needed
         wait=False,
         environment=env_vars
     )
@@ -353,35 +356,202 @@ model = Model(
 
 ## Environment Variable Handling
 
-Environment variables connect configuration parameters to script requirements:
+Environment variables connect configuration parameters to script requirements. The `StepBuilderBase` class now includes a standardized `_get_environment_variables()` method that automatically extracts environment variables from the script contract:
 
 ```python
-def _get_processor_env_vars(self) -> Dict[str, str]:
-    """Get environment variables for the processor."""
+def _get_environment_variables(self) -> Dict[str, str]:
+    """
+    Create environment variables for the processing job based on the script contract.
+    
+    This base implementation:
+    1. Uses required_env_vars from the script contract
+    2. Gets values from the config object
+    3. Adds optional variables with defaults from the contract
+    4. Can be overridden by child classes to add custom logic
+    
+    Returns:
+        Dict[str, str]: Environment variables for the processing job
+    """
     env_vars = {}
     
-    # 1. Required variables from script contract
-    required_vars = self.spec.script_contract.required_env_vars
+    if not hasattr(self, 'contract') or self.contract is None:
+        self.log_warning("No script contract available for environment variable definition")
+        return env_vars
     
-    # 2. Map configuration parameters to environment variables
-    if "PARAM_1" in required_vars:
-        env_vars["PARAM_1"] = self.config.param1
+    # Process required environment variables
+    for env_var in self.contract.required_env_vars:
+        # Convert from ENV_VAR_NAME format to config attribute style (env_var_name)
+        config_attr = env_var.lower()
+        
+        # Try to get from config (direct attribute)
+        if hasattr(self.config, config_attr):
+            env_vars[env_var] = str(getattr(self.config, config_attr))
+        # Try to get from config.hyperparameters
+        elif hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, config_attr):
+            env_vars[env_var] = str(getattr(self.config.hyperparameters, config_attr))
+        else:
+            self.log_warning(f"Required environment variable '{env_var}' not found in config")
     
-    if "PARAM_2" in required_vars:
-        env_vars["PARAM_2"] = str(self.config.param2)
-    
-    # 3. Optional variables with defaults from script contract
-    for var_name, default_value in self.spec.script_contract.optional_env_vars.items():
-        config_value = getattr(self.config, var_name.lower(), None)
-        env_vars[var_name] = str(config_value) if config_value is not None else default_value
+    # Add optional environment variables with defaults
+    for env_var, default_value in self.contract.optional_env_vars.items():
+        # Convert from ENV_VAR_NAME format to config attribute style (env_var_name)
+        config_attr = env_var.lower()
+        
+        # Try to get from config, fall back to default
+        if hasattr(self.config, config_attr):
+            env_vars[env_var] = str(getattr(self.config, config_attr))
+        # Try to get from config.hyperparameters
+        elif hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, config_attr):
+            env_vars[env_var] = str(getattr(self.config.hyperparameters, config_attr))
+        else:
+            env_vars[env_var] = default_value
+            self.log_debug(f"Using default value for optional environment variable '{env_var}': {default_value}")
     
     return env_vars
 ```
 
+### How to Use the Standardized Method
+
+In your step builder, you can use this method directly:
+
+```python
+def _get_processor(self):
+    """Create and return a SageMaker processor."""
+    from sagemaker.processing import ScriptProcessor
+    
+    processor = ScriptProcessor(
+        role=self.role,
+        image_uri=self.config.get_image_uri(),
+        command=["python"],
+        instance_count=self.config.instance_count,
+        instance_type=self.config.instance_type,
+        volume_size_in_gb=self.config.volume_size_gb,
+        max_runtime_in_seconds=self.config.max_runtime_seconds,
+        sagemaker_session=self.sagemaker_session,
+        env=self._get_environment_variables()  # Use the standardized method
+    )
+    
+    return processor
+```
+
+### Extending the Base Method
+
+If you need additional environment variables beyond what's in the script contract:
+
+```python
+def _get_environment_variables(self) -> Dict[str, str]:
+    """Get environment variables for the processor."""
+    # Get standard environment variables from contract
+    env_vars = super()._get_environment_variables()
+    
+    # Add step-specific environment variables
+    env_vars.update({
+        "ADDITIONAL_PARAM": self.config.additional_param,
+        "DEBUG_MODE": str(self.config.debug_mode).lower()
+    })
+    
+    return env_vars
+```
+
+### Completely Overriding the Method
+
+For cases where the standard approach doesn't fit:
+
+```python
+def _get_environment_variables(self) -> Dict[str, str]:
+    """Get custom environment variables for this specific step."""
+    return {
+        "CUSTOM_PARAM_1": self.config.custom_param1,
+        "CUSTOM_PARAM_2": str(self.config.custom_param2),
+        "JOB_TYPE": self.config.job_type
+    }
+```
+
 Best practices:
-1. Handle type conversion (all environment variables are strings)
-2. Use the script contract to determine required variables
-3. Provide sensible defaults for optional variables
+1. Use the base implementation unless you have specific requirements
+2. When extending, call `super()._get_environment_variables()` first
+3. Handle type conversion (all environment variables are strings)
+4. Log warnings for missing required variables
+5. Provide sensible defaults for optional variables
+
+## Standardized Job Name Generation
+
+The `StepBuilderBase` class now includes a standardized `_generate_job_name()` method to create consistent job names with automatic step type detection and uniqueness:
+
+```python
+def _generate_job_name(self) -> str:
+    """
+    Generate a standardized job name for SageMaker processing/training jobs.
+    
+    This method automatically determines the step type from the class name
+    using the centralized step name registry. It also adds a timestamp to 
+    ensure uniqueness across executions.
+        
+    Returns:
+        Sanitized job name suitable for SageMaker
+    """
+    import time
+    
+    # Determine step type from the class name
+    class_name = self.__class__.__name__
+    determined_step_type = None
+    
+    # Try to find a matching entry in the STEP_NAMES registry
+    for canonical_name, info in self.STEP_NAMES.items():
+        if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
+            determined_step_type = canonical_name
+            break
+    
+    # If no match found, fall back to class name with "StepBuilder" removed
+    if determined_step_type is None:
+        if class_name.endswith("StepBuilder"):
+            determined_step_type = class_name[:-11]  # Remove "StepBuilder"
+        else:
+            determined_step_type = class_name
+            
+    # Generate a timestamp for uniqueness (unix timestamp in seconds)
+    timestamp = int(time.time())
+    
+    # Build the job name
+    if hasattr(self.config, 'job_type') and self.config.job_type:
+        job_name = f"{determined_step_type}-{self.config.job_type.capitalize()}-{timestamp}"
+    else:
+        job_name = f"{determined_step_type}-{timestamp}"
+        
+    # Sanitize and return
+    return self._sanitize_name_for_sagemaker(job_name)
+```
+
+The updated method provides several key improvements:
+
+1. **Automatic Step Type Detection**: The method can now automatically determine the step type from the class name using the centralized step name registry, eliminating the need to pass it as a parameter
+2. **Guaranteed Uniqueness**: A timestamp is added to ensure unique job names across multiple executions
+3. **Registry-Based Naming**: Uses the centralized `STEP_NAMES` registry to maintain consistent naming conventions
+4. **Backward Compatibility**: Still supports explicitly passing a step type for legacy code
+
+### How to Use the Standardized Method
+
+In your step builder's `create_step()` method, you can now call the method without any parameters:
+
+```python
+def create_step(self, **kwargs) -> ProcessingStep:
+    """Create the processing step."""
+    # [...]
+    
+    # Create and return the step
+    step = processor.run(
+        inputs=processing_inputs,
+        outputs=processing_outputs,
+        arguments=script_args,
+        job_name=self._generate_job_name(),  # No parameter needed!
+        wait=False,
+        cache_config=cache_config
+    )
+    
+    return step
+```
+
+This approach ensures that all jobs created by your step builders will have consistent and unique naming, making them easier to identify in the SageMaker console and avoiding job name conflicts.
 
 ## Builder Examples
 
@@ -419,14 +589,18 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         
         return processor
     
-    def _get_processor_env_vars(self):
+    def _get_environment_variables(self):
         """Get environment variables for the processor."""
-        return {
-            "LABEL_FIELD": self.config.label_field,
+        # Get base environment variables from script contract
+        env_vars = super()._get_environment_variables()
+        
+        # Add or override with specific variables for this step
+        env_vars.update({
             "FEATURE_COLUMNS": ",".join(self.config.feature_columns),
-            "TRAIN_RATIO": str(self.config.train_ratio),
             "DEBUG_MODE": str(self.config.debug_mode).lower()
-        }
+        })
+        
+        return env_vars
 ```
 
 ### Training Step Builder

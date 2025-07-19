@@ -193,6 +193,221 @@ def _get_sagemaker_step_kwargs(self):
     return kwargs
 ```
 
+#### Standardized Environment Variables from Script Contract
+
+The base class provides a standardized method for handling environment variables based on script contracts:
+
+```python
+def _get_environment_variables(self) -> Dict[str, str]:
+    """
+    Create environment variables for the processing job based on the script contract.
+    
+    This base implementation:
+    1. Uses required_env_vars from the script contract
+    2. Gets values from the config object
+    3. Adds optional variables with defaults from the contract
+    4. Can be overridden by child classes to add custom logic
+    """
+    env_vars = {}
+    
+    if not hasattr(self, 'contract') or self.contract is None:
+        self.log_warning("No script contract available for environment variable definition")
+        return env_vars
+    
+    # Process required environment variables
+    for env_var in self.contract.required_env_vars:
+        # Convert from ENV_VAR_NAME format to config attribute style (env_var_name)
+        config_attr = env_var.lower()
+        
+        # Try to get from config (direct attribute)
+        if hasattr(self.config, config_attr):
+            env_vars[env_var] = str(getattr(self.config, config_attr))
+        # Try to get from config.hyperparameters
+        elif hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, config_attr):
+            env_vars[env_var] = str(getattr(self.config.hyperparameters, config_attr))
+        else:
+            self.log_warning(f"Required environment variable '{env_var}' not found in config")
+    
+    # Add optional environment variables with defaults
+    for env_var, default_value in self.contract.optional_env_vars.items():
+        # Convert from ENV_VAR_NAME format to config attribute style (env_var_name)
+        config_attr = env_var.lower()
+        
+        # Try to get from config, fall back to default
+        if hasattr(self.config, config_attr):
+            env_vars[env_var] = str(getattr(self.config, config_attr))
+        # Try to get from config.hyperparameters
+        elif hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, config_attr):
+            env_vars[env_var] = str(getattr(self.config.hyperparameters, config_attr))
+        else:
+            env_vars[env_var] = default_value
+            self.log_debug(f"Using default value for optional environment variable '{env_var}': {default_value}")
+    
+    return env_vars
+```
+
+This method provides consistent environment variable handling across all step builders by:
+
+1. Examining the script contract's `required_env_vars` and `optional_env_vars`
+2. Automatically converting environment variable names (e.g., `LABEL_FIELD`) to config attribute style (`label_field`)
+3. Looking for values in both the main config object and its `hyperparameters` attribute
+4. Using default values from the contract for optional variables when not found in config
+5. Providing helpful warnings for missing required variables
+
+Child classes can:
+- Use this implementation as-is if they follow the naming conventions
+- Override it while still calling `super()._get_environment_variables()` to extend the base implementation
+- Completely replace it with custom logic when needed
+
+Usage example:
+
+```python
+# In a processor creation method
+def _create_processor(self):
+    """Create the processor for the processing job"""
+    return SKLearnProcessor(
+        framework_version=self.config.processing_framework_version,
+        role=self.role,
+        instance_type=self.config.processing_instance_type,
+        instance_count=self.config.processing_instance_count,
+        volume_size_in_gb=self.config.processing_volume_size,
+        env=self._get_environment_variables(),  # Gets variables from script contract
+        sagemaker_session=self.session
+    )
+```
+
+#### Standardized Step Name Generation
+
+The base class provides a method for getting standard step names with automatic step type detection:
+
+```python
+def _get_step_name(self) -> str:
+    """
+    Get standard step name, automatically determining the step type from class name.
+    
+    Returns:
+        Standard step name based on the builder class
+    """
+    class_name = self.__class__.__name__
+    determined_step_type = None
+    
+    # Try to find a matching entry in the STEP_NAMES registry
+    for canonical_name, info in self.STEP_NAMES.items():
+        if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
+            determined_step_type = canonical_name
+            break
+    
+    # If no match found, fall back to class name with "StepBuilder" removed
+    if determined_step_type is None:
+        if class_name.endswith("StepBuilder"):
+            determined_step_type = class_name[:-11]  # Remove "StepBuilder"
+        else:
+            determined_step_type = class_name
+    
+    # Get the step name from the registry or use default
+    if determined_step_type not in self.STEP_NAMES:
+        self.log_warning(f"Unknown step type: {determined_step_type}. Using default name.")
+        return f"Default{determined_step_type}Step"
+    
+    return self.STEP_NAMES[determined_step_type]
+```
+
+This method provides consistent step naming across all pipeline steps by:
+
+1. **Auto-detecting step type** from the class name using the centralized registry
+2. **Looking up standardized names** from the registry to ensure consistency
+3. **Handling fallback scenarios** when a step type isn't found in the registry
+
+Usage example:
+
+```python
+# In a step builder's create_step method
+step = TrainingStep(
+    name=self._get_step_name(),  # No parameter needed - automatically detects from class name
+    estimator=estimator,
+    inputs=inputs,
+    depends_on=dependencies
+)
+```
+
+#### Standardized Job Name Generation
+
+The base class provides a standardized method for generating SageMaker job names across all step builders:
+
+```python
+def _generate_job_name(self) -> str:
+    """
+    Generate a standardized job name for SageMaker processing/training jobs.
+    
+    This method automatically determines the step type from the class name
+    using the centralized step name registry. It also adds a timestamp to 
+    ensure uniqueness across executions.
+        
+    Returns:
+        Sanitized job name suitable for SageMaker
+    """
+    import time
+    
+    # Determine step type from the class name
+    class_name = self.__class__.__name__
+    determined_step_type = None
+    
+    # Try to find a matching entry in the STEP_NAMES registry
+    for canonical_name, info in self.STEP_NAMES.items():
+        if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
+            determined_step_type = canonical_name
+            break
+    
+    # If no match found, fall back to class name with "StepBuilder" removed
+    if determined_step_type is None:
+        if class_name.endswith("StepBuilder"):
+            determined_step_type = class_name[:-11]  # Remove "StepBuilder"
+        else:
+            determined_step_type = class_name
+            
+    # Generate a timestamp for uniqueness (unix timestamp in seconds)
+    timestamp = int(time.time())
+    
+    # Build the job name
+    if hasattr(self.config, 'job_type') and self.config.job_type:
+        job_name = f"{determined_step_type}-{self.config.job_type.capitalize()}-{timestamp}"
+    else:
+        job_name = f"{determined_step_type}-{timestamp}"
+        
+    # Sanitize and return
+    return self._sanitize_name_for_sagemaker(job_name)
+```
+
+This ensures consistent job naming across all processing and training steps, making it easier to identify jobs in the SageMaker console. The method:
+
+1. **Auto-detects step type** from the class name using the centralized step name registry
+2. **Adds a timestamp** to ensure unique job names across multiple executions
+3. **Handles job types** for multi-purpose step builders
+4. **Sanitizes** the name to be compatible with SageMaker naming constraints
+
+Job naming follows these patterns:
+
+1. For multi-purpose step builders with job types:
+   - `{step_type}-{job_type}-{timestamp}` (e.g., "TabularPreprocessing-Training-1721606523")
+
+2. For single-purpose step builders:
+   - `{step_type}-{timestamp}` (e.g., "XGBoostTraining-1721606523")
+
+Usage example:
+
+```python
+# In a processing step builder
+step = processor.run(
+    code=self.config.get_script_path(),
+    inputs=processing_inputs,
+    outputs=processing_outputs,
+    arguments=script_args,
+    job_name=self._generate_job_name(),  # No parameter needed
+    wait=False,
+    cache_config=cache_config
+)
+```
+
 ### 6. Script Contract Alignment
 
 Ensure alignment between specifications, contracts, and implementations:
@@ -253,7 +468,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         
         # Create the training step
         step = TrainingStep(
-            name=self._get_step_name('XGBoostTraining'),
+            name=self._get_step_name(),  # Automatic step type detection
             estimator=estimator,
             inputs=training_inputs,
             depends_on=dependencies,
