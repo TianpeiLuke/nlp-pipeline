@@ -13,6 +13,7 @@ A modular pipeline for processing emails, messages, and tabular data, supporting
 - [Pipeline Builder Template](#pipeline-builder-template)
 - [PyTorch Models](#pytorch-models)
 - [Docker Images](#docker-images)
+- [Slipbox Documentation](#slipbox-documentation)
 - [Benefits](#benefits)
 - [Contributing](#contributing)
 - [License](#license)
@@ -128,6 +129,62 @@ Dockerfiles and build scripts are provided for:
 - **Inference Containers:** For model serving and batch inference
 
 These images ensure reproducibility and compatibility with SageMaker Processing and Training jobs.
+
+---
+
+## Slipbox Documentation
+
+The [slipbox/](slipbox/) directory contains comprehensive documentation, guides, examples, and design specifications for the entire pipeline framework. This knowledge base is organized into specialized sections covering all aspects of development, implementation, and usage.
+
+### Core Documentation Sections
+
+- **[Developer Demo](slipbox/developer_demo/)** - Complete demonstrations and examples of pipeline implementation, including dummy training validation examples, implementation plans, and risk table mapping validation reports.
+
+- **[Developer Guide](slipbox/developer_guide/)** - Essential guides for developers working with the pipeline framework, covering best practices, design principles, component guides, validation checklists, and step-by-step creation processes.
+
+- **[Developer Prompts](slipbox/developer_prompts/)** - AI-assisted development prompts and templates for planning, validation, programming, and revision workflows to accelerate development cycles.
+
+- **[Lightning Models](slipbox/lightning_models/)** - Detailed documentation for PyTorch Lightning model architectures, including BERT, LSTM, CNN, multimodal models, and distributed training utilities.
+
+- **[Notebook Digest Prompts](slipbox/notebook_digest_prompts/)** - Templates and analyzers for converting Jupyter notebooks to SageMaker pipelines, with usage guides and example outputs.
+
+- **[Notebook Digests](slipbox/notebook_digests/)** - Processed notebook analyses and summaries for model training and pipeline development.
+
+- **[Notebooks](slipbox/notebooks/)** - Documentation for notebook-based workflows and configurations.
+
+- **[Pipeline Builder](slipbox/pipeline_builder/)** - Comprehensive documentation for the template-based pipeline building system, including assemblers, examples, and implementation guides.
+
+- **[Pipeline DAG](slipbox/pipeline_dag/)** - Documentation for the Directed Acyclic Graph system used in pipeline construction, covering base DAG structures, edge types, and enhanced DAG features.
+
+- **[Pipeline Dependencies](slipbox/pipeline_deps/)** - Dependency management system documentation, including resolvers, registries, semantic matching, and factory patterns.
+
+- **[Pipeline Design](slipbox/pipeline_design/)** - Core design documentation covering configuration management, dependency resolution, design principles, and architectural evolution.
+
+- **[Pipeline Examples](slipbox/pipeline_examples/)** - Real-world pipeline examples and blueprints for various ML workflows.
+
+- **[Pipeline Script Contracts](slipbox/pipeline_script_contracts/)** - Contract specifications and interfaces for pipeline scripts.
+
+- **[Pipeline Step Specs](slipbox/pipeline_step_specs/)** - Detailed specifications for individual pipeline steps and their configurations.
+
+- **[Pipeline Steps](slipbox/pipeline_steps/)** - Documentation for all available pipeline steps, from data loading to model registration.
+
+- **[Processing](slipbox/processing/)** - Documentation for data processing components and utilities.
+
+- **[Project Planning](slipbox/project_planning/)** - Project planning documents and roadmaps.
+
+- **[Review](slipbox/review/)** - Code review guidelines and documentation review processes.
+
+### Getting Started with Slipbox
+
+1. **New Developers**: Start with [slipbox/developer_guide/README.md](slipbox/developer_guide/README.md) for an overview of development practices and principles.
+
+2. **Pipeline Creation**: Refer to [slipbox/pipeline_builder/README.md](slipbox/pipeline_builder/README.md) for template-based pipeline construction.
+
+3. **Model Development**: Check [slipbox/lightning_models/README.md](slipbox/lightning_models/README.md) for PyTorch model architectures and training utilities.
+
+4. **Design Understanding**: Review [slipbox/pipeline_design/README.md](slipbox/pipeline_design/README.md) for core architectural concepts and design evolution.
+
+The slipbox serves as both a reference manual and a living knowledge base that evolves with the project, ensuring comprehensive documentation coverage for all aspects of the pipeline framework.
 
 ---
 
