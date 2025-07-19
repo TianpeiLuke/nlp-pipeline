@@ -108,13 +108,46 @@ class TypeAwareConfigSerializer:
                     self.MODEL_TYPE_FIELD: cls_name,
                     self.MODEL_MODULE_FIELD: module_name,
                 }
-                # Add fields with serialized values
-                for k, v in val.model_dump().items():
-                    result[k] = self.serialize(v)
+                
+                # Use a simple circular reference detection for serialization
+                # Get object id to detect circular references during serialization
+                obj_id = id(val)
+                
+                # Check if this object is already being serialized (circular reference)
+                if hasattr(self, '_serializing_ids') and obj_id in self._serializing_ids:
+                    self.logger.warning(f"Circular reference detected during serialization of {cls_name}")
+                    # Return a minimal representation with type info but no fields
+                    return {
+                        self.MODEL_TYPE_FIELD: cls_name,
+                        self.MODEL_MODULE_FIELD: module_name,
+                        "_circular_ref": True,
+                        "_ref_message": "Circular reference detected - fields omitted"
+                    }
+                
+                # Mark this object as being serialized
+                if not hasattr(self, '_serializing_ids'):
+                    self._serializing_ids = set()
+                self._serializing_ids.add(obj_id)
+                
+                try:
+                    # Add fields with serialized values
+                    for k, v in val.model_dump().items():
+                        result[k] = self.serialize(v)
+                finally:
+                    # Remove this object from the serializing set when done
+                    if hasattr(self, '_serializing_ids'):
+                        self._serializing_ids.remove(obj_id)
+                        
                 return result
             except Exception as e:
                 self.logger.warning(f"Error serializing {val.__class__.__name__}: {str(e)}")
-                return f"<Serialization error: {str(e)}>"
+                # Return a dict with error info but preserve type information
+                return {
+                    self.MODEL_TYPE_FIELD: cls_name,
+                    self.MODEL_MODULE_FIELD: module_name,
+                    "_error": str(e),
+                    "_serialization_error": True
+                }
                 
         # Handle dict
         if isinstance(val, dict):
@@ -193,7 +226,14 @@ class TypeAwareConfigSerializer:
             return field_data
             
         # Use the tracker to check for circular references
-        context = {'expected_type': expected_type.__name__ if expected_type else None}
+        context = {}
+        if expected_type:
+            try:
+                context['expected_type'] = expected_type.__name__
+            except (AttributeError, TypeError):
+                # Handle complex typing objects (Dict, List, etc.) that don't have __name__
+                context['expected_type'] = str(expected_type)
+        
         is_circular, error = self.ref_tracker.enter_object(field_data, field_name, context)
         
         if is_circular:
