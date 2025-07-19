@@ -34,57 +34,82 @@ An intelligent pipeline generation system that automatically creates complete Sa
 
 ---
 
-## Core Design Principles
+## Core Architectural Principles
 
-Our architecture is built on 8 fundamental principles that deliver measurable business value by reducing complexity and eliminating common SageMaker pipeline pitfalls:
+These fundamental architectural principles form the foundation of our system design. They represent our highest-level design philosophies that influence all other principles and patterns.
 
-### 1. **Declarative Over Imperative** → *"Specify what you want, not how to build it"*
-- **Business Benefit**: Reduce pipeline development time from weeks to minutes
-- **Practical Impact**: Define pipeline structure in 10 lines instead of 200+ configuration parameters
-- **Example**: `Pipeline("fraud-detection").auto_train_xgboost("s3://data/")` vs. manual step creation
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#1-declarative-over-imperative)
+### 1. Single Source of Truth
 
-### 2. **Composition Over Inheritance** → *"Flexible, testable components that work together"*
-- **Business Benefit**: Add new capabilities without breaking existing pipelines
-- **Practical Impact**: 60% reduction in step builder complexity through modular design
-- **Example**: Inject different validators, executors, and configs without code changes
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#2-composition-over-inheritance)
+Centralize validation logic and configuration definitions in their respective component's configuration class to avoid redundancy and conflicts:
 
-### 3. **Fail Fast and Explicit** → *"Clear error messages save hours of debugging"*
-- **Business Benefit**: Eliminate the 3-6 hour debugging cycles common in SageMaker
-- **Practical Impact**: Actionable error messages with specific resolution suggestions
-- **Example**: "Source step 'data_loader' has no outputs. Available steps with outputs: [...]"
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#3-fail-fast-and-explicit)
+- **Centralized Configuration**: Each component owns its configuration definition and validation
+- **Avoid Redundancy**: Don't duplicate validation or configuration logic across components
+- **Clear Ownership**: Each component has clear ownership of its domain-specific knowledge
+- **Consistent Access**: Provide consistent access patterns to configuration and validation
 
-### 4. **Single Responsibility** → *"Each component does one thing exceptionally well"*
-- **Business Benefit**: Easier maintenance and faster feature development
-- **Practical Impact**: Components can be tested, updated, and reused independently
-- **Example**: Separate validation, estimation, and step creation responsibilities
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#4-single-responsibility-principle)
+This principle is exemplified in several key architectural components:
 
-### 5. **Open/Closed Principle** → *"Extend without breaking existing pipelines"*
-- **Business Benefit**: Add new step types without modifying existing code
-- **Practical Impact**: Registry-based architecture supports unlimited extensibility
-- **Example**: Register new step builders without touching core pipeline templates
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#5-openclosed-principle)
+- **Pipeline Registry**: A single registry for step names ensures uniqueness and consistency across the pipeline (see [slipbox/pipeline_design/specification_registry.md](slipbox/pipeline_design/specification_registry.md))
+- **Standardization Rules**: Centralized rules for naming, path formatting, and environment variables (see [slipbox/developer_guide/standardization_rules.md](slipbox/developer_guide/standardization_rules.md))
+- **Alignment Rules**: A single source for validating alignment between specifications and implementations (see [slipbox/developer_guide/alignment_rules.md](slipbox/developer_guide/alignment_rules.md))
+- **Configuration Classes**: Each configuration class is the definitive source for its validation rules (see [slipbox/pipeline_design/config.md](slipbox/pipeline_design/config.md))
 
-### 6. **Dependency Inversion** → *"Swap implementations without code changes"*
-- **Business Benefit**: Easy testing, cloud provider flexibility, and environment management
-- **Practical Impact**: Mock services for testing, multi-cloud support, environment-specific configs
-- **Example**: Same pipeline code works with S3, Azure Blob, or local storage
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#6-dependency-inversion-principle)
+When you encounter configuration or validation logic, it should be defined exactly once, in the most appropriate component.
 
-### 7. **Convention Over Configuration** → *"Smart defaults with expert-level control"*
-- **Business Benefit**: Reduce cognitive load while maintaining flexibility
-- **Practical Impact**: 90% reduction in required configuration parameters
-- **Example**: Automatic instance type selection, standard metric definitions, naming conventions
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#7-convention-over-configuration)
+### 2. Declarative Over Imperative
 
-### 8. **Explicit Dependencies** → *"No hidden surprises or global state issues"*
-- **Business Benefit**: Predictable behavior and easier debugging
-- **Practical Impact**: All dependencies visible in interfaces, no hidden global state
-- **Example**: Constructor injection makes all dependencies clear and testable
-- 📖 [Detailed Guide](slipbox/developer_guide/design_principles.md#8-explicit-dependencies)
+Favor declarative specifications that describe *what* the pipeline should do rather than *how* to do it:
+
+- **Define Intent**: Focus on defining what should happen, not implementation details
+- **Configuration Over Code**: Use configuration to drive behavior rather than code
+- **Separation of Definition and Execution**: Keep the definition of what should happen separate from how it happens
+- **Self-Documenting**: Declarative definitions serve as documentation
+
+This principle is the foundation of our specification-driven architecture:
+
+- **Step Specifications**: Define dependencies and outputs declaratively, not how they're connected (see [slipbox/pipeline_design/step_specification.md](slipbox/pipeline_design/step_specification.md))
+- **Script Contracts**: Declare expected paths and environment variables without implementation details (see [slipbox/developer_guide/script_contract.md](slipbox/developer_guide/script_contract.md))
+- **Configuration-Driven Pipeline Assembly**: Assemble pipelines through configuration rather than hardcoded steps (see [slipbox/pipeline_design/config_driven_design.md](slipbox/pipeline_design/config_driven_design.md))
+- **DAG Definition**: Define pipeline structure declaratively without implementation details (see [slipbox/pipeline_dag/README.md](slipbox/pipeline_dag/README.md))
+
+The step specification system exemplifies this by defining dependencies and outputs declaratively rather than through imperative code connections.
+
+### 3. Type-Safe Specifications
+
+Use strongly-typed enums and data structures (like `NodeType`, `DependencyType`) to prevent configuration errors at definition time:
+
+- **Strong Typing**: Use enums and typed classes instead of strings and dictionaries
+- **Compile-Time Checks**: Catch errors at definition time rather than runtime
+- **IDE Support**: Enable IDE auto-completion and type checking
+- **Self-Documenting**: Type definitions serve as documentation
+
+We apply this principle throughout our architecture:
+
+- **Dependency Resolution**: Strong typing for dependency types, ensuring compatibility (see [slipbox/pipeline_design/dependency_resolution_explained.md](slipbox/pipeline_design/dependency_resolution_explained.md))
+- **Config Field Categorization**: Type-safe serialization and deserialization for configuration fields (see [slipbox/pipeline_design/config_field_categorization_refactored.md](slipbox/pipeline_design/config_field_categorization_refactored.md))
+- **Pipeline Structure**: Typed node definitions (SOURCE, INTERNAL, SINK) that enforce structural rules (see [slipbox/pipeline_dag/README.md](slipbox/pipeline_dag/README.md))
+- **Output Specifications**: Typed output specifications with explicit property paths (see [slipbox/pipeline_design/step_specification.md](slipbox/pipeline_design/step_specification.md))
+
+By using strongly-typed specifications, we catch errors at definition time rather than runtime, improving robustness and developer experience.
+
+### 4. Explicit Over Implicit
+
+Favor explicitly defining connections and passing parameters between steps over implicit matching:
+
+- **Named Connections**: Explicitly name connections between steps
+- **Explicit Parameters**: Pass parameters explicitly rather than relying on naming conventions
+- **Avoid Magic**: Don't rely on "magic" behavior or hidden conventions
+- **Self-Documenting**: Explicit connections serve as documentation
+
+This principle is evident throughout our system:
+
+- **Step Specifications**: Explicit dependencies and outputs with clear logical names (see [slipbox/pipeline_design/step_specification.md](slipbox/pipeline_design/step_specification.md))
+- **Script Contracts**: Explicitly defined input/output paths and environment variables (see [slipbox/developer_guide/script_contract.md](slipbox/developer_guide/script_contract.md))
+- **Property References**: Structured property path references that explicitly define data locations (see [slipbox/pipeline_design/enhanced_property_reference.md](slipbox/pipeline_design/enhanced_property_reference.md))
+- **Semantic Keywords**: Explicit semantic matching criteria rather than implicit naming conventions (see [slipbox/pipeline_design/dependency_resolution_explained.md](slipbox/pipeline_design/dependency_resolution_explained.md))
+- **Builder Mappings**: Explicit mapping from step types to builder classes (see [slipbox/developer_guide/step_builder.md](slipbox/developer_guide/step_builder.md))
+
+When connections between components are explicit, the system becomes more maintainable, debuggable, and less prone to subtle errors. Our property reference system is a perfect example, where we explicitly define paths to properties rather than relying on implicit naming or position.
 
 **📚 Complete Design Philosophy**: [slipbox/developer_guide/design_principles.md](slipbox/developer_guide/design_principles.md)
 
