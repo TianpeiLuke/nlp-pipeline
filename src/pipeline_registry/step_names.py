@@ -7,7 +7,7 @@ from typing import Dict, List
 
 # Core step name registry - canonical names used throughout the system
 STEP_NAMES = {
-    # Base Steps
+    # Base Steps (keep as-is)
     "Base": {
         "config_class": "BasePipelineConfig",
         "builder_step_name": "BaseStep",
@@ -15,7 +15,7 @@ STEP_NAMES = {
         "description": "Base pipeline configuration"
     },
     
-    # Processing Steps
+    # Processing Steps (keep Processing as-is)
     "Processing": {
         "config_class": "ProcessingStepConfigBase", 
         "builder_step_name": "ProcessingStep",
@@ -30,7 +30,7 @@ STEP_NAMES = {
     },
     "RiskTableMapping": {
         "config_class": "RiskTableMappingConfig",
-        "builder_step_name": "RiskTableMappingStepBuilder",
+        "builder_step_name": "RiskTableMappingStep",  # FIXED: was RiskTableMappingStepBuilder
         "spec_type": "RiskTableMapping",
         "description": "Risk table mapping step for categorical features"
     },
@@ -64,7 +64,7 @@ STEP_NAMES = {
     },
     "DummyTraining": {
         "config_class": "DummyTrainingConfig",
-        "builder_step_name": "DummyTrainingStepBuilder",
+        "builder_step_name": "DummyTrainingStep",  # FIXED: was DummyTrainingStepBuilder
         "spec_type": "DummyTraining",
         "description": "Training step that uses a pretrained model"
     },
@@ -72,13 +72,13 @@ STEP_NAMES = {
     # Model Creation Steps
     "PytorchModel": {  # Canonical: PytorchModel (not PyTorchModel)
         "config_class": "PytorchModelCreationConfig",
-        "builder_step_name": "CreatePytorchModelStep",
+        "builder_step_name": "PytorchModelStep",  # FIXED: was CreatePytorchModelStep
         "spec_type": "PytorchModel",
         "description": "PyTorch model creation step"
     },
     "XGBoostModel": {
         "config_class": "XGBoostModelCreationConfig",
-        "builder_step_name": "CreateXGBoostModelStep",
+        "builder_step_name": "XGBoostModelStep",  # FIXED: was CreateXGBoostModelStep
         "spec_type": "XGBoostModel",
         "description": "XGBoost model creation step"
     },
@@ -86,13 +86,13 @@ STEP_NAMES = {
     # Evaluation Steps
     "XGBoostModelEval": {
         "config_class": "XGBoostModelEvalConfig",
-        "builder_step_name": "XGBoostModelEvaluationStep",
+        "builder_step_name": "XGBoostModelEvalStep",  # FIXED: was XGBoostModelEvaluationStep
         "spec_type": "XGBoostModelEval",
         "description": "XGBoost model evaluation step"
     },
     "PytorchModelEval": {
         "config_class": "PytorchModelEvalConfig", 
-        "builder_step_name": "PytorchModelEvaluationStep",
+        "builder_step_name": "PytorchModelEvalStep",  # FIXED: was PytorchModelEvaluationStep
         "spec_type": "PytorchModelEval",
         "description": "PyTorch model evaluation step"
     },
@@ -100,7 +100,7 @@ STEP_NAMES = {
     # Deployment Steps
     "Package": {
         "config_class": "PackageStepConfig",
-        "builder_step_name": "PackagingStep",
+        "builder_step_name": "PackageStep",  # FIXED: was PackagingStep
         "spec_type": "Package",
         "description": "Model packaging step"
     },
@@ -112,7 +112,7 @@ STEP_NAMES = {
     },
     "Payload": {
         "config_class": "PayloadConfig",
-        "builder_step_name": "PayloadTestStep",
+        "builder_step_name": "PayloadStep",  # FIXED: was PayloadTestStep
         "spec_type": "Payload",
         "description": "Payload testing step"
     },

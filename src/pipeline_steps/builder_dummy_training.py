@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, Optional, Any, List
 
 from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
-from sagemaker.workflow.steps import ProcessingStep
+from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.functions import Join
 from sagemaker.s3 import S3Uploader
 from botocore.exceptions import ClientError
@@ -424,8 +424,11 @@ class DummyTrainingStepBuilder(StepBuilderBase):
         Create the processing step.
         
         Args:
-            **kwargs: Additional keyword arguments for step creation.
-                     Should include 'dependencies' list if step has dependencies.
+            **kwargs: Additional keyword arguments for step creation including:
+                     - inputs: Dictionary of input sources keyed by logical name
+                     - outputs: Dictionary of output destinations keyed by logical name
+                     - dependencies: List of steps this step depends on
+                     - enable_caching: Whether to enable caching for this step
                      
         Returns:
             ProcessingStep: The configured processing step
@@ -435,52 +438,54 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             Exception: If step creation fails
         """
         try:
-            # Extract inputs from dependencies using the resolver
+            # Extract parameters
+            inputs_raw = kwargs.get('inputs', {})
+            outputs = kwargs.get('outputs', {})
             dependencies = kwargs.get('dependencies', [])
+            enable_caching = kwargs.get('enable_caching', True)
+            
+            # Handle inputs
             inputs = {}
+            
+            # If dependencies are provided, extract inputs from them
             if dependencies:
                 try:
                     extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
                     inputs.update(extracted_inputs)
                 except Exception as e:
                     self.log_warning("Failed to extract inputs from dependencies: %s", e)
-            
-            # Add any explicitly provided inputs (overriding extracted ones)
-            inputs_raw = kwargs.get('inputs', {})
+                    
+            # Add explicitly provided inputs (overriding any extracted ones)
             inputs.update(inputs_raw)
             
-            # Create processor
+            # Create processor and get inputs/outputs
             processor = self._get_processor()
-            
-            # Get processor inputs and outputs
             processing_inputs = self._get_inputs(inputs)
-            processing_outputs = self._get_outputs(kwargs.get('outputs', {}))
+            processing_outputs = self._get_outputs(outputs)
             
-            # Get step name using standardized automatic step type detection
+            # Get step name using standardized method with auto-detection
             step_name = self._get_step_name()
             
             # Get job arguments from contract
             script_args = self._get_job_arguments()
             
-            # Get cache configuration
-            cache_config = self._get_cache_config(kwargs.get('enable_caching', True))
-            
-            # Create the step
-            step = processor.run(
-                code=self.config.get_script_path(),
+            # Create the step using direct ProcessingStep instantiation
+            step = ProcessingStep(
+                name=step_name,
+                processor=processor,
                 inputs=processing_inputs,
                 outputs=processing_outputs,
-                arguments=script_args,
-                job_name=self._generate_job_name(),  # No parameter needed now
-                wait=False,
-                cache_config=cache_config
+                code=self.config.get_script_path(),
+                job_arguments=script_args,
+                depends_on=dependencies,
+                cache_config=self._get_cache_config(enable_caching)
             )
             
             # Store specification in step for future reference
             setattr(step, '_spec', self.spec)
             
             return step
-        
+            
         except Exception as e:
             self.log_error(f"Error creating DummyTraining step: {e}")
             import traceback

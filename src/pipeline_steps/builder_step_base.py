@@ -231,72 +231,62 @@ class StepBuilderBase(ABC):
         sanitized = '-'.join(filter(None, sanitized.split('-')))
         return sanitized[:max_length].rstrip('-')
 
-    def _get_step_name(self) -> str:
+    def _get_step_name(self, include_job_type: bool = True) -> str:
         """
-        Get standard step name, automatically determining the step type from class name.
+        Get standard step name from builder class name, optionally including job_type.
+        
+        Builder class names follow the pattern: RegistryKey + "StepBuilder"
+        (e.g., XGBoostTrainingStepBuilder)
+        
+        This method extracts the registry key by removing the "StepBuilder" suffix
+        and optionally appends the job_type from the config.
+        
+        Args:
+            include_job_type: Whether to include job_type suffix if available in config
         
         Returns:
-            Standard step name based on the builder class
+            The canonical step name, optionally with job_type suffix
         """
         class_name = self.__class__.__name__
-        determined_step_type = None
         
-        # Try to find a matching entry in the STEP_NAMES registry
-        for canonical_name, info in self.STEP_NAMES.items():
-            if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
-                determined_step_type = canonical_name
-                break
+        # If class name follows the standard pattern, extract the registry key
+        if class_name.endswith("StepBuilder"):
+            canonical_name = class_name[:-11]  # Remove "StepBuilder" suffix
+        else:
+            # Fallback for non-standard class names
+            self.log_warning(f"Class name '{class_name}' doesn't follow the convention. Using as is.")
+            canonical_name = class_name
         
-        # If no match found, fall back to class name with "StepBuilder" removed
-        if determined_step_type is None:
-            if class_name.endswith("StepBuilder"):
-                determined_step_type = class_name[:-11]  # Remove "StepBuilder"
-            else:
-                determined_step_type = class_name
+        # Validate that the extracted name exists in the registry
+        if canonical_name not in self.STEP_NAMES:
+            self.log_warning(f"Unknown step type: {canonical_name}. Using as is.")
         
-        # Get the step name from the registry or use default
-        if determined_step_type not in self.STEP_NAMES:
-            self.log_warning(f"Unknown step type: {determined_step_type}. Using default name.")
-            return f"Default{determined_step_type}Step"
+        # Add job_type suffix if requested and available
+        if include_job_type and hasattr(self.config, 'job_type') and self.config.job_type:
+            return f"{canonical_name}-{self.config.job_type.capitalize()}"
         
-        return self.STEP_NAMES[determined_step_type]
+        return canonical_name
         
     def _generate_job_name(self, step_type: str = None) -> str:
         """
         Generate a standardized job name for SageMaker processing/training jobs.
         
         This method automatically determines the step type from the class name
-        if not provided, using the centralized step name registry. It also adds
-        a timestamp to ensure uniqueness across executions.
+        if not provided, using the _get_step_name method. It adds a timestamp
+        to ensure uniqueness across executions.
         
         Args:
-            step_type: Optional type of step (e.g., 'DummyTraining', 'XGBoostTraining').
-                      If not provided, it will be determined automatically.
+            step_type: Optional type of step. If not provided, it will be 
+                      determined automatically using _get_step_name.
             
         Returns:
             Sanitized job name suitable for SageMaker
         """
         import time
         
-        # If step_type is not provided, determine it from the class name
+        # If step_type is not provided, use our simplified _get_step_name method
         if step_type is None:
-            class_name = self.__class__.__name__
-            determined_step_type = None
-            
-            # Try to find a matching entry in the STEP_NAMES registry
-            for canonical_name, info in self.STEP_NAMES.items():
-                if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
-                    determined_step_type = canonical_name
-                    break
-            
-            # If no match found, fall back to class name with "StepBuilder" removed
-            if determined_step_type is None:
-                if class_name.endswith("StepBuilder"):
-                    determined_step_type = class_name[:-11]  # Remove "StepBuilder"
-                else:
-                    determined_step_type = class_name
-                    
-            step_type = determined_step_type
+            step_type = self._get_step_name()
         
         # Generate a timestamp for uniqueness (unix timestamp in seconds)
         timestamp = int(time.time())
