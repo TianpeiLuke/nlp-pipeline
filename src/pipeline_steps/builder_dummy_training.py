@@ -14,7 +14,8 @@ import shutil
 from pathlib import Path
 from typing import Dict, Optional, Any, List
 
-from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
+from sagemaker.processing import ProcessingInput, ProcessingOutput
+from sagemaker.sklearn import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep, Step
 from sagemaker.workflow.functions import Join
 from sagemaker.s3 import S3Uploader
@@ -281,21 +282,33 @@ class DummyTrainingStepBuilder(StepBuilderBase):
         Get the processor for the step.
         
         Returns:
-            ScriptProcessor: Configured processor for running the step
+            SKLearnProcessor: Configured processor for running the step
         """
-        return ScriptProcessor(
-            image_uri="137112412989.dkr.ecr.us-west-2.amazonaws.com/sagemaker-scikit-learn:0.23-1-cpu-py3",
-            command=["python3"],
+        return SKLearnProcessor(
+            framework_version=self.config.processing_framework_version,
+            role=self.role,
             instance_type=self.config.get_instance_type(),
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            max_runtime_in_seconds=3600,  # 1 hour should be plenty for this simple operation
-            role=self.role,
+            base_job_name=self._sanitize_name_for_sagemaker(self._get_step_name()),
             sagemaker_session=self.session,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name()}"
-            )
+            env=self._get_environment_variables()
         )
+        
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Create environment variables for the processing job.
+        
+        Returns:
+            Dict[str, str]: Environment variables for the processing job
+        """
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
+        
+        # Add any specific environment variables needed for DummyTraining
+        # For example, we could add model paths or other configuration settings
+        
+        return env_vars
     
     def _get_inputs(self, inputs: Dict[str, Any]) -> List[ProcessingInput]:
         """
