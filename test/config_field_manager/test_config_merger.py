@@ -26,9 +26,11 @@ from src.config_field_manager.constants import CategoryType, MergeDirection, SPE
 class TestConfig:
     """Base test config class for testing merger."""
     def __init__(self, **kwargs):
+        # Set default step_name_override
+        self.step_name_override = self.__class__.__name__
+        # Then apply kwargs which may override it
         for key, value in kwargs.items():
             setattr(self, key, value)
-        self.step_name_override = self.__class__.__name__
 
 
 class SharedFieldsConfig(TestConfig):
@@ -250,6 +252,51 @@ class TestConfigMerger(unittest.TestCase):
         with self.assertLogs(level='WARNING'):
             merger._check_special_fields_placement(incorrect_structure)
     
+    def test_config_types_format(self):
+        """Test that config_types uses step names as keys instead of class names."""
+        # Create test configs including ones with job_type
+        test_config1 = TestConfig(field1="value1", step_name_override="CustomStepName")
+        test_config2 = TestConfig(field2="value2", job_type="training")
+        
+        # Directly test the _generate_step_name method
+        merger = ConfigMerger([test_config1, test_config2])
+        
+        # Verify step name generation
+        self.assertEqual("CustomStepName", merger._generate_step_name(test_config1))
+        self.assertEqual("Test_training", merger._generate_step_name(test_config2))
+        
+        # Create a minimal test file
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            # Set up a minimal merged structure
+            merger.merge = mock.MagicMock(return_value={
+                'shared': {'shared_field': 'value'},
+                'specific': {'TestConfig': {'specific_field': 'value'}}
+            })
+            
+            # Save the file
+            merger.save(tmp.name)
+            
+            # Load and check format
+            with open(tmp.name, 'r') as f:
+                saved_data = json.load(f)
+            
+            # Verify config_types format
+            self.assertIn("metadata", saved_data)
+            self.assertIn("config_types", saved_data["metadata"])
+            
+            config_types = saved_data["metadata"]["config_types"]
+            
+            # Keys should be step names
+            self.assertIn("CustomStepName", config_types)  # Using step_name_override
+            self.assertIn("Test_training", config_types)  # Using job_type
+            
+            # Values should be class names
+            self.assertEqual("TestConfig", config_types["CustomStepName"])
+            self.assertEqual("TestConfig", config_types["Test_training"])
+            
+            # Remove the temp file
+            os.unlink(tmp.name)
+
     def test_save_creates_correct_output_structure(self):
         """Test that save creates correct output structure."""
         # Create a direct test that doesn't rely on the complex behavior of ConfigMerger

@@ -13,8 +13,8 @@ import pytest
 from unittest.mock import patch, MagicMock, Mock, PropertyMock
 
 # Import utilities for config serialization
-from src.pipeline_steps.utils import merge_and_save_configs, serialize_config, CategoryType
-from src.config_field_manager.constants import SPECIAL_FIELDS_TO_KEEP_SPECIFIC
+from src.pipeline_steps.utils import merge_and_save_configs, serialize_config
+from src.config_field_manager.constants import SPECIAL_FIELDS_TO_KEEP_SPECIFIC, CategoryType
 from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
 from src.pipeline_steps.config_dummy_training import DummyTrainingConfig

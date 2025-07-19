@@ -11,12 +11,13 @@ import logging
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, List, Set, Union
+from typing import Any, Dict, Optional, Type, List, Set, Union, Tuple
 
 from pydantic import BaseModel
 
 from src.config_field_manager.config_class_store import build_complete_config_classes
 from src.config_field_manager.constants import SerializationMode, TYPE_MAPPING
+from src.config_field_manager.circular_reference_tracker import CircularReferenceTracker
 
 
 class TypeAwareConfigSerializer:
@@ -44,10 +45,8 @@ class TypeAwareConfigSerializer:
         self.config_classes = config_classes or build_complete_config_classes()
         self.mode = mode
         self.logger = logging.getLogger(__name__)
-        # For recursion detection during deserialization
-        self._processing_stack = set()
-        self._recursion_depth = 0
-        self._max_recursion_depth = 100  # Reasonable limit to prevent stack overflow
+        # Use the CircularReferenceTracker for advanced circular reference detection
+        self.ref_tracker = CircularReferenceTracker(max_depth=100)
         
     def serialize(self, val: Any) -> Any:
         """
@@ -189,103 +188,85 @@ class TypeAwareConfigSerializer:
         Returns:
             Deserialized value
         """
-        # Recursion detection
-        self._recursion_depth += 1
-        if self._recursion_depth > self._max_recursion_depth:
-            self.logger.error(f"Maximum recursion depth exceeded while deserializing {field_name}")
-            self._recursion_depth -= 1
-            return None  # Return None instead of potentially recursive structure
-
-        # Generate a more reliable object identifier
-        object_id = None
-        try:
-            # For dictionaries with model type info, create a composite ID
-            if isinstance(field_data, dict) and self.MODEL_TYPE_FIELD in field_data:
-                type_name = field_data.get(self.MODEL_TYPE_FIELD)
-                id_parts = [type_name]
-                # Add key identifiers if available
-                for key in ['name', 'pipeline_name', 'id']:
-                    if key in field_data and isinstance(field_data[key], (str, int, float, bool)):
-                        id_parts.append(f"{key}:{field_data[key]}")
-                object_id = hash(tuple(id_parts))
-            else:
-                # For other objects use a simpler approach
-                object_id = id(field_data)
-            
-            # Check for circular references
-            if object_id in self._processing_stack:
-                self.logger.warning(f"Circular reference detected during deserialization of {field_name}")
-                self._recursion_depth -= 1
-                return None  # Return None for circular references
-            self._processing_stack.add(object_id)
-        except (TypeError, ValueError):
-            # If we can't create a reliable ID, just continue without recursion detection
-            pass
-            
-        # Handle None, primitives
-        if field_data is None or isinstance(field_data, (str, int, float, bool)):
-            self._recursion_depth -= 1
-            if object_id in self._processing_stack:
-                self._processing_stack.remove(object_id)
+        # Skip non-dict objects (can't have circular refs)
+        if not isinstance(field_data, dict):
             return field_data
             
-        # Handle type-info dict - from preserved types
-        if isinstance(field_data, dict) and self.TYPE_INFO_FIELD in field_data:
-            type_info = field_data[self.TYPE_INFO_FIELD]
-            value = field_data.get("value")
+        # Use the tracker to check for circular references
+        context = {'expected_type': expected_type.__name__ if expected_type else None}
+        is_circular, error = self.ref_tracker.enter_object(field_data, field_name, context)
+        
+        if is_circular:
+            # Log the detailed error message
+            self.logger.warning(error)
+            # Return None instead of the circular reference
+            return None
             
-            # Handle each preserved type
-            if type_info == TYPE_MAPPING["datetime"]:
-                return datetime.fromisoformat(value)
+        try:
+            # Handle None, primitives
+            if field_data is None or isinstance(field_data, (str, int, float, bool)):
+                return field_data
                 
-            elif type_info == TYPE_MAPPING["Enum"]:
-                # This requires dynamic import - error prone, consider alternatives
-                enum_class_path = field_data.get("enum_class")
-                if not enum_class_path:
-                    return field_data  # Can't deserialize without class info
+            # Handle type-info dict - from preserved types
+            if isinstance(field_data, dict) and self.TYPE_INFO_FIELD in field_data:
+                type_info = field_data[self.TYPE_INFO_FIELD]
+                value = field_data.get("value")
+                
+                # Handle each preserved type
+                if type_info == TYPE_MAPPING["datetime"]:
+                    return datetime.fromisoformat(value)
                     
-                try:
-                    module_name, class_name = enum_class_path.rsplit(".", 1)
-                    module = __import__(module_name, fromlist=[class_name])
-                    enum_class = getattr(module, class_name)
-                    return enum_class(field_data.get("value"))
-                except (ImportError, AttributeError, ValueError) as e:
-                    self.logger.warning(f"Failed to deserialize enum: {str(e)}")
-                    return field_data.get("value")  # Fall back to raw value
+                elif type_info == TYPE_MAPPING["Enum"]:
+                    # This requires dynamic import - error prone, consider alternatives
+                    enum_class_path = field_data.get("enum_class")
+                    if not enum_class_path:
+                        return field_data  # Can't deserialize without class info
+                        
+                    try:
+                        module_name, class_name = enum_class_path.rsplit(".", 1)
+                        module = __import__(module_name, fromlist=[class_name])
+                        enum_class = getattr(module, class_name)
+                        return enum_class(field_data.get("value"))
+                    except (ImportError, AttributeError, ValueError) as e:
+                        self.logger.warning(f"Failed to deserialize enum: {str(e)}")
+                        return field_data.get("value")  # Fall back to raw value
+                        
+                elif type_info == TYPE_MAPPING["Path"]:
+                    return Path(value)
                     
-            elif type_info == TYPE_MAPPING["Path"]:
-                return Path(value)
-                
-            elif type_info == TYPE_MAPPING["dict"]:
-                return {k: self.deserialize(v) for k, v in value.items()}
-                
-            elif type_info in [TYPE_MAPPING["list"], TYPE_MAPPING["tuple"], 
-                               TYPE_MAPPING["set"], TYPE_MAPPING["frozenset"]]:
-                deserialized_list = [self.deserialize(v) for v in value]
-                
-                # Convert to appropriate container type
-                if type_info == TYPE_MAPPING["tuple"]:
-                    return tuple(deserialized_list)
-                elif type_info == TYPE_MAPPING["set"]:
-                    return set(deserialized_list)
-                elif type_info == TYPE_MAPPING["frozenset"]:
-                    return frozenset(deserialized_list)
-                return deserialized_list
-                
-        # Handle model data - fields with model type information
-        if isinstance(field_data, dict) and self.MODEL_TYPE_FIELD in field_data:
-            return self._deserialize_model(field_data, expected_type)
+                elif type_info == TYPE_MAPPING["dict"]:
+                    return {k: self.deserialize(v) for k, v in value.items()}
+                    
+                elif type_info in [TYPE_MAPPING["list"], TYPE_MAPPING["tuple"], 
+                                 TYPE_MAPPING["set"], TYPE_MAPPING["frozenset"]]:
+                    deserialized_list = [self.deserialize(v) for v in value]
+                    
+                    # Convert to appropriate container type
+                    if type_info == TYPE_MAPPING["tuple"]:
+                        return tuple(deserialized_list)
+                    elif type_info == TYPE_MAPPING["set"]:
+                        return set(deserialized_list)
+                    elif type_info == TYPE_MAPPING["frozenset"]:
+                        return frozenset(deserialized_list)
+                    return deserialized_list
             
-        # Handle dict
-        if isinstance(field_data, dict):
-            return {k: self.deserialize(v) for k, v in field_data.items()}
-            
-        # Handle list
-        if isinstance(field_data, list):
-            return [self.deserialize(v) for v in field_data]
-            
-        # Return as is for unhandled types
-        return field_data
+            # Handle model data - fields with model type information
+            if isinstance(field_data, dict) and self.MODEL_TYPE_FIELD in field_data:
+                return self._deserialize_model(field_data, expected_type)
+                
+            # Handle dict
+            if isinstance(field_data, dict):
+                return {k: self.deserialize(v) for k, v in field_data.items()}
+                
+            # Handle list
+            if isinstance(field_data, list):
+                return [self.deserialize(v) for v in field_data]
+                
+            # Return as is for unhandled types
+            return field_data
+        finally:
+            # Always exit the object when done, even if an exception occurred
+            self.ref_tracker.exit_object()
         
     def _deserialize_model(self, field_data: Dict[str, Any], expected_type: Optional[Type] = None) -> Any:
         """
@@ -298,34 +279,8 @@ class TypeAwareConfigSerializer:
         Returns:
             Model instance or dict if instantiation fails
         """
-        # Increment recursion depth and check for maximum recursion
-        self._recursion_depth += 1
-        if self._recursion_depth > self._max_recursion_depth:
-            self.logger.error(f"Maximum recursion depth exceeded while deserializing model")
-            self._recursion_depth -= 1
-            return field_data
-            
-        # Generate a more reliable object identifier for models
-        object_id = None
-        try:
-            # For models, use type and key field values for identification
-            type_name = field_data.get(self.MODEL_TYPE_FIELD)
-            id_parts = [type_name]
-            # Add key identifiers if available
-            for key in ['name', 'pipeline_name', 'id']:
-                if key in field_data and isinstance(field_data[key], (str, int, float, bool)):
-                    id_parts.append(f"{key}:{field_data[key]}")
-            object_id = hash(tuple(id_parts))
-            
-            # Check for circular references
-            if object_id in self._processing_stack:
-                self.logger.warning(f"Circular reference detected during model deserialization")
-                self._recursion_depth -= 1
-                return None  # Return None instead of potentially recursive structure
-            self._processing_stack.add(object_id)
-        except (TypeError, ValueError):
-            # If we can't create a reliable ID, just continue without recursion detection
-            pass
+        # Note: Circular reference detection is now handled by CircularReferenceTracker
+        # in the parent deserialize method, so we don't need to check for it here
             
         # Check for type metadata - implementing Explicit Over Implicit
         type_name = field_data.get(self.MODEL_TYPE_FIELD)
@@ -380,17 +335,9 @@ class TypeAwareConfigSerializer:
         
         try:
             result = actual_class(**filtered_data)
-            # Clean up recursion tracking
-            self._recursion_depth -= 1
-            if 'object_id' in locals() and object_id in self._processing_stack:
-                self._processing_stack.remove(object_id)
             return result
         except Exception as e:
             self.logger.error(f"Failed to instantiate {actual_class.__name__}: {str(e)}")
-            # Clean up recursion tracking
-            self._recursion_depth -= 1
-            if 'object_id' in locals() and object_id in self._processing_stack:
-                self._processing_stack.remove(object_id)
             # Return as plain dict if instantiation fails
             return filtered_data
             

@@ -26,6 +26,61 @@ MODEL_TYPE_FIELD = "__model_type__"    # Stores the class name
 MODEL_MODULE_FIELD = "__model_module__" # Stores the module name
 ```
 
+### 2. Circular Reference Handling
+
+#### Implemented CircularReferenceTracker Integration
+
+The serializer now uses the dedicated CircularReferenceTracker for advanced circular reference detection and diagnostics:
+
+```python
+def __init__(self, config_classes=None, mode=SerializationMode.PRESERVE_TYPES):
+    """Initialize the serializer with a CircularReferenceTracker."""
+    self.config_classes = config_classes or build_complete_config_classes()
+    self.mode = mode
+    self.logger = logging.getLogger(__name__)
+    # Use the CircularReferenceTracker for advanced circular reference detection
+    self.ref_tracker = CircularReferenceTracker(max_depth=100)
+```
+
+The deserialization process now uses the tracker to detect circular references with rich path information:
+
+```python
+def deserialize(self, field_data, field_name=None, expected_type=None):
+    """Deserialize with improved circular reference tracking."""
+    # Skip non-dict objects (can't have circular refs)
+    if not isinstance(field_data, dict):
+        return field_data
+            
+    # Use the tracker to check for circular references
+    context = {'expected_type': expected_type.__name__ if expected_type else None}
+    is_circular, error = self.ref_tracker.enter_object(field_data, field_name, context)
+    
+    if is_circular:
+        # Log the detailed error message
+        self.logger.warning(error)
+        # Return None instead of the circular reference
+        return None
+            
+    try:
+        # Process the object safely within the try/finally block
+        # ... [deserialization logic]
+        return result
+    finally:
+        # Always exit the object when done, even if an exception occurred
+        self.ref_tracker.exit_object()
+```
+
+This implementation provides several advantages:
+
+1. **Complete Path Information**: The CircularReferenceTracker maintains the full path through the object graph, generating detailed diagnostic messages
+2. **Clean Resource Management**: Using try/finally ensures proper stack cleanup even when exceptions occur
+3. **Separation of Concerns**: Reference tracking is now handled by a dedicated component
+4. **Enhanced Diagnostics**: Error messages include both the original definition path and the reference path
+
+For detailed information on circular reference handling, see:
+- [Circular Reference Handling](./circular_reference_handling.md)
+- [Circular Reference Tracker](./circular_reference_tracker.md)
+
 These fields are embedded in serialized dictionaries to preserve type information:
 
 ```json
@@ -38,7 +93,7 @@ These fields are embedded in serialized dictionaries to preserve type informatio
 }
 ```
 
-### 2. Serialization Methods
+### 3. Serialization Methods
 
 The serializer handles various types with specialized processing:
 
@@ -83,7 +138,7 @@ def serialize(self, val):
     return val
 ```
 
-### 3. Deserialization Methods
+### 4. Deserialization Methods
 
 The deserializer reconstructs objects based on type metadata:
 
@@ -132,7 +187,7 @@ def deserialize(self, field_data, field_name=None, expected_type=None):
     return self._deserialize_model(field_data, actual_class)
 ```
 
-### 4. Model Deserialization
+### 5. Model Deserialization
 
 Special handling for Pydantic model deserialization:
 
@@ -169,7 +224,7 @@ def _deserialize_model(self, field_data, model_class):
         return filtered_data
 ```
 
-### 5. Class Resolution
+### 6. Class Resolution
 
 Resolves classes by name using the config registry:
 
@@ -337,6 +392,8 @@ def __init__(self, config_classes=None):
 
 ## References
 
-- [Config Field Categorization](./config_field_categorization.md)
+- [Config Field Categorization](./config_field_categorization_refactored.md)
 - [Config Registry](./config_registry.md)
+- [Circular Reference Handling](./circular_reference_handling.md)
+- [Circular Reference Tracker](./circular_reference_tracker.md)
 - [Pydantic Documentation](https://docs.pydantic.dev/latest/)

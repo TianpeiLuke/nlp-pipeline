@@ -207,32 +207,7 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
             SECURITY_GROUP_ID,
         ]
         
-    def _validate_model_path(self, model_s3_path: str) -> None:
-        """
-        Validate the provided model S3 path.
-        
-        Args:
-            model_s3_path: S3 path to the model artifact
-            
-        Raises:
-            ValueError: If the S3 path is invalid
-        """
-        if not model_s3_path:
-            raise ValueError("Model S3 path cannot be empty")
-            
-        if not model_s3_path.startswith('s3://'):
-            raise ValueError(f"Invalid S3 path: {model_s3_path}. Must start with 's3://'")
-            
-        if not model_s3_path.endswith('.tar.gz'):
-            logger.warning(f"Model path {model_s3_path} does not end with .tar.gz")
-            
-        # Check for basic S3 path structure (bucket/key)
-        parts = model_s3_path[5:].split('/', 1)
-        if len(parts) < 2 or not parts[0] or not parts[1]:
-            raise ValueError(f"Invalid S3 path structure: {model_s3_path}. Expected format: s3://bucket/key")
-            
-        logger.info(f"Validated model S3 path: {model_s3_path}")
-        
+
     def _create_step_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
         """
         Create a mapping from step types to builder classes.
@@ -427,29 +402,18 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         """
         return f"{self.base_config.pipeline_name}-dummy-training-reg"
         
-    def generate_pipeline(self, model_s3_path: str) -> Pipeline:
+    def generate_pipeline(self) -> Pipeline:
         """
-        Create deployment pipeline using an existing model.
+        Create deployment pipeline.
         
-        This method stores the model path and then calls the parent generate_pipeline method
-        which will handle setting up the pipeline steps and connections.
+        This method creates a pipeline using the configurations provided during initialization.
         
-        Args:
-            model_s3_path: S3 path to the model artifact
-            
         Returns:
             SageMaker pipeline
             
         Raises:
-            ValueError: If the model path is invalid or if pipeline generation fails
+            ValueError: If pipeline generation fails
         """
-        # Validate the model path
-        self._validate_model_path(model_s3_path)
-        
-        # Store the model path for use in _create_config_map
-        self.model_s3_path = model_s3_path
-        logger.info(f"Using model path: {model_s3_path}")
-        
         # Call parent generate_pipeline which will use our _create_pipeline_dag, 
         # _create_config_map and _store_pipeline_metadata methods
         return super().generate_pipeline()
@@ -496,12 +460,11 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
 if __name__ == "__main__":
     # This is just an example and won't be executed when imported
     config_path = "path/to/config.json"
-    model_s3_path = "s3://bucket/path/to/model.tar.gz"
     
     template = DummyTrainingModelRegistrationTemplate(
         config_path=config_path,
         # sagemaker_session and role would be provided in actual usage
     )
     
-    pipeline = template.generate_pipeline(model_s3_path)
+    pipeline = template.generate_pipeline()
     # pipeline.upsert()  # To create or update the pipeline in SageMaker

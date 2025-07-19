@@ -20,7 +20,7 @@ DUMMY_TRAINING_SPEC = StepSpecification(
     dependencies=[
         DependencySpec(
             logical_name="pretrained_model_path",
-            dependency_type=DependencyType.PROCESSING_INPUT,
+            dependency_type=DependencyType.PROCESSING_OUTPUT,
             required=True,
             compatible_sources=["ProcessingStep", "XGBoostTraining", "PytorchTraining", "TabularPreprocessing"],
             semantic_keywords=["model", "pretrained", "artifact", "weights", "training_output", "model_data"],

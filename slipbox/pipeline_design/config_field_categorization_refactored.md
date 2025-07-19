@@ -10,6 +10,7 @@ This document provides a high-level overview of the entire system. For detailed 
 - [Registry-Based Step Name Generation](./registry_based_step_name_generation.md): How step names are derived from the pipeline registry
 - [Job Type Variant Handling](./job_type_variant_handling.md): How job type variants are supported in configurations
 - [Config Types Format](./config_types_format.md): Format requirements for the config_types metadata
+- [Circular Reference Handling](./circular_reference_handling.md): How circular references in configuration objects are detected and handled
 
 ## Core Purpose
 
@@ -107,6 +108,18 @@ For detailed information, see [Config Registry](./config_registry.md).
 Defines the format requirements for the `config_types` metadata in configuration files, including how step names are mapped to class names.
 
 For detailed information, see [Config Types Format](./config_types_format.md).
+
+### 8. Circular Reference Handling
+
+Implements detection and handling mechanisms for circular references that can occur in complex configuration structures, preventing infinite recursion while maintaining configuration integrity.
+
+For detailed information, see [Circular Reference Handling](./circular_reference_handling.md).
+
+### 9. CircularReferenceTracker
+
+A dedicated data structure implemented to enhance circular reference detection, tracking, and reporting in complex object graphs. It maintains complete path information through the object graph and provides comprehensive diagnostic messages to help identify and resolve circular references. This component has been fully integrated with the TypeAwareConfigSerializer to provide advanced diagnostic capabilities for troubleshooting configuration issues.
+
+For detailed information, see [Circular Reference Tracker](./circular_reference_tracker.md).
 
 ## Field Sources Tracking
 

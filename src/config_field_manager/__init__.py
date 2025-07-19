@@ -45,6 +45,7 @@ from src.config_field_manager.type_aware_config_serializer import (
     deserialize_config as _deserialize_config
 )
 from src.config_field_manager.config_field_categorizer import ConfigFieldCategorizer
+from src.config_field_manager.circular_reference_tracker import CircularReferenceTracker
 
 
 __all__ = [
@@ -53,7 +54,8 @@ __all__ = [
     'serialize_config',
     'deserialize_config',
     'ConfigClassStore',  # Export for use as a decorator
-    'register_config_class'  # Convenient alias for the decorator
+    'register_config_class',  # Convenient alias for the decorator
+    'CircularReferenceTracker'  # For advanced circular reference handling
 ]
 
 

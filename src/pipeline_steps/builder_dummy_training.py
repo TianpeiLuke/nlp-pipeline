@@ -14,7 +14,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Optional, Any, List
 
-from sagemaker.processing import ProcessorBase, ScriptProcessor, ProcessingInput, ProcessingOutput
+from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.functions import Join
 from sagemaker.s3 import S3Uploader
