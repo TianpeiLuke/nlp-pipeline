@@ -34,16 +34,16 @@ class TestStepSpecification(IsolatedTestCase):
         self.node_type_sink = NodeType.SINK
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
         
-        # Create test dependency and output specs
+        # Create test dependency and output specs using string values
         self.dependency_spec = DependencySpec(
             logical_name="test_input",
-            dependency_type=self.dependency_type,
+            dependency_type="processing_output",  # Use string instead of enum
             required=True
         )
         
         self.output_spec = OutputSpec(
             logical_name="test_output",
-            output_type=self.dependency_type,
+            output_type="processing_output",  # Use string instead of enum
             property_path="properties.ProcessingOutputConfig.Outputs['TestOutput'].S3Output.S3Uri",
             data_type="S3Uri",
             description="Test output"
@@ -126,8 +126,8 @@ class TestStepSpecification(IsolatedTestCase):
         """Test dependencies validation."""
         # Test with multiple dependencies
         deps = [
-            DependencySpec(logical_name="input1", dependency_type=self.dependency_type),
-            DependencySpec(logical_name="input2", dependency_type=self.dependency_type)
+            DependencySpec(logical_name="input1", dependency_type="processing_output"),
+            DependencySpec(logical_name="input2", dependency_type="processing_output")
         ]
         
         spec = StepSpecification(
@@ -149,12 +149,12 @@ class TestStepSpecification(IsolatedTestCase):
         outputs = [
             OutputSpec(
                 logical_name="output1", 
-                output_type=self.dependency_type, 
+                output_type="processing_output", 
                 property_path="properties.Output1"
             ),
             OutputSpec(
                 logical_name="output2", 
-                output_type=self.dependency_type, 
+                output_type="processing_output", 
                 property_path="properties.Output2"
             )
         ]
@@ -177,13 +177,13 @@ class TestStepSpecification(IsolatedTestCase):
         # First create dependency and output specs to use
         dep = DependencySpec(
             logical_name="test_input",
-            dependency_type=self.dependency_type,
+            dependency_type="processing_output",
             required=True
         )
         
         out = OutputSpec(
             logical_name="test_output",
-            output_type=self.dependency_type,
+            output_type="processing_output",
             property_path="properties.Output",
             data_type="S3Uri"
         )
