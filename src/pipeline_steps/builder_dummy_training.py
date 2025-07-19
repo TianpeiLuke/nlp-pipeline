@@ -290,7 +290,7 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             instance_type=self.config.get_instance_type(),
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(self._get_step_name()),
+            base_job_name=self._generate_job_name(),
             sagemaker_session=self.session,
             env=self._get_environment_variables()
         )

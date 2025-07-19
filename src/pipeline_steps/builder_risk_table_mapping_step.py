@@ -157,11 +157,15 @@ class RiskTableMappingStepBuilder(StepBuilderBase):
         """
         Create environment variables for the processing job.
         
+        Uses the base class implementation to get environment variables from the
+        script contract (both required and optional), then adds any additional
+        environment variables from config.env.
+        
         Returns:
             Dict[str, str]: Environment variables for the processing job
         """
-        # Initialize with empty dict - no default environment variables needed
-        env_vars = {}
+        # Get environment variables from contract using base class implementation
+        env_vars = super()._get_environment_variables()
         
         # Add environment variables from config if they exist
         if hasattr(self.config, "env") and self.config.env:
