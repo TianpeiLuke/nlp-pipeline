@@ -40,6 +40,8 @@ These fundamental architectural principles form the foundation of our system des
 
 ### 1. Single Source of Truth
 
+*"One definition, one place, one truth"*
+
 Centralize validation logic and configuration definitions in their respective component's configuration class to avoid redundancy and conflicts:
 
 - **Centralized Configuration**: Each component owns its configuration definition and validation
@@ -57,6 +59,8 @@ This principle is exemplified in several key architectural components:
 When you encounter configuration or validation logic, it should be defined exactly once, in the most appropriate component.
 
 ### 2. Declarative Over Imperative
+
+*"Describe what you want, not how to get it"*
 
 Favor declarative specifications that describe *what* the pipeline should do rather than *how* to do it:
 
@@ -76,6 +80,8 @@ The step specification system exemplifies this by defining dependencies and outp
 
 ### 3. Type-Safe Specifications
 
+*"Catch errors at design time, not runtime"*
+
 Use strongly-typed enums and data structures (like `NodeType`, `DependencyType`) to prevent configuration errors at definition time:
 
 - **Strong Typing**: Use enums and typed classes instead of strings and dictionaries
@@ -93,6 +99,8 @@ We apply this principle throughout our architecture:
 By using strongly-typed specifications, we catch errors at definition time rather than runtime, improving robustness and developer experience.
 
 ### 4. Explicit Over Implicit
+
+*"Make it obvious, not clever"*
 
 Favor explicitly defining connections and passing parameters between steps over implicit matching:
 
