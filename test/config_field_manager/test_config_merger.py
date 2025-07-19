@@ -183,7 +183,7 @@ class TestConfigMerger(unittest.TestCase):
             "extra_key": {}
         }
         # Should log a warning but not fail
-        with self.assertLogs(level='WARNING'):
+        with self.assertLogs('src.config_field_manager.config_merger', level='WARNING'):
             merger._verify_merged_output(incorrect_structure)
         
     @mock.patch('src.config_field_manager.config_merger.ConfigFieldCategorizer')
@@ -216,7 +216,7 @@ class TestConfigMerger(unittest.TestCase):
             }
         }
         # Should log a warning
-        with self.assertLogs(level='WARNING'):
+        with self.assertLogs('src.config_field_manager.config_merger', level='WARNING'):
             merger._check_mutual_exclusivity(collision_structure)
         
     @mock.patch('src.config_field_manager.config_merger.ConfigFieldCategorizer')
@@ -249,7 +249,7 @@ class TestConfigMerger(unittest.TestCase):
             "specific": {}
         }
         # Should log a warning
-        with self.assertLogs(level='WARNING'):
+        with self.assertLogs('src.config_field_manager.config_merger', level='WARNING'):
             merger._check_special_fields_placement(incorrect_structure)
     
     def test_config_types_format(self):
