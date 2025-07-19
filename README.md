@@ -19,9 +19,11 @@ An intelligent pipeline generation system that automatically creates complete Sa
 
 ## Table of Contents
 
-- [Core Design Principles](#core-design-principles)
+- [Core Architectural Principles](#core-architectural-principles)
 - [Overview](#overview)
 - [Architecture Components](#architecture-components)
+- [Processing and Modeling Components](#processing-and-modeling-components)
+- [Design Principles & Governance](#design-principles--governance)
 - [Getting Started](#getting-started)
 - [Pipeline Examples](#pipeline-examples)
 - [PyTorch Models](#pytorch-models)
