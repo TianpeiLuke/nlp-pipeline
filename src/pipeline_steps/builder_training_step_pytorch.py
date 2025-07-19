@@ -194,9 +194,7 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
             instance_type=self.config.training_instance_type,
             instance_count=self.config.training_instance_count,
             volume_size=self.config.training_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('PyTorchTraining')}"
-            ),
+            base_job_name=self._generate_job_name(),  # Use standardized method with auto-detection
             hyperparameters=hyperparameters,
             sagemaker_session=self.session,
             output_path=None,  # Will be set by create_step method
@@ -212,7 +210,8 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         Returns:
             A dictionary of environment variables.
         """
-        env_vars = {}
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
         
         # Add environment variables from config if they exist
         if hasattr(self.config, "env") and self.config.env:
@@ -409,8 +408,8 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         
         self.log_info("Creating PyTorch TrainingStep...")
         
-        # Get the step name
-        step_name = self._get_step_name('PyTorchTraining')
+        # Get the step name using standardized automatic step type detection
+        step_name = self._get_step_name()
         
         # Handle inputs
         inputs = {}

@@ -142,7 +142,8 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         Returns:
             A dictionary of environment variables.
         """
-        env_vars = {}
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
         
         # Add environment variables from config if they exist
         if hasattr(self.config, "env") and self.config.env:
@@ -225,7 +226,7 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         else:
             model = self._create_model(model_data_value)
 
-        step_name = self._get_step_name('PyTorchModel')
+        step_name = self._get_step_name()
         
         model_step = CreateModelStep(
             name=step_name,

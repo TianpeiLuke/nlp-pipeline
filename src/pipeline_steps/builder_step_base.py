@@ -231,20 +231,84 @@ class StepBuilderBase(ABC):
         sanitized = '-'.join(filter(None, sanitized.split('-')))
         return sanitized[:max_length].rstrip('-')
 
-    def _get_step_name(self, step_type: str) -> str:
+    def _get_step_name(self) -> str:
         """
-        Get standard step name.
+        Get standard step name, automatically determining the step type from class name.
+        
+        Returns:
+            Standard step name based on the builder class
+        """
+        class_name = self.__class__.__name__
+        determined_step_type = None
+        
+        # Try to find a matching entry in the STEP_NAMES registry
+        for canonical_name, info in self.STEP_NAMES.items():
+            if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
+                determined_step_type = canonical_name
+                break
+        
+        # If no match found, fall back to class name with "StepBuilder" removed
+        if determined_step_type is None:
+            if class_name.endswith("StepBuilder"):
+                determined_step_type = class_name[:-11]  # Remove "StepBuilder"
+            else:
+                determined_step_type = class_name
+        
+        # Get the step name from the registry or use default
+        if determined_step_type not in self.STEP_NAMES:
+            self.log_warning(f"Unknown step type: {determined_step_type}. Using default name.")
+            return f"Default{determined_step_type}Step"
+        
+        return self.STEP_NAMES[determined_step_type]
+        
+    def _generate_job_name(self, step_type: str = None) -> str:
+        """
+        Generate a standardized job name for SageMaker processing/training jobs.
+        
+        This method automatically determines the step type from the class name
+        if not provided, using the centralized step name registry. It also adds
+        a timestamp to ensure uniqueness across executions.
         
         Args:
-            step_type: Type of step (e.g., 'Training', 'Model', 'Package')
+            step_type: Optional type of step (e.g., 'DummyTraining', 'XGBoostTraining').
+                      If not provided, it will be determined automatically.
             
         Returns:
-            Standard step name
+            Sanitized job name suitable for SageMaker
         """
-        if step_type not in self.STEP_NAMES:
-            logger.warning(f"Unknown step type: {step_type}. Using default name.")
-            return f"Default{step_type}Step"
-        return self.STEP_NAMES[step_type]
+        import time
+        
+        # If step_type is not provided, determine it from the class name
+        if step_type is None:
+            class_name = self.__class__.__name__
+            determined_step_type = None
+            
+            # Try to find a matching entry in the STEP_NAMES registry
+            for canonical_name, info in self.STEP_NAMES.items():
+                if info["builder_step_name"] == class_name or class_name.startswith(info["builder_step_name"]):
+                    determined_step_type = canonical_name
+                    break
+            
+            # If no match found, fall back to class name with "StepBuilder" removed
+            if determined_step_type is None:
+                if class_name.endswith("StepBuilder"):
+                    determined_step_type = class_name[:-11]  # Remove "StepBuilder"
+                else:
+                    determined_step_type = class_name
+                    
+            step_type = determined_step_type
+        
+        # Generate a timestamp for uniqueness (unix timestamp in seconds)
+        timestamp = int(time.time())
+        
+        # Build the job name
+        if hasattr(self.config, 'job_type') and self.config.job_type:
+            job_name = f"{step_type}-{self.config.job_type.capitalize()}-{timestamp}"
+        else:
+            job_name = f"{step_type}-{timestamp}"
+            
+        # Sanitize and return
+        return self._sanitize_name_for_sagemaker(job_name)
         
         
     def get_property_path(self, logical_name: str, format_args: Dict[str, Any] = None) -> Optional[str]:
@@ -363,6 +427,56 @@ class StepBuilderBase(ABC):
             expire_after="P30D"
         )
 
+    def _get_environment_variables(self) -> Dict[str, str]:
+        """
+        Create environment variables for the processing job based on the script contract.
+        
+        This base implementation:
+        1. Uses required_env_vars from the script contract
+        2. Gets values from the config object
+        3. Adds optional variables with defaults from the contract
+        4. Can be overridden by child classes to add custom logic
+        
+        Returns:
+            Dict[str, str]: Environment variables for the processing job
+        """
+        env_vars = {}
+        
+        if not hasattr(self, 'contract') or self.contract is None:
+            self.log_warning("No script contract available for environment variable definition")
+            return env_vars
+        
+        # Process required environment variables
+        for env_var in self.contract.required_env_vars:
+            # Convert from ENV_VAR_NAME format to config attribute style (env_var_name)
+            config_attr = env_var.lower()
+            
+            # Try to get from config (direct attribute)
+            if hasattr(self.config, config_attr):
+                env_vars[env_var] = str(getattr(self.config, config_attr))
+            # Try to get from config.hyperparameters
+            elif hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, config_attr):
+                env_vars[env_var] = str(getattr(self.config.hyperparameters, config_attr))
+            else:
+                self.log_warning(f"Required environment variable '{env_var}' not found in config")
+        
+        # Add optional environment variables with defaults
+        for env_var, default_value in self.contract.optional_env_vars.items():
+            # Convert from ENV_VAR_NAME format to config attribute style (env_var_name)
+            config_attr = env_var.lower()
+            
+            # Try to get from config, fall back to default
+            if hasattr(self.config, config_attr):
+                env_vars[env_var] = str(getattr(self.config, config_attr))
+            # Try to get from config.hyperparameters
+            elif hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, config_attr):
+                env_vars[env_var] = str(getattr(self.config.hyperparameters, config_attr))
+            else:
+                env_vars[env_var] = default_value
+                self.log_debug(f"Using default value for optional environment variable '{env_var}': {default_value}")
+        
+        return env_vars
+    
     def _get_job_arguments(self) -> Optional[List[str]]:
         """
         Constructs command-line arguments for the script based on script contract.

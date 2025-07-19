@@ -120,7 +120,7 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker("ModelPackaging"),
+            base_job_name=self._generate_job_name(),  # Use standardized method with auto-detection
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -132,10 +132,15 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         Returns:
             A dictionary of environment variables.
         """        
-        env_vars = {
-            "PIPELINE_NAME": self.config.pipeline_name,
-            "REGION": self.config.region,
-        }
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
+        
+        # Add packaging-specific environment variables
+        if hasattr(self.config, 'pipeline_name'):
+            env_vars["PIPELINE_NAME"] = self.config.pipeline_name
+            
+        if hasattr(self.config, 'region'):
+            env_vars["REGION"] = self.config.region
         
         # Add optional configurations
         for key, env_key in [
@@ -359,8 +364,8 @@ class MIMSPackagingStepBuilder(StepBuilderBase):
         proc_outputs = self._get_outputs(outputs)
         job_args = self._get_job_arguments()
 
-        # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or "ModelPackaging"
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
         
         # Get full script path from config or contract
         script_path = self.config.get_script_path()

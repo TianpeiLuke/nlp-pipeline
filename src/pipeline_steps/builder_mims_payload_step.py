@@ -122,7 +122,7 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker("PayloadGeneration"),
+            base_job_name=self._generate_job_name(),  # Use standardized method with auto-detection
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -135,37 +135,23 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
 
         Returns:
             A dictionary of environment variables.
-        """        
-        env_vars = {}
+        """
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
         
-        # If we have a contract available, use it to determine the environment variables
-        if self.contract:
-            # First handle required environment variables from the contract
-            for env_name in self.contract.required_env_vars:
-                # Try to find a matching config attribute
-                config_attr = env_name.lower()
-                if hasattr(self.config, config_attr) and getattr(self.config, config_attr) is not None:
-                    env_vars[env_name] = str(getattr(self.config, config_attr))
-                else:
-                    self.log_warning(f"Required environment variable {env_name} not found in config")
-                    
-            # Then handle optional environment variables from the contract
-            for env_name, default_value in self.contract.optional_env_vars.items():
-                # For content types, use the config if available
-                if env_name == "CONTENT_TYPES" and hasattr(self.config, 'source_model_inference_content_types'):
-                    env_vars[env_name] = ",".join(self.config.source_model_inference_content_types)
-                
-                # For numeric default, use config if available
-                elif env_name == "DEFAULT_NUMERIC_VALUE" and hasattr(self.config, 'default_numeric_value'):
-                    env_vars[env_name] = str(self.config.default_numeric_value)
-                
-                # For text default, use config if available
-                elif env_name == "DEFAULT_TEXT_VALUE" and hasattr(self.config, 'default_text_value'):
-                    env_vars[env_name] = str(self.config.default_text_value)
-                
-                # Otherwise use default from contract
-                else:
-                    env_vars[env_name] = default_value
+        # Add payload-specific environment variables that may need special handling
+        
+        # For content types, use the config if available
+        if hasattr(self.config, 'source_model_inference_content_types'):
+            env_vars["CONTENT_TYPES"] = ",".join(self.config.source_model_inference_content_types)
+        
+        # For numeric default, use config if available
+        if hasattr(self.config, 'default_numeric_value'):
+            env_vars["DEFAULT_NUMERIC_VALUE"] = str(self.config.default_numeric_value)
+        
+        # For text default, use config if available
+        if hasattr(self.config, 'default_text_value'):
+            env_vars["DEFAULT_TEXT_VALUE"] = str(self.config.default_text_value)
         
         # Add special field values if defined in config - this is a special case
         # that follows the SPECIAL_FIELD_ prefix pattern defined in the script
@@ -344,8 +330,8 @@ class MIMSPayloadStepBuilder(StepBuilderBase):
         proc_outputs = self._get_outputs(outputs)
         job_args = self._get_job_arguments()
 
-        # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or "PayloadGeneration"
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
         
         # Get full script path from config or contract
         script_path = self.config.get_script_path()

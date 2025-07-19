@@ -273,8 +273,8 @@ class BatchTransformStepBuilder(StepBuilderBase):
         # Build the transformer
         transformer = self._create_transformer(model_name)
 
-        # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or f"BatchTransform-{self.config.job_type.capitalize()}"
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
         
         # Create the transform step
         transform_step = TransformStep(

@@ -148,7 +148,7 @@ class RiskTableMappingStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(f"RiskTableMapping-{self.config.job_type.capitalize()}"),
+            base_job_name=self._generate_job_name(),  # Use standardized method with auto-detection
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -476,8 +476,8 @@ class RiskTableMappingStepBuilder(StepBuilderBase):
         proc_outputs = self._get_outputs(outputs)
         job_args = self._get_job_arguments()
         
-        # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or f"RiskTableMapping-{self.config.job_type.capitalize()}"
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
         
         # Get script path from contract or config
         script_path = self.config.get_script_path()

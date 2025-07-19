@@ -124,9 +124,7 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('XGBoostModelEval')}"
-            ),
+            base_job_name=self._generate_job_name(),  # Use standardized method with auto-detection
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -139,11 +137,17 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
 
         Returns:
             A dictionary of environment variables.
-        """        
-        env_vars = {
-            "ID_FIELD": str(self.config.hyperparameters.id_name),
-            "LABEL_FIELD": str(self.config.hyperparameters.label_name),
-        }
+        """
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
+        
+        # Add evaluation-specific environment variables
+        if hasattr(self.config, 'hyperparameters'):
+            if hasattr(self.config.hyperparameters, 'id_name'):
+                env_vars["ID_FIELD"] = str(self.config.hyperparameters.id_name)
+            if hasattr(self.config.hyperparameters, 'label_name'):
+                env_vars["LABEL_FIELD"] = str(self.config.hyperparameters.label_name)
+        
         self.log_info("Evaluation environment variables: %s", env_vars)
         return env_vars
 
@@ -318,8 +322,8 @@ class XGBoostModelEvalStepBuilder(StepBuilderBase):
         proc_outputs = self._get_outputs(outputs)
         job_args = self._get_job_arguments()
 
-        # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or f"XGBoostModelEvaluation-{self.config.job_type.capitalize()}"
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
         
         # Get script paths from config
         # IMPORTANT: Using processing_entry_point directly rather than get_script_path()

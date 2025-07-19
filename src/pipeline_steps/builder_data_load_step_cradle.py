@@ -294,8 +294,8 @@ class CradleDataLoadingStepBuilder(StepBuilderBase):
             ValueError: If there's an error creating the CradleDataLoadingStep.
         """
             
-        # Create the step name
-        step_name = f"{self._get_step_name('CradleDataLoading')}-{self.config.job_type.capitalize()}"
+        # Create the step name using standardized job name generation
+        step_name = self._generate_job_name() + f"-{self.config.job_type.capitalize()}"
         
         self.log_info("Creating CradleDataLoadingStep...")
         try:

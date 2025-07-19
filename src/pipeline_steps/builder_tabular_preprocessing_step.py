@@ -135,7 +135,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            base_job_name=self._sanitize_name_for_sagemaker(f"TabularPreprocessing-{self.config.job_type.capitalize()}"),
+            base_job_name=self._generate_job_name(),  # Use standardized method with auto-detection
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -147,11 +147,18 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         Returns:
             Dict[str, str]: Environment variables for the processing job
         """
-        env_vars = {
-            "LABEL_FIELD": self.config.hyperparameters.label_name,
-            "TRAIN_RATIO": str(self.config.train_ratio),
-            "TEST_VAL_RATIO": str(self.config.test_val_ratio),
-        }
+        # Get base environment variables from contract
+        env_vars = super()._get_environment_variables()
+        
+        # Add additional environment variables specific to this step
+        if hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, 'label_name'):
+            env_vars["LABEL_FIELD"] = self.config.hyperparameters.label_name
+        
+        if hasattr(self.config, 'train_ratio'):
+            env_vars["TRAIN_RATIO"] = str(self.config.train_ratio)
+            
+        if hasattr(self.config, 'test_val_ratio'):
+            env_vars["TEST_VAL_RATIO"] = str(self.config.test_val_ratio)
         
         # Add optional column configurations
         for column_type in ["categorical_columns", "numerical_columns", "text_columns", "date_columns"]:
@@ -334,8 +341,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         proc_outputs = self._get_outputs(outputs)
         job_args = self._get_job_arguments()
         
-        # Get step name from spec or construct one
-        step_name = getattr(self.spec, 'step_type', None) or f"TabularPreprocessing-{self.config.job_type.capitalize()}"
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
         
         # Get script path from contract or config
         script_path = self.config.get_script_path()

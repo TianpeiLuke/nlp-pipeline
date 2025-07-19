@@ -326,8 +326,8 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         # Get processing inputs using specification-driven method
         processing_inputs = self._get_inputs(inputs)
         
-        # Create step with clean, simple logic
-        step_name = f"{self._get_step_name('Registration')}-{self.config.region}"
+        # Create step with clean, simple logic using standardized auto-detection method
+        step_name = self._get_step_name() + f"-{self.config.region}"
         
         try:
             # Create registration step

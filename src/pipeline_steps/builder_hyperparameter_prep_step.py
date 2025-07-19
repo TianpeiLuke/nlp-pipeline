@@ -184,7 +184,7 @@ class HyperparameterPrepStepBuilder(StepBuilderBase):
         dependencies = self._extract_param(kwargs, 'dependencies', None)
         self.log_info("Creating HyperparameterPrep LambdaStep...")
 
-        step_name = self._get_step_name('HyperparameterPrep')
+        step_name = self._get_step_name()
 
         # Save Hyperparameter to dict
         target_s3_uri = self._prepare_hyperparameters_file()

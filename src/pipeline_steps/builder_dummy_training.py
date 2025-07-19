@@ -293,7 +293,7 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             role=self.role,
             sagemaker_session=self.session,
             base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('DummyTraining')}"
+                f"{self._get_step_name()}"
             )
         )
     
@@ -456,8 +456,8 @@ class DummyTrainingStepBuilder(StepBuilderBase):
             processing_inputs = self._get_inputs(inputs)
             processing_outputs = self._get_outputs(kwargs.get('outputs', {}))
             
-            # Create the step
-            step_name = kwargs.get('step_name', 'DummyTraining')
+            # Get step name using standardized automatic step type detection
+            step_name = self._get_step_name()
             
             # Get job arguments from contract
             script_args = self._get_job_arguments()
@@ -471,7 +471,7 @@ class DummyTrainingStepBuilder(StepBuilderBase):
                 inputs=processing_inputs,
                 outputs=processing_outputs,
                 arguments=script_args,
-                job_name=self._generate_job_name(step_name),
+                job_name=self._generate_job_name(),  # No parameter needed now
                 wait=False,
                 cache_config=cache_config
             )
