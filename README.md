@@ -181,7 +181,8 @@ The system follows a sophisticated layered architecture that transforms user-pro
 ### **📚 Registry Management Layer**
 - **[Registry Manager](slipbox/pipeline_deps/registry_manager.md)** - Multi-context coordination with lifecycle management and backward compatibility
 - **[Specification Registry](slipbox/pipeline_design/specification_registry.md)** - Context-aware specification storage with isolation and compatibility checking
-- **[Step Name Registry](src/pipeline_registry/)** - Central registry for step names across all components with consistent naming and discovery
+- **[Step Name Registry](slipbox/pipeline_design/registry_single_source_of_truth.md)** - Central registry for step names across all components with consistent naming and discovery (see [src/pipeline_registry/](src/pipeline_registry/))
+- **[Hyperparameter Registry](slipbox/pipeline_design/registry_single_source_of_truth.md)** - Centralized registry for hyperparameter definitions and validation across all model types (see [src/pipeline_registry/](src/pipeline_registry/))
 
 ### **🔗 Dependency Resolution Layer**
 - **[Dependency Resolver](slipbox/pipeline_deps/dependency_resolver.md)** - Intelligent matching engine with multi-criteria scoring, semantic compatibility analysis, and type safety validation
