@@ -25,7 +25,9 @@ class TestSpecificationRegistry(IsolatedTestCase):
         """Set up test fixtures."""
         super().setUp()
         
-        # Create fresh instances of the enums for each test to ensure isolation
+        # Use string values for input but keep enum instances for comparison
+        self.node_type_source_input = "source"
+        self.node_type_internal_input = "internal"
         self.node_type_source = NodeType.SOURCE
         self.node_type_internal = NodeType.INTERNAL
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
@@ -44,7 +46,7 @@ class TestSpecificationRegistry(IsolatedTestCase):
         
         self.spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,  # INTERNAL can have both dependencies and outputs
+            node_type=self.node_type_internal_input,  # INTERNAL can have both dependencies and outputs
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )
@@ -77,7 +79,7 @@ class TestSpecificationRegistry(IsolatedTestCase):
         # Create and register second spec
         second_spec = StepSpecification(
             step_type="SecondStep",
-            node_type=self.node_type_source,  # SOURCE must have outputs
+            node_type=self.node_type_source_input,  # SOURCE must have outputs
             dependencies=[],
             outputs=[self.output_spec]
         )
@@ -115,19 +117,19 @@ class TestSpecificationRegistry(IsolatedTestCase):
         # Create specs with same type
         spec1 = StepSpecification(
             step_type="SharedType",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]  # SOURCE must have outputs
         )
         spec2 = StepSpecification(
             step_type="SharedType",  # Same type as spec1
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]  # SOURCE must have outputs
         )
         spec3 = StepSpecification(
             step_type="UniqueType",  # Different type
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]  # SOURCE must have outputs
         )
@@ -160,7 +162,7 @@ class TestSpecificationRegistry(IsolatedTestCase):
         # Register different specification in second registry
         other_spec = StepSpecification(
             step_type="OtherStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]  # SOURCE must have outputs
         )
@@ -181,7 +183,7 @@ class TestSpecificationRegistry(IsolatedTestCase):
         
         other_spec = StepSpecification(
             step_type="OtherType",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]
         )
@@ -204,7 +206,7 @@ class TestSpecificationRegistry(IsolatedTestCase):
         # Register source step
         source_spec = StepSpecification(
             step_type="SourceStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[OutputSpec(
                 logical_name="source_output",

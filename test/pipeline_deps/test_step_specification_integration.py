@@ -27,9 +27,12 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
         """Set up test fixtures."""
         super().setUp()
         
-        # Create fresh instances of the enums for each test to ensure isolation
+        # Use string values for input but expect enum instances for comparison
+        self.node_type_source_input = "source"
+        self.node_type_internal_input = "internal"
+        self.node_type_sink_input = "sink"
         self.node_type_source = NodeType.SOURCE
-        self.node_type_internal = NodeType.INTERNAL  # Use INTERNAL instead of PROCESSING
+        self.node_type_internal = NodeType.INTERNAL
         self.node_type_sink = NodeType.SINK
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
         
@@ -67,7 +70,7 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
         # Create step specification that would use this reference
         spec = StepSpecification(
             step_type="ProcessingStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )
@@ -117,7 +120,7 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
         # Create the specification
         spec = StepSpecification(
             step_type="ComplexProcessingStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=dependencies,
             outputs=outputs
         )
@@ -158,7 +161,7 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
         # Create source step with output
         source_spec = StepSpecification(
             step_type="SourceStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[OutputSpec(
                 logical_name="source_output",
@@ -170,7 +173,7 @@ class TestStepSpecificationIntegration(IsolatedTestCase):
         # Create sink step with dependency
         sink_spec = StepSpecification(
             step_type="SinkStep",
-            node_type=self.node_type_sink,
+            node_type=self.node_type_sink_input,
             dependencies=[DependencySpec(
                 logical_name="sink_input",
                 dependency_type=self.dependency_type

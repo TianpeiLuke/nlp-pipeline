@@ -40,7 +40,7 @@ class TestWithoutIsolation(unittest.TestCase):
         
         spec = StepSpecification(
             step_type="TestStep1",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[output_spec]
         )
@@ -84,7 +84,7 @@ class TestWithoutIsolation(unittest.TestCase):
         
         spec = StepSpecification(
             step_type="TestStep2",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[output_spec]
         )
@@ -125,7 +125,7 @@ class TestWithManualIsolation(unittest.TestCase):
         
         spec = StepSpecification(
             step_type="TestStep1",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[output_spec]
         )
@@ -163,7 +163,7 @@ class TestWithManualIsolation(unittest.TestCase):
         
         spec = StepSpecification(
             step_type="TestStep2",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[output_spec]
         )
@@ -205,7 +205,7 @@ class TestWithHelperIsolation(IsolatedTestCase):
         
         spec = StepSpecification(
             step_type="TestStep1",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[output_spec]
         )
@@ -243,7 +243,7 @@ class TestWithHelperIsolation(IsolatedTestCase):
         
         spec = StepSpecification(
             step_type="TestStep2",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[output_spec]
         )

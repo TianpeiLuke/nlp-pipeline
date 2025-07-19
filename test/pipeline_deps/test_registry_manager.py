@@ -22,7 +22,8 @@ class TestRegistryManager(IsolatedTestCase):
         # Create a fresh manager for each test
         self.manager = RegistryManager()
         
-        # Create fresh instances of the enums for each test to ensure isolation
+        # Use string values for input but expect enum instances for comparison
+        self.node_type_source_input = "source"
         self.node_type_source = NodeType.SOURCE
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
         
@@ -37,7 +38,7 @@ class TestRegistryManager(IsolatedTestCase):
         
         self.test_spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[output_spec]
         )
@@ -202,7 +203,8 @@ class TestConvenienceFunctions(IsolatedTestCase):
         # Create a fresh manager for each test
         self.manager = RegistryManager()
         
-        # Create fresh instances of the enums for each test to ensure isolation
+        # Use string values for input but expect enum instances for comparison
+        self.node_type_source_input = "source"
         self.node_type_source = NodeType.SOURCE
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
         
@@ -215,7 +217,7 @@ class TestConvenienceFunctions(IsolatedTestCase):
         
         self.test_spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[output_spec]
         )

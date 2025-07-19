@@ -25,7 +25,10 @@ class TestStepSpecification(IsolatedTestCase):
         """Set up test fixtures."""
         super().setUp()
         
-        # Create fresh instances of the enums for each test to ensure isolation
+        # Use string values for input but expect enum instances for comparison
+        self.node_type_source_input = "source"
+        self.node_type_internal_input = "internal"
+        self.node_type_sink_input = "sink"
         self.node_type_source = NodeType.SOURCE
         self.node_type_internal = NodeType.INTERNAL
         self.node_type_sink = NodeType.SINK
@@ -51,7 +54,7 @@ class TestStepSpecification(IsolatedTestCase):
         # Test with minimal fields - SOURCE needs outputs
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]
         )
@@ -63,7 +66,7 @@ class TestStepSpecification(IsolatedTestCase):
         # Test with dependencies and outputs - need INTERNAL for both
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )
@@ -86,7 +89,7 @@ class TestStepSpecification(IsolatedTestCase):
             # Note: SOURCE node must have outputs
             spec = StepSpecification(
                 step_type=step_type,
-                node_type=self.node_type_source,
+                node_type=self.node_type_source_input,
                 dependencies=[],
                 outputs=[self.output_spec]
             )
@@ -97,7 +100,7 @@ class TestStepSpecification(IsolatedTestCase):
         # Test with different node types
         spec_source = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             dependencies=[],
             outputs=[self.output_spec]
         )
@@ -105,7 +108,7 @@ class TestStepSpecification(IsolatedTestCase):
         
         spec_internal = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )
@@ -113,7 +116,7 @@ class TestStepSpecification(IsolatedTestCase):
         
         spec_sink = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_sink,
+            node_type=self.node_type_sink_input,
             dependencies=[self.dependency_spec],
             outputs=[]
         )
@@ -129,7 +132,7 @@ class TestStepSpecification(IsolatedTestCase):
         
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,  # INTERNAL can have both dependencies and outputs
+            node_type=self.node_type_internal_input,  # INTERNAL can have both dependencies and outputs
             dependencies=deps,
             outputs=[self.output_spec]
         )
@@ -158,7 +161,7 @@ class TestStepSpecification(IsolatedTestCase):
         
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_source,  # SOURCE must have outputs, no dependencies
+            node_type=self.node_type_source_input,  # SOURCE must have outputs, no dependencies
             dependencies=[],
             outputs=outputs
         )
@@ -188,7 +191,7 @@ class TestStepSpecification(IsolatedTestCase):
         # Create the specification object directly
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=[dep],
             outputs=[out]
         )
@@ -206,7 +209,7 @@ class TestStepSpecification(IsolatedTestCase):
         # Create spec
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )
@@ -230,7 +233,7 @@ class TestStepSpecification(IsolatedTestCase):
         """Test string representation of step specification."""
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,
+            node_type=self.node_type_internal_input,
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )

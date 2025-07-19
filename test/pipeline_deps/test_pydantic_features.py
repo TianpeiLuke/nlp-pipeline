@@ -25,8 +25,9 @@ class TestPydanticFeatures(IsolatedTestCase):
         """Set up test fixtures."""
         super().setUp()
         
-        # Create fresh instances of the enums for each test to ensure isolation
-        self.node_type_internal = NodeType.INTERNAL  # Use INTERNAL instead of SOURCE
+        # Use string values for input but expect enum instances for comparison
+        self.node_type_internal_input = "internal"
+        self.node_type_internal = NodeType.INTERNAL
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
         
         # Create test specification with nested objects
@@ -46,7 +47,7 @@ class TestPydanticFeatures(IsolatedTestCase):
         
         self.step_spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_internal,  # Use INTERNAL node type since it can have both dependencies and outputs
+            node_type=self.node_type_internal_input,  # Use string input for node_type
             dependencies=[self.dependency_spec],
             outputs=[self.output_spec]
         )

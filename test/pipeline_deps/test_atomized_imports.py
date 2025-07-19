@@ -221,9 +221,10 @@ class TestIntegrationWithAtomizedStructure(IsolatedTestCase):
         # Call parent setUp to reset global state
         super().setUp()
         
-        # Create fresh instances of the enums for each test to ensure isolation
+        # Use string values for input but keep enum instances for comparison
         from src.pipeline_deps.base_specifications import NodeType, DependencyType
-        self.node_type_source = NodeType.SOURCE
+        self.node_type_source_input = "source"  # Use string for input
+        self.node_type_source = NodeType.SOURCE  # Keep enum for comparison
         self.dependency_type = DependencyType.PROCESSING_OUTPUT
     
     def tearDown(self):
@@ -252,7 +253,7 @@ class TestIntegrationWithAtomizedStructure(IsolatedTestCase):
         # Create and register specification
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=self.node_type_source,  # Use instance variable for isolation
+            node_type=self.node_type_source_input,  # Use string input for isolation
             dependencies=[],
             outputs=[output_spec]
         )
@@ -290,7 +291,7 @@ class TestIntegrationWithAtomizedStructure(IsolatedTestCase):
         # Create spec using base_specifications
         spec = StepSpecification(
             step_type="CrossModuleTest",
-            node_type=self.node_type_source,
+            node_type=self.node_type_source_input,
             outputs=[output_spec]
         )
         

@@ -48,10 +48,10 @@ class TestEnumValidation(IsolatedTestCase):
     
     def test_node_type_in_step_specification(self):
         """Test using NodeType in StepSpecification."""
-        # Create specs with different node types
+        # Create specs with different node types using string inputs
         source_spec = StepSpecification(
             step_type="SourceStep",
-            node_type=NodeType.SOURCE,
+            node_type="source",
             dependencies=[],
             outputs=[OutputSpec(
                 logical_name="test_output",
@@ -63,7 +63,7 @@ class TestEnumValidation(IsolatedTestCase):
         
         internal_spec = StepSpecification(
             step_type="ProcessingStep",
-            node_type=NodeType.INTERNAL,
+            node_type="internal",
             dependencies=[DependencySpec(
                 logical_name="input",
                 dependency_type=DependencyType.PROCESSING_OUTPUT
@@ -78,7 +78,7 @@ class TestEnumValidation(IsolatedTestCase):
         
         sink_spec = StepSpecification(
             step_type="SinkStep",
-            node_type=NodeType.SINK,
+            node_type="sink",
             dependencies=[DependencySpec(
                 logical_name="input",
                 dependency_type=DependencyType.PROCESSING_OUTPUT
@@ -121,10 +121,10 @@ class TestEnumValidation(IsolatedTestCase):
     
     def test_enum_serialization(self):
         """Test serialization of enums in specifications."""
-        # Create spec with enums
+        # Create spec with enums using string input for node_type
         spec = StepSpecification(
             step_type="TestStep",
-            node_type=NodeType.INTERNAL,  # Use INTERNAL for both dependencies and outputs
+            node_type="internal",  # Use string input for node_type
             dependencies=[DependencySpec(
                 logical_name="input",
                 dependency_type=DependencyType.PROCESSING_OUTPUT
