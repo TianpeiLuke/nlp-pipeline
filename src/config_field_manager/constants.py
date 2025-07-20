@@ -17,7 +17,8 @@ SPECIAL_FIELDS_TO_KEEP_SPECIFIC: Set[str] = {
     "model_path",
     "hyperparameters",
     "instance_type",
-    "job_name_prefix"
+    "job_name_prefix",
+    "output_schema"
 }
 
 # Patterns that indicate a field is likely non-static

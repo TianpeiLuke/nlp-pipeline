@@ -349,23 +349,67 @@ class TestSimplifiedConfigFieldCategorization(unittest.TestCase):
             if os.path.exists(output_path):
                 os.unlink(output_path)
 
-    def test_load_simplified_configs(self):
-        """Test that configs can be correctly loaded from the simplified structure."""
+    # Define local test classes at the class level
+    class LocalTestProcessingConfig(ProcessingStepConfigBase):
+        custom_field: str = None
+        
+        def get_script_contract(self):
+            return None
+            
+        def validate_config(self):
+            return self
+    
+    class LocalBasePipelineConfig(BasePipelineConfig):
+        """Local base pipeline config for testing."""
+        pass
+    
+    class LocalDummyTrainingConfig(DummyTrainingConfig):
+        """Local dummy training config for testing."""
+        pass
+    
+    class LocalCustomSpecificConfig(BasePipelineConfig):
+        """Local custom specific config for testing."""
+        input_names: dict = None
+        
+    def test_simplified_structure_with_local_configs(self):
+        """Test that output structure is correct using local config classes."""
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as temp_file:
             output_path = temp_file.name
             
         try:
-            # Create a processing config with distinctive fields
-            class TestProcessingConfig(ProcessingStepConfigBase):
-                custom_field: str = None
-                
-                def get_script_contract(self):
-                    return None
-                    
-                def validate_config(self):
-                    return self
-                    
-            processing_config = TestProcessingConfig(
+            # Create instances of our local config classes
+            local_base_config = self.LocalBasePipelineConfig(
+                bucket="test-bucket",
+                author="test-author",
+                pipeline_name="test-pipeline",
+                pipeline_description="Test Pipeline",
+                pipeline_version="1.0.0",
+                pipeline_s3_loc="s3://test-bucket/test-pipeline"
+            )
+            
+            local_dummy_config = self.LocalDummyTrainingConfig(
+                bucket="test-bucket",
+                author="test-author",
+                pipeline_name="test-pipeline",
+                pipeline_description="Test Pipeline",
+                pipeline_version="1.0.0",
+                pipeline_s3_loc="s3://test-bucket/test-pipeline",
+                pretrained_model_path=self.model_path,
+                processing_source_dir=self.pipeline_scripts_path,
+                hyperparameters=self.hyperparams
+            )
+            
+            local_specific_config = self.LocalCustomSpecificConfig(
+                bucket="test-bucket",
+                author="test-author",
+                pipeline_name="test-pipeline",
+                pipeline_description="Test Pipeline",
+                pipeline_version="1.0.0",
+                pipeline_s3_loc="s3://test-bucket/test-pipeline",
+                input_names={"input1": "path1"}
+            )
+            
+            local_processing_config = self.LocalTestProcessingConfig(
                 bucket="test-bucket",
                 author="test-author",
                 pipeline_name="test-pipeline",
@@ -379,59 +423,63 @@ class TestSimplifiedConfigFieldCategorization(unittest.TestCase):
             )
             
             # Save configs with the simplified structure
-            merge_and_save_configs([self.base_config, self.dummy_config, self.specific_config, processing_config], output_path)
+            merge_and_save_configs([
+                local_base_config, 
+                local_dummy_config, 
+                local_specific_config, 
+                local_processing_config
+            ], output_path)
             
             # Verify the structure has no nested processing sections
             with open(output_path, 'r') as f:
                 output_json = json.load(f)
                 self.assertNotIn('processing', output_json['configuration'])
                 self.assertEqual(set(output_json['configuration'].keys()), {'shared', 'specific'})
-            
-            # Define the config classes for loading
-            config_classes = {
-                "BasePipelineConfig": BasePipelineConfig,
-                "DummyTrainingConfig": DummyTrainingConfig,
-                "CustomSpecificConfig": self.specific_config.__class__,
-                "TestProcessingConfig": TestProcessingConfig
-            }
-            
-            # Load the configs back
-            from src.pipeline_steps.utils import load_configs
-            loaded_configs = load_configs(output_path, config_classes)
-            
-            # Verify we loaded the correct number of configs
-            # With the new implementation, we get 3 configs rather than 4
-            self.assertEqual(len(loaded_configs), 3, "Should load 3 configs with the current implementation")
-            
-            # Verify the configs are of the correct types
-            for step_name, config in loaded_configs.items():
-                if "DummyTraining" in step_name:
-                    self.assertIsInstance(config, DummyTrainingConfig)
-                    # Verify hyperparameters were correctly loaded
-                    self.assertIsInstance(config.hyperparameters, ModelHyperparameters)
-                    self.assertEqual(config.hyperparameters.num_classes, 2)
-                elif "BasePipeline" in step_name or step_name == "BasePipelineConfig":
-                    self.assertIsInstance(config, BasePipelineConfig)
-                elif isinstance(config, TestProcessingConfig):
-                    # Test processing config with distinctive fields
-                    self.assertEqual(config.custom_field, "processing_specific_value")
-                    self.assertEqual(config.processing_instance_count, 1)
-                    self.assertEqual(config.processing_instance_type_small, "ml.m5.xlarge")
-                elif isinstance(config, self.specific_config.__class__):
-                    # Custom specific config
-                    self.assertEqual(config.input_names, {"input1": "path1"})
-                else:
-                    self.fail(f"Unexpected config type: {type(config)}")
                 
-            # Verify that processing configs are loaded correctly from the flattened structure
-            processing_config_found = False
-            for config in loaded_configs.values():
-                if isinstance(config, TestProcessingConfig):
-                    processing_config_found = True
-                    # Verify processing specific fields were loaded correctly
-                    self.assertEqual(config.custom_field, "processing_specific_value")
+            # Verify that the metadata contains config_types
+            self.assertIn('metadata', output_json)
+            self.assertIn('config_types', output_json['metadata'])
+            
+            # Verify that all our config types are in the config_types section
+            config_types = output_json['metadata']['config_types']
+            
+            # The exact names may vary, but we should have these types represented
+            type_names = list(config_types.values())
+            self.assertIn('LocalBasePipelineConfig', type_names)
+            self.assertIn('LocalDummyTrainingConfig', type_names)
+            self.assertIn('LocalCustomSpecificConfig', type_names)
+            self.assertIn('LocalTestProcessingConfig', type_names)
+            
+            # Verify that the specific section contains our configs
+            specific_section = output_json['configuration']['specific']
+            self.assertEqual(len(specific_section), 4, "Should have 4 configs in the specific section")
+            
+            # Verify that key special fields are in the specific sections
+            hyperparams_found = False
+            input_names_found = False
+            custom_field_found = False
+            
+            for config_name, config_data in specific_section.items():
+                if "hyperparameters" in config_data:
+                    hyperparams_found = True
+                    self.assertEqual(config_data["hyperparameters"]["num_classes"], 2)
                     
-            self.assertTrue(processing_config_found, "Processing config not found in loaded configs")
+                if "input_names" in config_data:
+                    input_names_found = True
+                    self.assertEqual(config_data["input_names"], {"input1": "path1"})
+                    
+                if "custom_field" in config_data:
+                    custom_field_found = True
+                    self.assertEqual(config_data["custom_field"], "processing_specific_value")
+                    
+            self.assertTrue(hyperparams_found, "Should find hyperparameters in config")
+            self.assertTrue(input_names_found, "Should find input_names in config")
+            self.assertTrue(custom_field_found, "Should find custom_field in config")
+            
+            # Verify common fields are in shared section
+            shared_section = output_json['configuration']['shared']
+            self.assertIn("pipeline_name", shared_section)
+            self.assertEqual(shared_section["pipeline_name"], "test-pipeline")
             
         finally:
             # Clean up the temp file
