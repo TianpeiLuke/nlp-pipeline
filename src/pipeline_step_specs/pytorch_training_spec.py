@@ -43,7 +43,7 @@ PYTORCH_TRAINING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="data_output",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
+            property_path="properties.TrainingJobOutput.S3Output",
             data_type="S3Uri",
             description="Training evaluation results and predictions"
         )

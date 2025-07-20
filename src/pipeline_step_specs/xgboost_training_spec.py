@@ -50,7 +50,7 @@ XGBOOST_TRAINING_SPEC = StepSpecification(
         OutputSpec(
             logical_name="evaluation_output",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="properties.TrainingJobDefinition.OutputDataConfig.S3OutputPath",
+            property_path="properties.TrainingJobOutput.S3Output",
             data_type="S3Uri",
             description="Model evaluation results and predictions (val.tar.gz, test.tar.gz)"
         )
