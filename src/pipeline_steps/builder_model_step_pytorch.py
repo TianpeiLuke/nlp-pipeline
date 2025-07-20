@@ -5,6 +5,7 @@ import logging
 from sagemaker.workflow.steps import CreateModelStep, Step
 from sagemaker.pytorch import PyTorchModel
 from sagemaker.model import Model
+from sagemaker import image_uris
 
 from .config_model_step_pytorch import PyTorchModelStepConfig
 from .builder_step_base import StepBuilderBase
@@ -84,14 +85,37 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
                 raise ValueError(f"PyTorchModelStepConfig missing required attribute: {attr}")
         
-        # If not using PyTorch framework, image_uri is required
-        if hasattr(self.config, 'use_pytorch_framework') and not self.config.use_pytorch_framework:
-            if not hasattr(self.config, "image_uri") or not self.config.image_uri:
-                raise ValueError("image_uri must be provided when use_pytorch_framework is False")
-        
         self.log_info("PyTorchModelStepConfig validation succeeded.")
 
-    def _create_pytorch_model(self, model_data: str) -> PyTorchModel:
+    def _get_image_uri(self) -> str:
+        """
+        Generate the appropriate SageMaker PyTorch container image URI.
+        Uses the SageMaker SDK's built-in image_uris.retrieve function.
+        Forces the region to us-east-1 regardless of the configured region.
+        
+        Returns:
+            A string containing the image URI for the PyTorch container.
+        """
+        # Get region from configuration but enforce us-east-1
+        region = getattr(self.config, "aws_region", "us-east-1")
+        if region != "us-east-1":
+            self.log_info(f"Region '{region}' specified, but forcing to 'us-east-1' due to environment limitations")
+        region = "us-east-1"
+        
+        # Retrieve the image URI using SageMaker SDK
+        image_uri = image_uris.retrieve(
+            framework="pytorch",
+            region=region,
+            version=self.config.framework_version,
+            py_version=self.config.py_version,
+            instance_type=self.config.instance_type,
+            image_scope="inference"
+        )
+        
+        self.log_info(f"Generated PyTorch image URI: {image_uri}")
+        return image_uri
+
+    def _create_model(self, model_data: str) -> PyTorchModel:
         """
         Creates and configures the PyTorchModel.
         This defines the model that will be deployed, including the model artifacts,
@@ -103,6 +127,9 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         Returns:
             An instance of sagemaker.pytorch.PyTorchModel.
         """
+        # Generate the image URI automatically
+        image_uri = self._get_image_uri()
+            
         return PyTorchModel(
             model_data=model_data,
             role=self.role,
@@ -110,26 +137,7 @@ class PyTorchModelStepBuilder(StepBuilderBase):
             source_dir=self.config.source_dir,
             framework_version=self.config.framework_version,
             py_version=self.config.py_version,
-            image_uri=getattr(self.config, "image_uri", None),
-            sagemaker_session=self.session,
-            env=self._get_environment_variables(),
-        )
-
-    def _create_model(self, model_data: str) -> Model:
-        """
-        Creates and configures a generic SageMaker Model.
-        This is used when a custom image URI is provided instead of using the PyTorch framework.
-
-        Args:
-            model_data: The S3 URI of the model artifacts.
-
-        Returns:
-            An instance of sagemaker.model.Model.
-        """
-        return Model(
-            image_uri=self.config.image_uri,
-            model_data=model_data,
-            role=self.role,
+            image_uri=image_uri,
             sagemaker_session=self.session,
             env=self._get_environment_variables(),
         )
@@ -221,10 +229,7 @@ class PyTorchModelStepBuilder(StepBuilderBase):
         model_data_value = model_inputs['model_data']
 
         # Create the model
-        if hasattr(self.config, 'use_pytorch_framework') and self.config.use_pytorch_framework:
-            model = self._create_pytorch_model(model_data_value)
-        else:
-            model = self._create_model(model_data_value)
+        model = self._create_model(model_data_value)
 
         step_name = self._get_step_name()
         

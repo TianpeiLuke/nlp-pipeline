@@ -31,18 +31,6 @@ class XGBoostModelStepConfig(BasePipelineConfig):
         description="Python version for the SageMaker XGBoost container."
     )
     
-    # Flag to indicate whether to use XGBoost framework or custom container
-    use_xgboost_framework: bool = Field(
-        default=True, 
-        description="Whether to use XGBoost framework or custom container."
-    )
-    
-    # Custom image URI for the model (required if use_xgboost_framework is False)
-    image_uri: Optional[str] = Field(
-        default=None, 
-        description="Custom image URI for the model."
-    )
-    
     # Accelerator type for inference
     accelerator_type: Optional[str] = Field(
         default=None, 
@@ -110,11 +98,6 @@ class XGBoostModelStepConfig(BasePipelineConfig):
         self._validate_timeouts()
         self._validate_entry_point()
         self._validate_framework_version()
-        
-        # Validate image_uri if not using XGBoost framework
-        if not self.use_xgboost_framework and not self.image_uri:
-            raise ValueError("image_uri must be provided when use_xgboost_framework is False")
-            
         return self
 
 

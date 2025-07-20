@@ -19,12 +19,6 @@ class PyTorchModelStepConfig(BasePipelineConfig): # Renamed from PytorchModelCre
     framework_version: str = Field(default="1.12.0", description="SageMaker PyTorch framework version.")
     py_version: str = Field(default="py38", description="Python version for the SageMaker PyTorch container.")
     
-    # Flag to indicate whether to use PyTorch framework or custom container
-    use_pytorch_framework: bool = Field(default=True, description="Whether to use PyTorch framework or custom container.")
-    
-    # Custom image URI for the model (required if use_pytorch_framework is False)
-    image_uri: Optional[str] = Field(default=None, description="Custom image URI for the model.")
-    
     # Accelerator type for inference
     accelerator_type: Optional[str] = Field(default=None, description="Accelerator type for inference endpoint.")
     
@@ -53,11 +47,6 @@ class PyTorchModelStepConfig(BasePipelineConfig): # Renamed from PytorchModelCre
         self._validate_memory_constraints()
         self._validate_timeouts()
         self._validate_entry_point()
-        
-        # Validate image_uri if not using PyTorch framework
-        if not self.use_pytorch_framework and not self.image_uri:
-            raise ValueError("image_uri must be provided when use_pytorch_framework is False")
-            
         return self
 
 
