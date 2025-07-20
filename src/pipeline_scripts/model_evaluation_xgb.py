@@ -238,8 +238,10 @@ def save_metrics(metrics, output_metrics_dir):
         # Write key metrics at the top
         if "auc_roc" in metrics:  # Binary classification
             f.write(f"AUC-ROC:           {metrics['auc_roc']:.4f}\n")
-            f.write(f"Average Precision: {metrics['average_precision']:.4f}\n")
-            f.write(f"F1 Score:          {metrics['f1_score']:.4f}\n")
+            if 'average_precision' in metrics:
+                f.write(f"Average Precision: {metrics['average_precision']:.4f}\n")
+            if 'f1_score' in metrics:
+                f.write(f"F1 Score:          {metrics['f1_score']:.4f}\n")
         else:  # Multiclass classification
             f.write(f"AUC-ROC (Macro):   {metrics.get('auc_roc_macro', 'N/A'):.4f}\n")
             f.write(f"AUC-ROC (Micro):   {metrics.get('auc_roc_micro', 'N/A'):.4f}\n")

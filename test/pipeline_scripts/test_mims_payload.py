@@ -110,9 +110,9 @@ class TestMimsPayloadHelpers(unittest.TestCase):
         }
         self._create_hyperparameters_tarball(test_hyperparams)
         
-        # Patch the constants to use our test directories
-        with patch('src.pipeline_scripts.mims_payload.INPUT_MODEL_DIR', str(self.input_model_dir)), \
-             patch('src.pipeline_scripts.mims_payload.WORKING_DIRECTORY', str(self.working_dir)):
+        # Patch the module-level constants to use our test directories
+        with patch.object(sys.modules['src.pipeline_scripts.mims_payload'], 'INPUT_MODEL_DIR', str(self.input_model_dir)), \
+             patch.object(sys.modules['src.pipeline_scripts.mims_payload'], 'WORKING_DIRECTORY', Path(str(self.working_dir))):
             
             # Extract the hyperparameters
             hyperparams = extract_hyperparameters_from_tarball()
@@ -397,11 +397,10 @@ class TestMimsPayloadMainFlow(unittest.TestCase):
         }
         
         # Patch the constants and environment variables
-        with patch('src.pipeline_scripts.mims_payload.INPUT_MODEL_DIR', str(self.input_model_dir)), \
-             patch('src.pipeline_scripts.mims_payload.OUTPUT_DIR', str(self.output_dir)), \
-             patch('src.pipeline_scripts.mims_payload.PAYLOAD_SAMPLE_DIR', str(self.payload_sample_dir)), \
-             patch('src.pipeline_scripts.mims_payload.PAYLOAD_METADATA_DIR', str(self.payload_metadata_dir)), \
-             patch('src.pipeline_scripts.mims_payload.WORKING_DIRECTORY', str(self.working_dir)), \
+        with patch.object(sys.modules['src.pipeline_scripts.mims_payload'], 'INPUT_MODEL_DIR', str(self.input_model_dir)), \
+             patch.object(sys.modules['src.pipeline_scripts.mims_payload'], 'OUTPUT_DIR', Path(str(self.output_dir))), \
+             patch.object(sys.modules['src.pipeline_scripts.mims_payload'], 'PAYLOAD_SAMPLE_DIR', Path(str(self.payload_sample_dir))), \
+             patch.object(sys.modules['src.pipeline_scripts.mims_payload'], 'WORKING_DIRECTORY', Path(str(self.working_dir))), \
              patch.dict('os.environ', env_vars, clear=True):
             
             # Run the main function
@@ -409,7 +408,6 @@ class TestMimsPayloadMainFlow(unittest.TestCase):
             
             # Check that output directories were created
             self.assertTrue(os.path.exists(self.payload_sample_dir))
-            self.assertTrue(os.path.exists(self.payload_metadata_dir))
             
             # Check that payload files were created
             csv_files = list(self.payload_sample_dir.glob("*csv*"))
@@ -417,18 +415,9 @@ class TestMimsPayloadMainFlow(unittest.TestCase):
             self.assertGreaterEqual(len(csv_files), 1)
             self.assertGreaterEqual(len(json_files), 1)
             
-            # Check that metadata file was created
-            metadata_file = self.payload_metadata_dir / "payload_metadata.json"
-            self.assertTrue(os.path.exists(metadata_file))
-            
-            # Check metadata content
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-                self.assertEqual(metadata["pipeline_name"], "test_pipeline")
-                self.assertEqual(metadata["pipeline_version"], "1.0.0")
-                self.assertEqual(metadata["model_objective"], "test_objective")
-                self.assertIn("input_var_list", metadata)
-                self.assertIn("content_types", metadata)
+            # Check that payload archive was created
+            archive_path = self.output_dir / "payload.tar.gz"
+            self.assertTrue(os.path.exists(archive_path))
 
     def test_main_flow_missing_model_tarball(self):
         """Test the main flow when the model.tar.gz file is missing."""
@@ -438,7 +427,6 @@ class TestMimsPayloadMainFlow(unittest.TestCase):
         with patch('src.pipeline_scripts.mims_payload.INPUT_MODEL_DIR', str(self.input_model_dir)), \
              patch('src.pipeline_scripts.mims_payload.OUTPUT_DIR', str(self.output_dir)), \
              patch('src.pipeline_scripts.mims_payload.PAYLOAD_SAMPLE_DIR', str(self.payload_sample_dir)), \
-             patch('src.pipeline_scripts.mims_payload.PAYLOAD_METADATA_DIR', str(self.payload_metadata_dir)), \
              patch('src.pipeline_scripts.mims_payload.WORKING_DIRECTORY', str(self.working_dir)):
             
             # Run the main function and expect an exception
@@ -459,7 +447,6 @@ class TestMimsPayloadMainFlow(unittest.TestCase):
         with patch('src.pipeline_scripts.mims_payload.INPUT_MODEL_DIR', str(self.input_model_dir)), \
              patch('src.pipeline_scripts.mims_payload.OUTPUT_DIR', str(self.output_dir)), \
              patch('src.pipeline_scripts.mims_payload.PAYLOAD_SAMPLE_DIR', str(self.payload_sample_dir)), \
-             patch('src.pipeline_scripts.mims_payload.PAYLOAD_METADATA_DIR', str(self.payload_metadata_dir)), \
              patch('src.pipeline_scripts.mims_payload.WORKING_DIRECTORY', str(self.working_dir)):
             
             # Run the main function and expect an exception
