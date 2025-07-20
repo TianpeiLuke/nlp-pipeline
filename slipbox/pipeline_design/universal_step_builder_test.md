@@ -2,6 +2,9 @@
 
 This document outlines the design and implementation of a standardized, universal test suite for validating step builder classes. The universal test serves as a quality gate to ensure that all step builders align with architectural standards and can seamlessly integrate into the specification-driven pipeline system.
 
+> **Related Documentation**  
+> For the quality scoring system that extends this test framework, see [universal_step_builder_test_scoring.md](./universal_step_builder_test_scoring.md).
+
 ## Purpose
 
 The Universal Step Builder Test provides an automated validation mechanism that:
@@ -12,6 +15,19 @@ The Universal Step Builder Test provides an automated validation mechanism that:
 4. **Evaluates Environment Variable Processing** - Validates contract-driven environment variable management
 5. **Verifies Step Creation** - Tests that the builder produces valid and properly configured steps
 6. **Assesses Error Handling** - Confirms builders respond appropriately to invalid inputs
+7. **Validates Property Paths** - Ensures output property paths are valid and can be properly resolved
+
+## Core Components
+
+The universal test validates the step builder by examining its interaction with:
+
+1. **Step Builder Class** - The builder class being tested
+2. **Configuration** - Configuration objects for the builder
+3. **Step Specification** - The specification defining structure and dependencies
+4. **Script Contract** - The contract defining I/O paths and environment variables
+5. **Step Name** - Registry entry for the step
+
+These components collectively define the behavior of the step builder and must be properly integrated.
 
 ## Design Principles
 
@@ -40,6 +56,15 @@ class UniversalStepBuilderTest:
         tester = UniversalStepBuilderTest(XGBoostTrainingStepBuilder)
         tester.run_all_tests()
         
+        # Or test with explicit components
+        tester = UniversalStepBuilderTest(
+            XGBoostTrainingStepBuilder,
+            config=custom_config,
+            spec=CUSTOM_SPEC,
+            contract=CUSTOM_CONTRACT,
+            step_name="CustomStepName"
+        )
+        
         # Or register with pytest
         @pytest.mark.parametrize("builder_class", [
             XGBoostTrainingStepBuilder,
@@ -51,9 +76,32 @@ class UniversalStepBuilderTest:
             tester.run_all_tests()
     """
     
-    def __init__(self, builder_class):
-        """Initialize with the step builder class to test."""
+    def __init__(
+        self, 
+        builder_class, 
+        config=None,
+        spec=None,
+        contract=None,
+        step_name=None,
+        verbose=False
+    ):
+        """
+        Initialize with explicit components.
+        
+        Args:
+            builder_class: The step builder class to test
+            config: Optional config to use (will create mock if not provided)
+            spec: Optional step specification (will extract from builder if not provided)
+            contract: Optional script contract (will extract from builder if not provided)
+            step_name: Optional step name (will extract from class name if not provided)
+            verbose: Whether to print verbose output
+        """
         self.builder_class = builder_class
+        self._provided_config = config
+        self._provided_spec = spec
+        self._provided_contract = contract
+        self._provided_step_name = step_name
+        self.verbose = verbose
         self._setup_test_environment()
     
     def run_all_tests(self):
@@ -63,9 +111,12 @@ class UniversalStepBuilderTest:
             self.test_required_methods,
             self.test_specification_usage,
             self.test_contract_alignment,
+            self.test_input_path_mapping,
+            self.test_output_path_mapping,
             self.test_environment_variable_handling,
             self.test_dependency_resolution,
             self.test_step_creation,
+            self.test_property_path_validity,
             self.test_error_handling
         ]
         
@@ -241,6 +292,109 @@ def test_contract_alignment(self):
             )
 ```
 
+### 5. Input Path Mapping Test
+
+Verifies that the builder correctly maps specification dependencies to script contract paths:
+
+```python
+def test_input_path_mapping(self):
+    """Test that the builder correctly maps specification dependencies to script contract paths."""
+    # Create instance with mock config
+    builder = self._create_builder_instance()
+    
+    # Create sample inputs dictionary
+    inputs = {}
+    for dep_name, dep_spec in builder.spec.dependencies.items():
+        logical_name = dep_spec.logical_name
+        inputs[logical_name] = f"s3://bucket/test/{logical_name}"
+    
+    # Get inputs from the builder
+    try:
+        processing_inputs = builder._get_inputs(inputs)
+        
+        # Check that each input has the correct structure
+        for proc_input in processing_inputs:
+            # Check that this is a valid input object (ProcessingInput, TrainingInput, etc.)
+            self._assert(
+                hasattr(proc_input, "source") or hasattr(proc_input, "s3_data"),
+                f"Processing input must have source or s3_data attribute"
+            )
+            
+            # Check that the input has an input_name or channel_name attribute
+            has_name = (hasattr(proc_input, "input_name") or
+                       hasattr(proc_input, "channel_name"))
+            self._assert(
+                has_name,
+                f"Processing input must have input_name or channel_name attribute"
+            )
+            
+            # If it has a destination attribute, check that it matches a path in the contract
+            if hasattr(proc_input, "destination"):
+                destination = proc_input.destination
+                self._assert(
+                    any(path == destination for path in builder.contract.expected_input_paths.values()),
+                    f"Input destination {destination} must match a path in the contract"
+                )
+    except Exception as e:
+        self._assert(
+            False,
+            f"Error getting inputs: {str(e)}"
+        )
+```
+
+### 6. Output Path Mapping Test
+
+Verifies that the builder correctly maps specification outputs to script contract paths:
+
+```python
+def test_output_path_mapping(self):
+    """Test that the builder correctly maps specification outputs to script contract paths."""
+    # Create instance with mock config
+    builder = self._create_builder_instance()
+    
+    # Create sample outputs dictionary
+    outputs = {}
+    for out_name, out_spec in builder.spec.outputs.items():
+        logical_name = out_spec.logical_name
+        outputs[logical_name] = f"s3://bucket/test/{logical_name}"
+    
+    # Get outputs from the builder
+    try:
+        processing_outputs = builder._get_outputs(outputs)
+        
+        # Check that each output has the correct structure
+        for proc_output in processing_outputs:
+            # Check that this is a valid output object
+            self._assert(
+                hasattr(proc_output, "source"),
+                f"Processing output must have source attribute"
+            )
+            
+            # Check that the output has an output_name attribute
+            self._assert(
+                hasattr(proc_output, "output_name"),
+                f"Processing output must have output_name attribute"
+            )
+            
+            # Check that the source attribute matches a path in the contract
+            source = proc_output.source
+            self._assert(
+                any(path == source for path in builder.contract.expected_output_paths.values()),
+                f"Output source {source} must match a path in the contract"
+            )
+            
+            # Check that the destination attribute is set correctly
+            self._assert(
+                hasattr(proc_output, "destination"),
+                f"Processing output must have destination attribute"
+            )
+    except Exception as e:
+        self._assert(
+            False,
+            f"Error getting outputs: {str(e)}"
+        )
+```
+
 ### 5. Environment Variable Handling Test
 
 Verifies that the builder correctly handles environment variables:
@@ -302,7 +456,7 @@ def test_dependency_resolution(self):
         self.fail(f"Dependency resolution failed: {str(e)}")
 ```
 
-### 7. Step Creation Test
+### 9. Step Creation Test
 
 Verifies that the builder correctly creates a step:
 
@@ -339,11 +493,75 @@ def test_step_creation(self):
             hasattr(step, 'name'),
             "Step must have name attribute"
         )
+        
+        # Verify step is a SageMaker Step
+        from sagemaker.workflow.steps import Step as SageMakerStep
+        self.assertTrue(
+            isinstance(step, SageMakerStep),
+            "Step must be a SageMaker Step instance"
+        )
+        
+        # Verify step has correct name derived from step name registry
+        if hasattr(builder, '_get_step_name'):
+            expected_name = builder._get_step_name()
+            self.assertEqual(
+                step.name, expected_name,
+                f"Step name must match expected name from registry: {expected_name}"
+            )
     except Exception as e:
         self.fail(f"Step creation failed: {str(e)}")
 ```
 
-### 8. Error Handling Test
+### 10. Property Path Validity Test
+
+Verifies that output specification property paths are valid:
+
+```python
+def test_property_path_validity(self):
+    """Test that output specification property paths are valid."""
+    # Create instance with mock config
+    builder = self._create_builder_instance()
+    
+    # Get property reference parser
+    from src.pipeline_deps.property_reference import PropertyReference
+    
+    # Check each output specification
+    if hasattr(builder.spec, 'outputs'):
+        for output_name, output_spec in builder.spec.outputs.items():
+            # Check that property path exists
+            self._assert(
+                hasattr(output_spec, 'property_path') and output_spec.property_path,
+                f"Output {output_name} must have a property_path"
+            )
+            
+            # Create dummy property reference
+            prop_ref = PropertyReference(
+                step_name="TestStep",
+                output_spec=output_spec
+            )
+            
+            # Attempt to parse property path
+            try:
+                path_parts = prop_ref._parse_property_path(output_spec.property_path)
+                self._assert(
+                    isinstance(path_parts, list) and len(path_parts) > 0,
+                    f"Property path '{output_spec.property_path}' must be parseable"
+                )
+                
+                # Check that the path can be converted to SageMaker property
+                sagemaker_prop = prop_ref.to_sagemaker_property()
+                self._assert(
+                    isinstance(sagemaker_prop, dict) and "Get" in sagemaker_prop,
+                    f"Property path must be convertible to SageMaker property"
+                )
+            except Exception as e:
+                self._assert(
+                    False,
+                    f"Error parsing property path '{output_spec.property_path}': {str(e)}"
+                )
+```
+
+### 11. Error Handling Test
 
 Verifies that the builder handles errors appropriately:
 
@@ -397,21 +615,33 @@ def _setup_test_environment(self):
         dep: MagicMock() for dep in self._get_expected_dependencies()
     }
     
-def _create_builder_instance(self):
-    """Create a builder instance with mock configuration."""
-    # Create mock configuration
-    mock_config = self._create_mock_config()
-    
-    # Create builder instance
-    builder = self.builder_class(
-        config=mock_config,
-        sagemaker_session=self.mock_session,
-        role=self.mock_role,
-        registry_manager=self.mock_registry_manager,
-        dependency_resolver=self.mock_dependency_resolver
-    )
-    
-    return builder
+    def _create_builder_instance(self):
+        """Create a builder instance with mock configuration."""
+        # Use provided config or create mock configuration
+        config = self._provided_config if self._provided_config else self._create_mock_config()
+        
+        # Create builder instance
+        builder = self.builder_class(
+            config=config,
+            sagemaker_session=self.mock_session,
+            role=self.mock_role,
+            registry_manager=self.mock_registry_manager,
+            dependency_resolver=self.mock_dependency_resolver
+        )
+        
+        # If specification was provided, set it on the builder
+        if self._provided_spec:
+            builder.spec = self._provided_spec
+            
+        # If contract was provided, set it on the builder
+        if self._provided_contract:
+            builder.contract = self._provided_contract
+            
+        # If step name was provided, override the builder's _get_step_name method
+        if self._provided_step_name:
+            builder._get_step_name = lambda *args, **kwargs: self._provided_step_name
+        
+        return builder
 
 def _create_mock_config(self):
     """Create a mock configuration for the builder."""
@@ -442,7 +672,7 @@ def _add_builder_specific_config(self, mock_config):
 
 ## Test Execution
 
-The universal test can be executed in two ways:
+The universal test can be executed in three ways:
 
 ### 1. Standalone Usage
 
@@ -461,7 +691,34 @@ for test_name, result in results.items():
         print(f"❌ {test_name} FAILED: {result['error']}")
 ```
 
-### 2. Pytest Integration
+### 2. With Explicit Components
+
+```python
+from src.pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
+from src.pipeline_step_specs.xgboost_training_spec import XGBOOST_TRAINING_SPEC
+from src.pipeline_script_contracts.xgboost_train_contract import XGBOOST_TRAIN_CONTRACT
+from src.pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
+from test.pipeline_steps.universal_step_builder_test import UniversalStepBuilderTest
+
+# Create a custom configuration
+config = XGBoostTrainingConfig(
+    region='NA',
+    pipeline_name='test-pipeline',
+    # Add other required attributes
+)
+
+# Test with explicit components
+tester = UniversalStepBuilderTest(
+    XGBoostTrainingStepBuilder,
+    config=config,
+    spec=XGBOOST_TRAINING_SPEC,
+    contract=XGBOOST_TRAIN_CONTRACT,
+    step_name='CustomXGBoostTrainingStep'
+)
+results = tester.run_all_tests()
+```
+
+### 3. Pytest Integration
 
 ```python
 import pytest
