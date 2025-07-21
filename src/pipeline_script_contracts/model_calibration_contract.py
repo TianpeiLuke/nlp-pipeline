@@ -10,9 +10,7 @@ from .base_script_contract import ScriptContract
 MODEL_CALIBRATION_CONTRACT = ScriptContract(
     entry_point="model_calibration.py",
     expected_input_paths={
-        "evaluation_data": "/opt/ml/processing/input/eval_data",
-        "model_artifacts": "/opt/ml/processing/input/model",
-        "code": "/opt/ml/processing/input/code"
+        "evaluation_data": "/opt/ml/processing/input/eval_data"
     },
     expected_output_paths={
         "calibration_output": "/opt/ml/processing/output/calibration",
@@ -45,8 +43,6 @@ MODEL_CALIBRATION_CONTRACT = ScriptContract(
     
     Input Structure:
     - /opt/ml/processing/input/eval_data: Evaluation dataset with ground truth labels and model predictions
-    - /opt/ml/processing/input/model: Trained model artifacts for reference
-    - /opt/ml/processing/input/code: Custom code dependencies
     
     Output Structure:
     - /opt/ml/processing/output/calibration: Calibration mapping and artifacts

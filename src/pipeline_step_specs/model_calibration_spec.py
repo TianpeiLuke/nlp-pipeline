@@ -30,24 +30,6 @@ MODEL_CALIBRATION_SPEC = StepSpecification(
             semantic_keywords=["evaluation", "predictions", "scores", "validation", "test", "results", "model_output", "performance", "inference", "output_data", "prediction_results"],
             data_type="S3Uri",
             description="Evaluation dataset with ground truth labels and model predictions"
-        ),
-        "model_artifacts": DependencySpec(
-            logical_name="model_artifacts",
-            dependency_type=DependencyType.MODEL_ARTIFACTS,
-            required=True,
-            compatible_sources=["XGBoostTraining", "TrainingStep", "ModelStep", "ModelTraining", "TrainModel"],
-            semantic_keywords=["model", "artifacts", "trained", "binary", "weights", "parameters", "estimator", "classifier", "regressor", "predictor"],
-            data_type="S3Uri",
-            description="Trained model artifacts for reference"
-        ),
-        "code": DependencySpec(
-            logical_name="code",
-            dependency_type=DependencyType.CUSTOM_PROPERTY,
-            required=False,
-            compatible_sources=["ProcessingStep", "ScriptStep", "CustomStep"],
-            semantic_keywords=["code", "script", "module", "dependency"],
-            data_type="String",
-            description="Custom code dependencies for calibration"
         )
     },
     outputs={

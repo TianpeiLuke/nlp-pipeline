@@ -12,12 +12,10 @@ import sys
 import json
 import logging
 import traceback
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple, Union, Callable
+from typing import Dict, List, Any, Optional
 
 import numpy as np
 import pandas as pd
-import pickle
 import joblib
 import matplotlib.pyplot as plt
 from sklearn.isotonic import IsotonicRegression
@@ -39,8 +37,6 @@ logger = logging.getLogger(__name__)
 
 # Define paths from contract
 INPUT_DATA_PATH = "/opt/ml/processing/input/eval_data"
-INPUT_MODEL_PATH = "/opt/ml/processing/input/model"
-INPUT_CODE_PATH = "/opt/ml/processing/input/code"
 OUTPUT_CALIBRATION_PATH = "/opt/ml/processing/output/calibration"
 OUTPUT_METRICS_PATH = "/opt/ml/processing/output/metrics"
 OUTPUT_CALIBRATED_DATA_PATH = "/opt/ml/processing/output/calibrated_data"
@@ -72,11 +68,13 @@ def find_first_data_file(data_dir: str) -> str:
         FileNotFoundError: If no supported data file is found
     """
     if not os.path.isdir(data_dir):
-        return None
+        raise FileNotFoundError(f"Directory does not exist: {data_dir}")
+    
     for fname in sorted(os.listdir(data_dir)):
         if fname.lower().endswith((".csv", ".parquet", ".json")):
             return os.path.join(data_dir, fname)
-    return None
+    
+    raise FileNotFoundError(f"No supported data file (.csv, .parquet, .json) found in {data_dir}")
 
 def load_data():
     """Load evaluation data with predictions.
@@ -89,8 +87,6 @@ def load_data():
         ValueError: If required columns are missing
     """
     data_file = find_first_data_file(INPUT_DATA_PATH)
-    if not data_file:
-        raise FileNotFoundError(f"No data file found in {INPUT_DATA_PATH}")
     
     logger.info(f"Loading data from {data_file}")
     if data_file.endswith('.parquet'):
@@ -109,19 +105,6 @@ def load_data():
     logger.info(f"Loaded data with shape {df.shape}")
     return df
 
-def load_model_info():
-    """Load model information if available.
-    
-    Returns:
-        Dict: Model hyperparameters and metadata
-    """
-    hyperparams_path = os.path.join(INPUT_MODEL_PATH, "hyperparameters.json")
-    model_info = {}
-    if os.path.exists(hyperparams_path):
-        with open(hyperparams_path, "r") as f:
-            model_info = json.load(f)
-            logger.info(f"Loaded model hyperparameters from {hyperparams_path}")
-    return model_info
 
 def train_gam_calibration(scores: np.ndarray, labels: np.ndarray):
     """Train a GAM calibration model with optional monotonicity constraints.
@@ -336,9 +319,8 @@ def main():
         # Create output directories
         create_directories()
         
-        # Load data and model info
+        # Load data
         df = load_data()
-        model_info = load_model_info()
         
         # Extract features and target
         y_true = df[LABEL_FIELD].values
