@@ -421,7 +421,7 @@ from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.functions import Join
 from sagemaker.s3 import S3Uploader
 
-from .config_dummy_training import DummyTrainingConfig
+from .config_dummy_training_step import DummyTrainingConfig
 from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
 from ..pipeline_deps.registry_manager import RegistryManager
@@ -661,8 +661,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.pipeline_steps.builder_dummy_training import DummyTrainingStepBuilder
-from src.pipeline_steps.config_dummy_training import DummyTrainingConfig
+from src.pipeline_steps.builder_dummy_training_step import DummyTrainingStepBuilder
+from src.pipeline_steps.config_dummy_training_step import DummyTrainingConfig
 from src.pipeline_step_specs.dummy_training_spec import DUMMY_TRAINING_SPEC
 from src.pipeline_deps.base_specifications import DependencyType
 

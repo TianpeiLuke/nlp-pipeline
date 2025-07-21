@@ -294,7 +294,7 @@ from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.functions import Join
 from sagemaker.s3 import S3Uploader
 
-from .config_dummy_training import DummyTrainingConfig
+from .config_dummy_training_step import DummyTrainingConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_step_specs.dummy_training_spec import DUMMY_TRAINING_SPEC
 

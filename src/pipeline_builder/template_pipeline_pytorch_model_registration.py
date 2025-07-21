@@ -66,14 +66,14 @@ except ImportError:
 # Import all configs
 from ..pipeline_steps.config_base import BasePipelineConfig
 from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
-from ..pipeline_steps.config_dummy_training import DummyTrainingConfig
+from ..pipeline_steps.config_dummy_training_step import DummyTrainingConfig
 from ..pipeline_steps.config_mims_packaging_step import PackageStepConfig
 from ..pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
 from ..pipeline_steps.config_mims_payload_step import PayloadConfig
 
 # Import step builders
 from ..pipeline_steps.builder_step_base import StepBuilderBase
-from ..pipeline_steps.builder_dummy_training import DummyTrainingStepBuilder
+from ..pipeline_steps.builder_dummy_training_step import DummyTrainingStepBuilder
 from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
 from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
 from ..pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder

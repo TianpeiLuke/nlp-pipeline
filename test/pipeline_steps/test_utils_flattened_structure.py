@@ -17,7 +17,7 @@ from src.pipeline_steps.utils import merge_and_save_configs, serialize_config
 from src.config_field_manager.constants import SPECIAL_FIELDS_TO_KEEP_SPECIFIC, CategoryType
 from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
-from src.pipeline_steps.config_dummy_training import DummyTrainingConfig
+from src.pipeline_steps.config_dummy_training_step import DummyTrainingConfig
 from src.pipeline_steps.hyperparameters_base import ModelHyperparameters
 
 

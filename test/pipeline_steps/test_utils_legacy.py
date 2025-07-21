@@ -18,7 +18,7 @@ from src.pipeline_steps.utils_legacy import serialize_config, _serialize, _is_li
 from src.pipeline_steps.utils_legacy import SPECIAL_FIELDS_TO_KEEP_SPECIFIC
 from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
-from src.pipeline_steps.config_dummy_training import DummyTrainingConfig
+from src.pipeline_steps.config_dummy_training_step import DummyTrainingConfig
 from src.pipeline_steps.hyperparameters_base import ModelHyperparameters
 
 
