@@ -25,6 +25,15 @@ All components must follow consistent naming conventions:
 | Config Classes | PascalCase + `Config` suffix | `DataLoadingConfig`, `XGBoostTrainingConfig` | `DataLoadingConfiguration`, `XGBoostConfig` |
 | Builder Classes | PascalCase + `StepBuilder` suffix | `DataLoadingStepBuilder`, `XGBoostTrainingStepBuilder` | `DataLoadingBuilder`, `XGBoostTrainer` |
 
+Additionally, all files must follow consistent naming patterns:
+
+| File Type | Pattern | Examples | Counter-Examples |
+|-----------|---------|----------|-----------------|
+| Step Builder Files | `builder_xxx_step.py` | `builder_data_loading_step.py`, `builder_xgboost_training_step.py` | `DataLoadingStepBuilder.py`, `xgboost_step_builder.py` |
+| Config Files | `config_xxx_step.py` | `config_data_loading_step.py`, `config_xgboost_training_step.py` | `DataLoadingConfig.py`, `xgboost_config.py` |
+| Step Specification Files | `xxx_spec.py` | `data_loading_spec.py`, `xgboost_training_spec.py` | `DataLoadingSpecification.py`, `spec_xgboost.py` |
+| Script Contract Files | `xxx_contract.py` | `data_loading_contract.py`, `xgboost_training_contract.py` | `DataLoadingContract.py`, `contract_xgboost.py` |
+
 This consistency helps with:
 - Auto-discovery of components
 - Code navigation

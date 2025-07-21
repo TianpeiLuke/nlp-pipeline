@@ -55,6 +55,7 @@ Perform a comprehensive validation of the implementation, with special emphasis 
    - Ensure comprehensive error handling and logging
    - Validate directory creation for output paths
    - Verify proper use of contract-based path access
+   - **Verify file naming convention** (xxx_contract.py) is followed
 
 2. **Contract Validation**
    - Validate contract structure and completeness
@@ -79,6 +80,7 @@ Perform a comprehensive validation of the implementation, with special emphasis 
    - Check resource configuration appropriateness for workload
    - Validate job type handling if applicable
    - Verify proper error handling and logging
+   - **Verify file naming convention** (builder_xxx_step.py) is followed
 
 5. **Registration Validation**
    - Verify step is properly registered in step_names.py
@@ -97,14 +99,40 @@ Perform a comprehensive validation of the implementation, with special emphasis 
    - Validate DAG connections and check for cyclic dependencies
 
 7. **Alignment Rules Adherence** (HIGH PRIORITY)
-   - Verify contract-to-specification logical name alignment
-   - Check output property paths correspond to specification outputs
-   - Ensure script paths use contract-defined paths exclusively
-   - Verify all contract paths are used consistently in the processing script
-   - Validate that builder passes configuration parameters according to the specification
-   - Check environment variables set in builder cover all required_env_vars from contract
-   - Verify script implementation uses contract paths correctly
-   - Analyze semantic matching potential between upstream/downstream steps
+   - **Script-Contract Path Alignment**:
+     - Verify all input paths in the script match paths in contract's expected_input_paths
+     - Verify all output paths in the script match paths in contract's expected_output_paths
+     - Check that constants for paths (if used) maintain consistency with contract
+   
+   - **Contract-Specification Logical Name Alignment**:
+     - Verify contract logical names exactly match specification logical names
+     - Check alignment between contract.expected_input_paths keys and spec dependencies logical_name
+     - Check alignment between contract.expected_output_paths keys and spec outputs logical_name
+   
+   - **Specification-Dependency Integration**:
+     - Ensure dependency types in specification match expected upstream output types
+     - Verify semantic keywords in specification cover relevant concepts for matching
+     - Check that alias lists enhance discoverability and matching potential
+   
+   - **Builder-Contract Integration**:
+     - Verify builder correctly resolves contract paths from logical names in _get_inputs
+     - Verify builder correctly resolves contract paths from logical names in _get_outputs
+     - Check builder handles all logical names from the specification
+
+   - **Config-Builder Parameter Passing**:
+     - Verify configuration parameters correctly flow to the SageMaker step parameters
+     - Check environment variables set in builder cover all required_env_vars from contract
+     - Ensure proper propagation of step-specific settings (e.g., job_type)
+
+   - **Constants and File Naming Consistency**:
+     - Verify consistent file naming across script, builder, and contract
+     - Check for use of constants for filenames to ensure naming consistency 
+     - Ensure consistent directory structure assumptions
+   
+   - **Cross-Component Flow Analysis**:
+     - Map the complete flow from configuration to builder to execution
+     - Analyze how logical names transform through the pipeline stages
+     - Verify proper handling of special cases (e.g., hyperparameters override)
 
 8. **Common Pitfalls Check**
    - Check for hardcoded paths instead of contract references
@@ -265,6 +293,11 @@ Present your validation results in the following format, giving special attentio
   - [✓/✗] Logical names use snake_case
   - [✓/✗] Config classes use PascalCase with Config suffix
   - [✓/✗] Builder classes use PascalCase with StepBuilder suffix
+  - [✓/✗] File naming conventions followed:
+    - Step builder files: builder_xxx_step.py
+    - Config files: config_xxx_step.py
+    - Step specification files: xxx_spec.py
+    - Script contract files: xxx_contract.py
   - Issues:
     - [Critical/Minor] [Description of issue]
     - ...

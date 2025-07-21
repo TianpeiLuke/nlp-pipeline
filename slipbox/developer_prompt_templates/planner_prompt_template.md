@@ -69,11 +69,11 @@ Present your plan in the following format:
   - Outputs: [List output specs with property paths]
   - Job type variants: [List any variants needed]
   
-- Configuration: src/pipeline_steps/config_[name].py
+- Configuration: src/pipeline_steps/config_[name]_step.py
   - Step-specific parameters: [List parameters with defaults]
   - SageMaker parameters: [List instance type, count, etc.]
   
-- Step Builder: src/pipeline_steps/builder_[name].py
+- Step Builder: src/pipeline_steps/builder_[name]_step.py
   - Special handling: [Any special logic needed]
   
 - Processing Script: src/pipeline_scripts/[name].py

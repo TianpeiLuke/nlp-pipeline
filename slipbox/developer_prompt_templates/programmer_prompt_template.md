@@ -64,13 +64,13 @@ Create implementation files in the following locations, ensuring complete adhere
    - Make property paths consistent with SageMaker standards
 
 3. **Configuration**
-   - Location: `src/pipeline_steps/config_[name].py`
+   - Location: `src/pipeline_steps/config_[name]_step.py`
    - Implement the config class with all parameters specified in the plan
    - Inherit from the appropriate base config class
    - Implement required methods like get_script_contract()
 
 4. **Step Builder**
-   - Location: `src/pipeline_steps/builder_[name].py`
+   - Location: `src/pipeline_steps/builder_[name]_step.py`
    - Implement the builder class following the StepBuilderBase pattern
    - Create methods for handling inputs, outputs, processor creation, and step creation
    - Ensure proper error handling and validation
