@@ -131,6 +131,14 @@ STEP_NAMES = {
         "builder_step_name": "HyperparameterPrepStep",
         "spec_type": "HyperparameterPrep",
         "description": "Hyperparameter preparation step"
+    },
+    
+    # Model Calibration Steps
+    "ModelCalibration": {
+        "config_class": "ModelCalibrationConfig",
+        "builder_step_name": "ModelCalibrationStepBuilder",
+        "spec_type": "ModelCalibration",
+        "description": "Calibrates model prediction scores to accurate probabilities"
     }
 }
 
