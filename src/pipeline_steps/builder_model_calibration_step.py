@@ -10,7 +10,8 @@ import logging
 from typing import Dict, List, Any, Optional, Union, Set
 from pathlib import Path
 
-from sagemaker.processing import ProcessingInput, ProcessingOutput, ScriptProcessor
+from sagemaker.processing import ProcessingInput, ProcessingOutput
+from sagemaker.sklearn import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep
 from sagemaker.workflow.entities import PipelineVariable
 
@@ -309,7 +310,37 @@ class ModelCalibrationStepBuilder(StepBuilderBase):
             if self._detect_circular_references(input_value):
                 raise ValueError(f"Circular reference detected in input '{input_name}'")
             
-        return self._get_spec_driven_processor_inputs(inputs)
+        processing_inputs = []
+        
+        # Process each dependency in the specification
+        for _, dependency_spec in self.spec.dependencies.items():
+            logical_name = dependency_spec.logical_name
+            
+            # Skip if optional and not provided
+            if not dependency_spec.required and logical_name not in inputs:
+                continue
+                
+            # Make sure required inputs are present
+            if dependency_spec.required and logical_name not in inputs:
+                raise ValueError(f"Required input '{logical_name}' not provided")
+            
+            # Get container path from contract
+            container_path = None
+            if logical_name in self.contract.expected_input_paths:
+                container_path = self.contract.expected_input_paths[logical_name]
+            else:
+                raise ValueError(f"No container path found for input: {logical_name}")
+                
+            # Use the input value directly - property references are handled by PipelineAssembler
+            processing_inputs.append(
+                ProcessingInput(
+                    input_name=logical_name,
+                    source=inputs[logical_name],
+                    destination=container_path
+                )
+            )
+            
+        return processing_inputs
     
     def _get_outputs(self, outputs: Dict[str, Any]) -> List[ProcessingOutput]:
         """Get outputs for the processor using the specification and contract.
@@ -332,105 +363,140 @@ class ModelCalibrationStepBuilder(StepBuilderBase):
         if not self.contract:
             raise ValueError("Script contract is required for output mapping")
             
-        return self._get_spec_driven_processor_outputs(outputs)
+        processing_outputs = []
+        
+        # Process each output in the specification
+        for _, output_spec in self.spec.outputs.items():
+            logical_name = output_spec.logical_name
+            
+            # Get container path from contract
+            container_path = None
+            if logical_name in self.contract.expected_output_paths:
+                container_path = self.contract.expected_output_paths[logical_name]
+            else:
+                raise ValueError(f"No container path found for output: {logical_name}")
+                
+            # Try to find destination in outputs
+            destination = None
+            
+            # Look in outputs by logical name
+            if logical_name in outputs:
+                destination = outputs[logical_name]
+            else:
+                # Generate destination from config
+                destination = f"{self.config.pipeline_s3_loc}/model_calibration/{logical_name}"
+                self.log_info("Using generated destination for '%s': %s", logical_name, destination)
+            
+            processing_outputs.append(
+                ProcessingOutput(
+                    output_name=logical_name,
+                    source=container_path,
+                    destination=destination
+                )
+            )
+            
+        return processing_outputs
     
-    def _get_processor(self) -> ScriptProcessor:
+    def _get_processor(self) -> SKLearnProcessor:
         """Create and configure the processor for this step.
         
         Returns:
-            ScriptProcessor: The configured processor for running the step
+            SKLearnProcessor: The configured processor for the step
         """
-        return ScriptProcessor(
-            image_uri=self.config.processing_image_uri,
-            command=["python3"],
-            instance_type=self.config.processing_instance_type,
+        # Get appropriate instance type based on configuration
+        instance_type = self.config.processing_instance_type_large if self.config.use_large_processing_instance else self.config.processing_instance_type_small
+        
+        # Get framework version with fallback
+        framework_version = getattr(self.config, 'processing_framework_version', "1.0-1")
+        
+        return SKLearnProcessor(
+            framework_version=framework_version,
+            role=self.role,
+            instance_type=instance_type,
             instance_count=self.config.processing_instance_count,
             volume_size_in_gb=self.config.processing_volume_size,
-            max_runtime_in_seconds=self.config.max_runtime_seconds,
-            role=self.role,
+            base_job_name=self._generate_job_name(),  # Use standardized method
             sagemaker_session=self.session,
-            base_job_name=self._sanitize_name_for_sagemaker(
-                f"{self._get_step_name('ModelCalibration')}"
-            )
+            env=self._get_environment_variables()
         )
     
-    def create_step(self, **kwargs) -> ProcessingStep:
-        """Create the model calibration processing step.
-        
-        This is the primary method for building the SageMaker ProcessingStep that will
-        execute the calibration logic. It configures all necessary inputs, outputs,
-        environment variables, and resources based on the step specification and configuration.
-        
-        Args:
-            **kwargs: Additional keyword arguments for step creation.
-                     Should include 'dependencies' list if step has dependencies.
-                     
-        Returns:
-            ProcessingStep: The configured model calibration processing step
-            
-        Raises:
-            ValueError: If any issues occur during step creation
+    def _get_job_arguments(self) -> Optional[List[str]]:
         """
-        try:
-            self.log_info("Creating ModelCalibration ProcessingStep...")
-            
-            # Extract parameters
-            inputs_raw = kwargs.get('inputs', {})
-            outputs = kwargs.get('outputs', {})
-            dependencies = kwargs.get('dependencies', [])
-            enable_caching = kwargs.get('enable_caching', True)
-            
-            # Handle inputs
-            inputs = {}
-            
-            # If dependencies are provided, extract inputs from them
-            if dependencies:
-                try:
-                    extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
-                    inputs.update(extracted_inputs)
-                except Exception as e:
-                    self.log_warning(f"Failed to extract inputs from dependencies: {str(e)}")
-                    
-            # Add explicitly provided inputs
-            inputs.update(inputs_raw)
-            
-            # Get processor inputs and outputs
-            processor_inputs = self._get_inputs(inputs)
-            processor_outputs = self._get_outputs(outputs)
-            
-            # Create processor
-            processor = self._get_processor()
-            
-            # Get environment variables
-            env_vars = self._get_environment_variables()
-            
-            # Get step name and script path
-            step_name = self._get_step_name()
-            script_path = self.config.get_script_path()
-            
-            # Create step
-            step = ProcessingStep(
-                name=step_name,
-                processor=processor,
-                inputs=processor_inputs,
-                outputs=processor_outputs,
-                code=self.config.processing_source_dir,
-                job_name=self._generate_job_name('ModelCalibration'),
-                container_entrypoint=["python3", script_path],
-                container_arguments=[],
-                depends_on=dependencies,
-                cache_config=self._get_cache_config(enable_caching),
-                environment=env_vars
-            )
-            
-            # Attach specification to the step
-            setattr(step, '_spec', self.spec)
+        Returns None as job arguments since the calibration script now uses
+        standard paths defined directly in the script.
+        
+        Returns:
+            None since no arguments are needed
+        """
+        self.log_info("No command-line arguments needed for calibration script")
+        return None
+        
+    def create_step(self, **kwargs) -> ProcessingStep:
+        """
+        Creates the final, fully configured SageMaker ProcessingStep for the pipeline
+        using the specification-driven approach.
+
+        Args:
+            **kwargs: Keyword arguments for configuring the step, including:
+                - inputs: Input data sources keyed by logical name
+                - outputs: Output destinations keyed by logical name
+                - dependencies: Optional list of steps that this step depends on
+                - enable_caching: A boolean indicating whether to cache the results of this step
+
+        Returns:
+            A configured sagemaker.workflow.steps.ProcessingStep instance.
+        """
+        self.log_info("Creating ModelCalibration ProcessingStep...")
+
+        # Extract parameters
+        inputs_raw = kwargs.get('inputs', {})
+        outputs = kwargs.get('outputs', {})
+        dependencies = kwargs.get('dependencies', [])
+        enable_caching = kwargs.get('enable_caching', True)
+        
+        # Handle inputs
+        inputs = {}
+        
+        # If dependencies are provided, extract inputs from them
+        if dependencies:
+            try:
+                extracted_inputs = self.extract_inputs_from_dependencies(dependencies)
+                inputs.update(extracted_inputs)
+            except Exception as e:
+                self.log_warning("Failed to extract inputs from dependencies: %s", e)
                 
-            self.log_info(f"Created ProcessingStep with name: {step.name}")
-            return step
+        # Add explicitly provided inputs (overriding any extracted ones)
+        inputs.update(inputs_raw)
+        
+        # Create processor and get inputs/outputs
+        processor = self._get_processor()
+        proc_inputs = self._get_inputs(inputs)
+        proc_outputs = self._get_outputs(outputs)
+        job_args = self._get_job_arguments()
+
+        # Get step name using standardized method with auto-detection
+        step_name = self._get_step_name()
+        
+        # Get full script path from config or contract
+        script_path = self.config.get_script_path()
+        if not script_path and self.contract:
+            script_path = self.contract.entry_point
+        
+        # Create step
+        step = ProcessingStep(
+            name=step_name,
+            processor=processor,
+            inputs=proc_inputs,
+            outputs=proc_outputs,
+            code=script_path,
+            job_arguments=job_args,
+            depends_on=dependencies,
+            cache_config=self._get_cache_config(enable_caching)
+        )
+        
+        # Attach specification to the step for future reference
+        if hasattr(self, 'spec') and self.spec:
+            setattr(step, '_spec', self.spec)
             
-        except Exception as e:
-            self.log_error(f"Error creating ModelCalibration step: {str(e)}")
-            import traceback
-            self.log_error(traceback.format_exc())
-            raise ValueError(f"Failed to create ModelCalibration step: {str(e)}") from e
+        self.log_info("Created ProcessingStep with name: %s", step.name)
+        return step
