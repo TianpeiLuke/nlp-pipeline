@@ -332,13 +332,16 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         """
         Get outputs for the step using specification and contract.
         
-        For training steps, this returns the output path where model artifacts will be stored.
+        For training steps, this returns the output path where model artifacts and evaluation results will be stored.
+        SageMaker uses this single output_path parameter for both:
+        - model.tar.gz (from /opt/ml/model/)
+        - output.tar.gz (from /opt/ml/output/data/)
         
         Args:
             outputs: Output destinations keyed by logical name
             
         Returns:
-            Output path for model artifacts
+            Output path for model artifacts and evaluation results
             
         Raises:
             ValueError: If no specification or contract is available
@@ -349,36 +352,38 @@ class PyTorchTrainingStepBuilder(StepBuilderBase):
         if not self.contract:
             raise ValueError("Script contract is required for output mapping")
             
-        # Process each output in the specification to find the primary model output
+        # First, check if any output path is explicitly provided in the outputs dictionary
         primary_output_path = None
         
-        for _, output_spec in self.spec.outputs.items():
-            logical_name = output_spec.logical_name
-            
-            # Get container path from contract
-            container_path = None
-            if logical_name in self.contract.expected_output_paths:
-                container_path = self.contract.expected_output_paths[logical_name]
-            else:
-                raise ValueError(f"No container path found for output: {logical_name}")
-                
-            # For training steps, look for the primary model output
-            if logical_name == "model_output" or "model" in logical_name.lower():
-                # Try to find destination in outputs
-                if logical_name in outputs:
-                    primary_output_path = outputs[logical_name]
-                else:
-                    # Generate destination using pipeline_s3_loc like tabular preprocessing
-                    primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/{logical_name}"
-                    self.log_info("Using generated destination for '%s': %s", logical_name, primary_output_path)
+        # Check if model_output or evaluation_output are in the outputs dictionary
+        output_logical_names = [spec.logical_name for _, spec in self.spec.outputs.items()]
+        
+        for logical_name in output_logical_names:
+            if logical_name in outputs:
+                primary_output_path = outputs[logical_name]
+                self.log_info(f"Using provided output path from '{logical_name}': {primary_output_path}")
                 break
                 
-        # If no model output found in spec, generate default output path
+        # If no output path was provided, generate a default one
         if primary_output_path is None:
-            # Generate default path using pipeline_s3_loc
-            primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/model"
-            self.log_warning("No model output found in specification. Using default path: %s", primary_output_path)
-            
+            # Generate a clean path that will be used as the base for all outputs
+            primary_output_path = f"{self.config.pipeline_s3_loc}/pytorch_training/"
+            self.log_info(f"Using generated base output path: {primary_output_path}")
+        
+        # Remove trailing slash if present for consistency with S3 path handling
+        if primary_output_path.endswith('/'):
+            primary_output_path = primary_output_path[:-1]
+        
+        # Get base job name for logging purposes
+        base_job_name = self._generate_job_name()
+        
+        # Log how SageMaker will structure outputs under this path
+        self.log_info(f"SageMaker will organize outputs using base job name: {base_job_name}")
+        self.log_info(f"Full job name will be: {base_job_name}-[timestamp]")
+        self.log_info(f"Output path structure will be: {primary_output_path}/{base_job_name}-[timestamp]/")
+        self.log_info(f"  - Model artifacts will be in: {primary_output_path}/{base_job_name}-[timestamp]/output/model.tar.gz")
+        self.log_info(f"  - Evaluation results will be in: {primary_output_path}/{base_job_name}-[timestamp]/output/output.tar.gz")
+        
         return primary_output_path
     
     def create_step(self, **kwargs) -> TrainingStep:

@@ -5,14 +5,90 @@ This script calibrates model prediction scores to accurate probabilities,
 which is essential for risk-based decision-making and threshold setting.
 It supports multiple calibration methods including GAM, Isotonic Regression,
 and Platt Scaling, with options for monotonicity constraints.
+It supports both binary and multi-class classification scenarios.
 """
+import os
+import sys
+
+from subprocess import check_call
+import boto3
+
+
+def _get_secure_pypi_access_tokens() -> str:
+    os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
+    sts = boto3.client("sts", region_name="us-east-1")
+    caller_identity = sts.get_caller_identity()
+    assumed_role_object = sts.assume_role(
+        RoleArn="arn:aws:iam::675292366480:role/SecurePyPIReadRole_" + caller_identity["Account"],
+        RoleSessionName="SecurePypiReadRole",
+    )
+    credentials = assumed_role_object["Credentials"]
+    code_artifact_client = boto3.client(
+        "codeartifact",
+        aws_access_key_id=credentials["AccessKeyId"],
+        aws_secret_access_key=credentials["SecretAccessKey"],
+        aws_session_token=credentials["SessionToken"],
+        region_name="us-west-2",
+    )
+    token = code_artifact_client.get_authorization_token(
+        domain="amazon", domainOwner="149122183214"
+    )["authorizationToken"]
+
+    return token
+
+
+def install_requirements(path: str = "requirements.txt") -> None:
+    token = _get_secure_pypi_access_tokens()
+    check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--index-url",
+            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+            "-r",
+            path,
+        ]
+    )
+
+
+def install_requirements_single(package: str = "numpy") -> None:
+    token = _get_secure_pypi_access_tokens()
+    check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--index-url",
+            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
+            package,
+        ]
+    )
+
+
+# Install required packages
+required_packages = [
+    "scikit-learn>=0.23.2,<1.0.0",
+    "pandas>=1.2.0,<2.0.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "joblib>=1.0.0",
+    "matplotlib>=3.3.0",
+    "pygam>=0.8.0"
+]
+
+for package in required_packages:
+    install_requirements_single(package)
+print("***********************Package Installed*********************")
+
 
 import os
 import sys
 import json
 import logging
 import traceback
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -22,6 +98,9 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, roc_auc_score
+import tarfile
+import tempfile
+import shutil
 
 # Import pygam for GAM implementation if available
 try:
@@ -35,31 +114,119 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Define paths from contract
+# Configure handler to ensure logs are flushed immediately
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+# Log delimiter for better visibility of important sections
+def log_section(title):
+    """Log a section title with delimiters for better visibility."""
+    delimiter = "=" * 80
+    logger.info(delimiter)
+    logger.info(f"  {title}")
+    logger.info(delimiter)
+
+# Define standard SageMaker paths
 INPUT_DATA_PATH = "/opt/ml/processing/input/eval_data"
 OUTPUT_CALIBRATION_PATH = "/opt/ml/processing/output/calibration"
 OUTPUT_METRICS_PATH = "/opt/ml/processing/output/metrics"
 OUTPUT_CALIBRATED_DATA_PATH = "/opt/ml/processing/output/calibrated_data"
 
-# Get environment variables
-CALIBRATION_METHOD = os.environ.get("CALIBRATION_METHOD", "gam").lower()
-LABEL_FIELD = os.environ.get("LABEL_FIELD", "label")
-SCORE_FIELD = os.environ.get("SCORE_FIELD", "prob_class_1")
-MONOTONIC_CONSTRAINT = os.environ.get("MONOTONIC_CONSTRAINT", "True").lower() == "true"
-GAM_SPLINES = int(os.environ.get("GAM_SPLINES", "10"))
-ERROR_THRESHOLD = float(os.environ.get("ERROR_THRESHOLD", "0.05"))
+class CalibrationConfig:
+    """Configuration class for model calibration."""
+    
+    def __init__(
+        self,
+        input_data_path: str = "/opt/ml/processing/input/eval_data",
+        output_calibration_path: str = "/opt/ml/processing/output/calibration",
+        output_metrics_path: str = "/opt/ml/processing/output/metrics",
+        output_calibrated_data_path: str = "/opt/ml/processing/output/calibrated_data",
+        calibration_method: str = "gam",
+        label_field: str = "label",
+        score_field: str = "prob_class_1",
+        is_binary: bool = True,
+        monotonic_constraint: bool = True,
+        gam_splines: int = 10,
+        error_threshold: float = 0.05,
+        num_classes: int = 2,
+        score_field_prefix: str = "prob_class_",
+        multiclass_categories: Optional[List[str]] = None
+    ):
+        """Initialize configuration with paths and parameters."""
+        # I/O Paths
+        self.input_data_path = input_data_path
+        self.output_calibration_path = output_calibration_path
+        self.output_metrics_path = output_metrics_path
+        self.output_calibrated_data_path = output_calibrated_data_path
+        
+        # Calibration parameters
+        self.calibration_method = calibration_method.lower()
+        self.label_field = label_field
+        self.score_field = score_field
+        self.is_binary = is_binary
+        self.monotonic_constraint = monotonic_constraint
+        self.gam_splines = gam_splines
+        self.error_threshold = error_threshold
+        
+        # Multi-class parameters
+        self.num_classes = num_classes
+        self.score_field_prefix = score_field_prefix
+        
+        # Initialize multiclass_categories
+        if multiclass_categories:
+            self.multiclass_categories = multiclass_categories
+        else:
+            self.multiclass_categories = [str(i) for i in range(num_classes)]
+    
+    @classmethod
+    def from_env(cls):
+        """Create configuration from environment variables."""
+        # Parse multiclass categories from environment
+        multiclass_categories = None
+        if os.environ.get("IS_BINARY", "True").lower() != "true":
+            multiclass_cats = os.environ.get("MULTICLASS_CATEGORIES", None)
+            if multiclass_cats:
+                try:
+                    multiclass_categories = json.loads(multiclass_cats)
+                except json.JSONDecodeError:
+                    # Fallback to simple parsing if not valid JSON
+                    multiclass_categories = multiclass_cats.split(",")
+        
+        # Use global path variables for input/output paths
+        return cls(
+            input_data_path=os.environ.get("INPUT_DATA_PATH", INPUT_DATA_PATH),
+            output_calibration_path=os.environ.get("OUTPUT_CALIBRATION_PATH", OUTPUT_CALIBRATION_PATH),
+            output_metrics_path=os.environ.get("OUTPUT_METRICS_PATH", OUTPUT_METRICS_PATH),
+            output_calibrated_data_path=os.environ.get("OUTPUT_CALIBRATED_DATA_PATH", OUTPUT_CALIBRATED_DATA_PATH),
+            calibration_method=os.environ.get("CALIBRATION_METHOD", "gam"),
+            label_field=os.environ.get("LABEL_FIELD", "label"),
+            score_field=os.environ.get("SCORE_FIELD", "prob_class_1"),
+            is_binary=os.environ.get("IS_BINARY", "True").lower() == "true",
+            monotonic_constraint=os.environ.get("MONOTONIC_CONSTRAINT", "True").lower() == "true",
+            gam_splines=int(os.environ.get("GAM_SPLINES", "10")),
+            error_threshold=float(os.environ.get("ERROR_THRESHOLD", "0.05")),
+            num_classes=int(os.environ.get("NUM_CLASSES", "2")),
+            score_field_prefix=os.environ.get("SCORE_FIELD_PREFIX", "prob_class_"),
+            multiclass_categories=multiclass_categories
+        )
 
-def create_directories():
+
+def create_directories(config=None):
     """Create output directories if they don't exist."""
-    os.makedirs(OUTPUT_CALIBRATION_PATH, exist_ok=True)
-    os.makedirs(OUTPUT_METRICS_PATH, exist_ok=True)
-    os.makedirs(OUTPUT_CALIBRATED_DATA_PATH, exist_ok=True)
+    config = config or CalibrationConfig.from_env()
+    os.makedirs(config.output_calibration_path, exist_ok=True)
+    os.makedirs(config.output_metrics_path, exist_ok=True)
+    os.makedirs(config.output_calibrated_data_path, exist_ok=True)
 
-def find_first_data_file(data_dir: str) -> str:
+
+def find_first_data_file(data_dir=None, config=None) -> str:
     """Find the first supported data file in directory.
     
     Args:
-        data_dir: Directory to search for data files
+        data_dir: Directory to search for data files (defaults to config input_data_path)
+        config: Configuration object (optional, created from environment if not provided)
         
     Returns:
         str: Path to the first supported data file found
@@ -67,6 +234,9 @@ def find_first_data_file(data_dir: str) -> str:
     Raises:
         FileNotFoundError: If no supported data file is found
     """
+    config = config or CalibrationConfig.from_env()
+    data_dir = data_dir or config.input_data_path
+    
     if not os.path.isdir(data_dir):
         raise FileNotFoundError(f"Directory does not exist: {data_dir}")
     
@@ -76,9 +246,13 @@ def find_first_data_file(data_dir: str) -> str:
     
     raise FileNotFoundError(f"No supported data file (.csv, .parquet, .json) found in {data_dir}")
 
-def load_data():
+
+def load_data(config=None):
     """Load evaluation data with predictions.
     
+    Args:
+        config: Configuration object (optional, created from environment if not provided)
+        
     Returns:
         pd.DataFrame: Loaded evaluation data
         
@@ -86,7 +260,8 @@ def load_data():
         FileNotFoundError: If no data file is found
         ValueError: If required columns are missing
     """
-    data_file = find_first_data_file(INPUT_DATA_PATH)
+    config = config or CalibrationConfig.from_env()
+    data_file = find_first_data_file(config.input_data_path, config)
     
     logger.info(f"Loading data from {data_file}")
     if data_file.endswith('.parquet'):
@@ -97,21 +272,270 @@ def load_data():
         raise ValueError(f"Unsupported file format: {data_file}")
     
     # Validate required columns
-    if LABEL_FIELD not in df.columns:
-        raise ValueError(f"Label field '{LABEL_FIELD}' not found in data")
-    if SCORE_FIELD not in df.columns:
-        raise ValueError(f"Score field '{SCORE_FIELD}' not found in data")
+    if config.label_field not in df.columns:
+        raise ValueError(f"Label field '{config.label_field}' not found in data")
+        
+    if config.is_binary:
+        # Binary classification case
+        if config.score_field not in df.columns:
+            raise ValueError(f"Score field '{config.score_field}' not found in data")
+    else:
+        # Multi-class classification case
+        found_classes = 0
+        for i in range(config.num_classes):
+            class_name = config.multiclass_categories[i]
+            col_name = f"{config.score_field_prefix}{class_name}"
+            if col_name in df.columns:
+                found_classes += 1
+            else:
+                logger.warning(f"Probability column '{col_name}' not found in data")
+        
+        if found_classes == 0:
+            raise ValueError(f"No probability columns found with prefix '{config.score_field_prefix}'")
+        elif found_classes < config.num_classes:
+            logger.warning(f"Only {found_classes}/{config.num_classes} probability columns found")
     
     logger.info(f"Loaded data with shape {df.shape}")
     return df
 
 
-def train_gam_calibration(scores: np.ndarray, labels: np.ndarray):
+def log_metrics(metrics_dict, prefix=""):
+    """Log metrics in a standardized, readable format.
+    
+    Args:
+        metrics_dict: Dictionary containing metrics
+        prefix: Optional prefix for log messages
+    """
+    # Top level metrics
+    for key, value in metrics_dict.items():
+        if not isinstance(value, dict) and not isinstance(value, list):
+            if isinstance(value, float):
+                logger.info(f"{prefix}{key}: {value:.6f}")
+            else:
+                logger.info(f"{prefix}{key}: {value}")
+
+def extract_and_load_nested_tarball_data(config=None):
+    """Extract and load data from nested tar.gz files in SageMaker output structure.
+    
+    Handles SageMaker's specific output structure:
+    - output.tar.gz (outer archive)
+      - val.tar.gz (inner archive)
+        - val/predictions.csv (actual data)
+        - val_metrics/... (metrics and plots)
+      - test.tar.gz (inner archive)
+        - test/predictions.csv (actual data)
+        - test_metrics/... (metrics and plots)
+    
+    Args:
+        config: Configuration object (optional, created from environment if not provided)
+        
+    Returns:
+        pd.DataFrame: Combined dataset with predictions from extracted tar.gz files
+        
+    Raises:
+        FileNotFoundError: If necessary tar.gz files or prediction data not found
+    """
+    config = config or CalibrationConfig.from_env()
+    input_dir = config.input_data_path
+    log_section("NESTED TARBALL EXTRACTION")
+    logger.info(f"Looking for SageMaker output archive in {input_dir}")
+    
+    # Check if we have a direct data file first (non-tarball case)
+    try:
+        direct_file = find_first_data_file(input_dir)
+        if direct_file:
+            logger.info(f"Found direct data file: {direct_file}, using standard loading")
+            return load_data(config)
+    except FileNotFoundError:
+        # No direct data file, continue with tarball extraction
+        pass
+    
+    # Find output.tar.gz (primary SageMaker output archive)
+    output_archive = None
+    for fname in os.listdir(input_dir):
+        if fname.lower() == "output.tar.gz":
+            output_archive = os.path.join(input_dir, fname)
+            break
+    
+    if not output_archive:
+        # Try standard data loading as fallback if no output.tar.gz found
+        logger.warning("No output.tar.gz found, falling back to standard data loading")
+        return load_data(config)
+    
+    logger.info(f"Found SageMaker output archive: {output_archive}")
+    logger.info(f"File size: {os.path.getsize(output_archive) / (1024*1024):.2f} MB")
+    
+    # Create temporary directories for extraction
+    outer_temp_dir = tempfile.mkdtemp(prefix="outer_")
+    inner_temp_dir = tempfile.mkdtemp(prefix="inner_")
+    combined_df = None
+    
+    try:
+        # Step 1: Extract the outer archive (output.tar.gz)
+        logger.info(f"Extracting outer archive: {output_archive}")
+        with tarfile.open(output_archive, "r:gz") as tar:
+            # Log the contents of the tar file
+            members = tar.getmembers()
+            logger.info(f"Outer archive contains {len(members)} files:")
+            for member in members:
+                logger.info(f"  - {member.name} ({member.size / 1024:.2f} KB)")
+            tar.extractall(path=outer_temp_dir)
+        logger.info(f"Extracted to: {outer_temp_dir}")
+        
+        # Step 2: Find and extract the inner archives (val.tar.gz, test.tar.gz)
+        inner_archives = []
+        for fname in os.listdir(outer_temp_dir):
+            if fname.lower().endswith('.tar.gz'):
+                inner_archives.append(os.path.join(outer_temp_dir, fname))
+        
+        if not inner_archives:
+            raise FileNotFoundError("No val.tar.gz or test.tar.gz found in output.tar.gz")
+            
+        logger.info(f"Found {len(inner_archives)} inner archives: {[os.path.basename(a) for a in inner_archives]}")
+        
+        # Process each inner archive (val.tar.gz, test.tar.gz)
+        for inner_archive in inner_archives:
+            archive_name = os.path.basename(inner_archive).split('.')[0]  # 'val' or 'test'
+            logger.info(f"Processing {archive_name} archive: {inner_archive}")
+            
+            # Extract the inner archive
+            inner_extract_dir = os.path.join(inner_temp_dir, archive_name)
+            os.makedirs(inner_extract_dir, exist_ok=True)
+            
+            with tarfile.open(inner_archive, "r:gz") as tar:
+                # Log the contents of the tar file
+                members = tar.getmembers()
+                logger.info(f"Inner archive contains {len(members)} files:")
+                for member in members:
+                    logger.info(f"  - {member.name} ({member.size / 1024:.2f} KB)")
+                tar.extractall(path=inner_extract_dir)
+            logger.info(f"Extracted inner archive to: {inner_extract_dir}")
+            
+            # Look for predictions.csv in the correct structure
+            predictions_path = os.path.join(inner_extract_dir, archive_name, "predictions.csv")
+            if not os.path.exists(predictions_path):
+                logger.warning(f"Could not find predictions.csv in {inner_archive}, skipping")
+                continue
+                
+            # Load the predictions
+            df = pd.read_csv(predictions_path)
+            logger.info(f"Loaded {len(df)} rows from {predictions_path}")
+            # Log data preview and column info for debugging
+            logger.info(f"Columns in {predictions_path}: {df.columns.tolist()}")
+            logger.info(f"Data types: {df.dtypes.to_dict()}")
+            if len(df) > 0:
+                logger.info(f"First row sample: {df.iloc[0].to_dict()}")
+            
+            # Add dataset origin column
+            df['dataset_origin'] = archive_name
+            
+            # Combine with previous data
+            if combined_df is None:
+                combined_df = df
+            else:
+                # Check if columns match
+                if set(df.columns) != set(combined_df.columns):
+                    logger.warning(f"Column mismatch between datasets. Common columns will be used.")
+                    common_cols = list(set(df.columns).intersection(set(combined_df.columns)))
+                    combined_df = pd.concat([combined_df[common_cols], df[common_cols]])
+                else:
+                    combined_df = pd.concat([combined_df, df])
+        
+        if combined_df is None or len(combined_df) == 0:
+            raise FileNotFoundError("No valid prediction data found in extracted archives")
+        
+        # Log information about the final combined dataset
+        logger.info(f"Combined dataset contains {len(combined_df)} rows with {len(combined_df.columns)} columns")
+        logger.info(f"Final columns: {combined_df.columns.tolist()}")
+        # Check for NaN values
+        nan_counts = combined_df.isna().sum()
+        if nan_counts.sum() > 0:
+            logger.warning(f"Dataset contains NaN values: {nan_counts[nan_counts > 0].to_dict()}")
+            
+        return combined_df
+        
+    finally:
+        # Clean up temporary directories
+        shutil.rmtree(outer_temp_dir, ignore_errors=True)
+        shutil.rmtree(inner_temp_dir, ignore_errors=True)
+
+
+def load_and_prepare_data(config=None):
+    """Load evaluation data and prepare it for calibration based on classification type.
+    
+    Args:
+        config: Configuration object (optional, created from environment if not provided)
+        
+    Returns:
+        tuple: Different return values based on classification type:
+            - Binary: (df, y_true, y_prob, None)
+            - Multi-class: (df, y_true, None, y_prob_matrix)
+        
+    Raises:
+        FileNotFoundError: If no data file is found
+        ValueError: If required columns are missing
+    """
+    config = config or CalibrationConfig.from_env()
+    
+    log_section("DATA PREPARATION")
+    # Try to load from nested tar.gz structure first, fall back to regular loading
+    try:
+        df = extract_and_load_nested_tarball_data(config)
+    except Exception as e:
+        logger.warning(f"Failed to extract data from nested tarballs: {e}")
+        logger.warning(f"Exception details: {traceback.format_exc()}")
+        logger.info("Falling back to standard data loading")
+        df = load_data(config)
+    
+    if config.is_binary:
+        # Binary case - single score field
+        y_true = df[config.label_field].values
+        y_prob = df[config.score_field].values
+        return df, y_true, y_prob, None
+    else:
+        # Multi-class case - multiple probability columns
+        y_true = df[config.label_field].values
+        
+        # Get all probability columns
+        prob_columns = []
+        for i in range(config.num_classes):
+            class_name = config.multiclass_categories[i]
+            col_name = f"{config.score_field_prefix}{class_name}"
+            if col_name not in df.columns:
+                # Try numeric index as fallback
+                col_name = f"{config.score_field_prefix}{i}"
+                if col_name not in df.columns:
+                    raise ValueError(f"Could not find probability column for class {class_name}")
+            prob_columns.append(col_name)
+        
+        logger.info(f"Found probability columns for multi-class: {prob_columns}")
+        
+        # Extract probability matrix (samples × classes)
+        y_prob_matrix = df[prob_columns].values
+        
+        return df, y_true, None, y_prob_matrix
+
+
+def log_array_stats(array, name):
+    """Log statistics about a numpy array for debugging.
+    
+    Args:
+        array: The numpy array to analyze
+        name: A name to identify this array in the logs
+    """
+    logger.info(f"{name} shape: {array.shape}")
+    logger.info(f"{name} dtype: {array.dtype}")
+    logger.info(f"{name} range: [{np.min(array):.6f}, {np.max(array):.6f}]")
+    logger.info(f"{name} mean: {np.mean(array):.6f}, std: {np.std(array):.6f}")
+    logger.info(f"{name} NaNs: {np.isnan(array).sum()}, Infs: {np.isinf(array).sum()}")
+    
+def train_gam_calibration(scores: np.ndarray, labels: np.ndarray, config=None):
     """Train a GAM calibration model with optional monotonicity constraints.
     
     Args:
         scores: Raw prediction scores to calibrate
         labels: Ground truth binary labels (0/1)
+        config: Configuration object (optional, created from environment if not provided)
         
     Returns:
         LogisticGAM: Trained GAM calibration model
@@ -119,29 +543,42 @@ def train_gam_calibration(scores: np.ndarray, labels: np.ndarray):
     Raises:
         ImportError: If pygam is not installed
     """
+    config = config or CalibrationConfig.from_env()
+    
     if not HAS_PYGAM:
         raise ImportError("pygam package is required for GAM calibration but not installed")
     
     scores = scores.reshape(-1, 1)  # Reshape for GAM
     
+    # Log data statistics for debugging
+    log_array_stats(scores, "Calibration input scores")
+    log_array_stats(labels, "Calibration input labels")
+    
     # Configure GAM with monotonic constraint if specified
-    if MONOTONIC_CONSTRAINT:
-        gam = LogisticGAM(s(0, n_splines=GAM_SPLINES, constraints='monotonic_inc'))
-        logger.info(f"Training GAM with monotonic constraint, {GAM_SPLINES} splines")
+    if config.monotonic_constraint:
+        gam = LogisticGAM(s(0, n_splines=config.gam_splines, constraints='monotonic_inc'))
+        logger.info(f"Training GAM with monotonic constraint, {config.gam_splines} splines")
     else:
-        gam = LogisticGAM(s(0, n_splines=GAM_SPLINES))
-        logger.info(f"Training GAM without monotonic constraint, {GAM_SPLINES} splines")
+        gam = LogisticGAM(s(0, n_splines=config.gam_splines))
+        logger.info(f"Training GAM without monotonic constraint, {config.gam_splines} splines")
     
     gam.fit(scores, labels)
     logger.info(f"GAM training complete, deviance: {gam.statistics_['deviance']}")
+    
+    # Log more model statistics
+    for key, value in gam.statistics_.items():
+        if isinstance(value, (int, float)):
+            logger.info(f"GAM stat - {key}: {value:.6f}")
     return gam
 
-def train_isotonic_calibration(scores: np.ndarray, labels: np.ndarray):
+
+def train_isotonic_calibration(scores: np.ndarray, labels: np.ndarray, config=None):
     """Train an isotonic regression calibration model.
     
     Args:
         scores: Raw prediction scores to calibrate
         labels: Ground truth binary labels (0/1)
+        config: Configuration object (optional)
         
     Returns:
         IsotonicRegression: Trained isotonic regression model
@@ -152,12 +589,14 @@ def train_isotonic_calibration(scores: np.ndarray, labels: np.ndarray):
     logger.info("Isotonic regression training complete")
     return ir
 
-def train_platt_scaling(scores: np.ndarray, labels: np.ndarray):
+
+def train_platt_scaling(scores: np.ndarray, labels: np.ndarray, config=None):
     """Train a Platt scaling (logistic regression) calibration model.
     
     Args:
         scores: Raw prediction scores to calibrate
         labels: Ground truth binary labels (0/1)
+        config: Configuration object (optional)
         
     Returns:
         LogisticRegression: Trained logistic regression model
@@ -168,6 +607,90 @@ def train_platt_scaling(scores: np.ndarray, labels: np.ndarray):
     lr.fit(scores, labels)
     logger.info("Platt scaling training complete")
     return lr
+
+
+def train_multiclass_calibration(y_prob_matrix, y_true, method="isotonic", config=None):
+    """Train calibration models for each class in one-vs-rest fashion.
+    
+    Args:
+        y_prob_matrix: Matrix of prediction probabilities (samples × classes)
+        y_true: Ground truth class labels
+        method: Calibration method to use ("gam", "isotonic", "platt")
+        config: Configuration object (optional, created from environment if not provided)
+        
+    Returns:
+        list: List of calibration models, one for each class
+    """
+    config = config or CalibrationConfig.from_env()
+    calibrators = []
+    n_classes = y_prob_matrix.shape[1]
+    
+    # One-hot encode true labels for one-vs-rest approach
+    y_true_onehot = np.zeros((len(y_true), n_classes))
+    for i in range(len(y_true)):
+        class_idx = int(y_true[i])
+        if 0 <= class_idx < n_classes:
+            y_true_onehot[i, class_idx] = 1
+    
+    # Train a calibrator for each class
+    for i in range(n_classes):
+        class_name = config.multiclass_categories[i]
+        logger.info(f"Training calibration model for class {class_name}")
+        
+        if method == "gam":
+            if HAS_PYGAM:
+                calibrator = train_gam_calibration(y_prob_matrix[:, i], y_true_onehot[:, i], config)
+            else:
+                logger.warning("pygam not installed, falling back to Platt scaling")
+                calibrator = train_platt_scaling(y_prob_matrix[:, i], y_true_onehot[:, i], config)
+        elif method == "isotonic":
+            calibrator = train_isotonic_calibration(y_prob_matrix[:, i], y_true_onehot[:, i], config)
+        elif method == "platt":
+            calibrator = train_platt_scaling(y_prob_matrix[:, i], y_true_onehot[:, i], config)
+        else:
+            raise ValueError(f"Unknown calibration method: {method}")
+        
+        calibrators.append(calibrator)
+    
+    return calibrators
+
+
+def apply_multiclass_calibration(y_prob_matrix, calibrators, config=None):
+    """Apply calibration to each class probability and normalize.
+    
+    Args:
+        y_prob_matrix: Matrix of uncalibrated probabilities (samples × classes)
+        calibrators: List of calibration models, one for each class
+        config: Configuration object (optional, created from environment if not provided)
+        
+    Returns:
+        np.ndarray: Matrix of calibrated probabilities (samples × classes)
+    """
+    config = config or CalibrationConfig.from_env()
+    n_samples = y_prob_matrix.shape[0]
+    n_classes = y_prob_matrix.shape[1]
+    calibrated_probs = np.zeros((n_samples, n_classes))
+    
+    # Apply each calibrator to corresponding class probabilities
+    for i in range(n_classes):
+        class_name = config.multiclass_categories[i]
+        logger.info(f"Applying calibration for class {class_name}")
+        
+        if isinstance(calibrators[i], IsotonicRegression):
+            calibrated_probs[:, i] = calibrators[i].transform(y_prob_matrix[:, i])
+        elif isinstance(calibrators[i], LogisticRegression):
+            calibrated_probs[:, i] = calibrators[i].predict_proba(
+                y_prob_matrix[:, i].reshape(-1, 1))[:, 1]
+        else:  # GAM
+            calibrated_probs[:, i] = calibrators[i].predict_proba(
+                y_prob_matrix[:, i].reshape(-1, 1))
+    
+    # Normalize to ensure sum of probabilities = 1
+    row_sums = calibrated_probs.sum(axis=1)
+    calibrated_probs = calibrated_probs / row_sums[:, np.newaxis]
+    
+    return calibrated_probs
+
 
 def compute_calibration_metrics(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> Dict[str, Any]:
     """Compute comprehensive calibration metrics including ECE, MCE, and reliability diagram.
@@ -254,8 +777,80 @@ def compute_calibration_metrics(y_true: np.ndarray, y_prob: np.ndarray, n_bins: 
     
     return metrics
 
-def plot_reliability_diagram(y_true: np.ndarray, y_prob_uncalibrated: np.ndarray, 
-                           y_prob_calibrated: np.ndarray, n_bins: int = 10) -> str:
+
+def compute_multiclass_calibration_metrics(y_true, y_prob_matrix, n_bins=10, config=None):
+    """Compute calibration metrics for multi-class scenario.
+    
+    Args:
+        y_true: Ground truth class labels
+        y_prob_matrix: Matrix of prediction probabilities (samples × classes)
+        n_bins: Number of bins for calibration curve
+        config: Configuration object (optional, created from environment if not provided)
+        
+    Returns:
+        dict: Dictionary containing calibration metrics
+    """
+    config = config or CalibrationConfig.from_env()
+    n_classes = y_prob_matrix.shape[1]
+    
+    # Convert y_true to one-hot encoding
+    y_true_onehot = np.zeros((len(y_true), n_classes))
+    for i in range(len(y_true)):
+        class_idx = int(y_true[i])
+        if 0 <= class_idx < n_classes:
+            y_true_onehot[i, class_idx] = 1
+    
+    # Per-class metrics
+    class_metrics = []
+    for i in range(n_classes):
+        class_name = config.multiclass_categories[i]
+        logger.info(f"Computing calibration metrics for class {class_name}")
+        metrics = compute_calibration_metrics(y_true_onehot[:, i], y_prob_matrix[:, i], n_bins)
+        class_metrics.append(metrics)
+    
+    # Multi-class brier score
+    multiclass_brier = 0
+    for i in range(len(y_true)):
+        true_class = int(y_true[i])
+        for j in range(n_classes):
+            if j == true_class:
+                multiclass_brier += (1 - y_prob_matrix[i, j]) ** 2
+            else:
+                multiclass_brier += y_prob_matrix[i, j] ** 2
+    multiclass_brier /= len(y_true)
+    
+    # Aggregate metrics
+    macro_ece = np.mean([m["expected_calibration_error"] for m in class_metrics])
+    macro_mce = np.mean([m["maximum_calibration_error"] for m in class_metrics])
+    max_mce = np.max([m["maximum_calibration_error"] for m in class_metrics])
+    
+    metrics = {
+        "multiclass_brier_score": float(multiclass_brier),
+        "macro_expected_calibration_error": float(macro_ece),
+        "macro_maximum_calibration_error": float(macro_mce),
+        "maximum_calibration_error": float(max_mce),
+        "per_class_metrics": [
+            {
+                "class_index": i,
+                "class_name": config.multiclass_categories[i],
+                "metrics": class_metrics[i]
+            } for i in range(n_classes)
+        ],
+        "num_samples": len(y_true),
+        "num_bins": n_bins,
+        "num_classes": n_classes
+    }
+    
+    return metrics
+
+
+def plot_reliability_diagram(
+    y_true: np.ndarray, 
+    y_prob_uncalibrated: np.ndarray, 
+    y_prob_calibrated: np.ndarray, 
+    n_bins: int = 10,
+    config=None
+) -> str:
     """Create reliability diagram comparing uncalibrated and calibrated probabilities.
     
     Args:
@@ -263,10 +858,12 @@ def plot_reliability_diagram(y_true: np.ndarray, y_prob_uncalibrated: np.ndarray
         y_prob_uncalibrated: Uncalibrated prediction probabilities
         y_prob_calibrated: Calibrated prediction probabilities
         n_bins: Number of bins for calibration curve
+        config: Configuration object (optional, created from environment if not provided)
         
     Returns:
         str: Path to the saved figure
     """
+    config = config or CalibrationConfig.from_env()
     fig = plt.figure(figsize=(10, 8))
     
     # Plot calibration curves
@@ -305,124 +902,357 @@ def plot_reliability_diagram(y_true: np.ndarray, y_prob_uncalibrated: np.ndarray
     plt.tight_layout()
     
     # Save figure
-    figure_path = os.path.join(OUTPUT_METRICS_PATH, "reliability_diagram.png")
+    figure_path = os.path.join(config.output_metrics_path, "reliability_diagram.png")
     plt.savefig(figure_path)
     plt.close(fig)
     
     return figure_path
 
-def main():
+
+def plot_multiclass_reliability_diagram(
+    y_true, 
+    y_prob_uncalibrated, 
+    y_prob_calibrated, 
+    n_bins=10,
+    config=None
+):
+    """Create reliability diagrams for multi-class case, one plot per class.
+    
+    Args:
+        y_true: Ground truth class labels
+        y_prob_uncalibrated: Matrix of uncalibrated probabilities (samples × classes)
+        y_prob_calibrated: Matrix of calibrated probabilities (samples × classes)
+        n_bins: Number of bins for calibration curve
+        config: Configuration object (optional, created from environment if not provided)
+        
+    Returns:
+        str: Path to the saved figure
+    """
+    config = config or CalibrationConfig.from_env()
+    n_classes = y_prob_uncalibrated.shape[1]
+    
+    # Create a plot grid based on number of classes
+    n_cols = min(3, n_classes)
+    n_rows = (n_classes + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 5, n_rows * 4))
+    
+    # Convert to one-hot encoding
+    y_true_onehot = np.zeros((len(y_true), n_classes))
+    for i in range(len(y_true)):
+        class_idx = int(y_true[i])
+        if 0 <= class_idx < n_classes:
+            y_true_onehot[i, class_idx] = 1
+    
+    # For each class
+    for i in range(n_classes):
+        class_name = config.multiclass_categories[i]
+        logger.info(f"Creating reliability diagram for class {class_name}")
+        
+        # Get appropriate axis
+        if n_rows == 1 and n_cols == 1:
+            ax = axes
+        elif n_rows == 1:
+            ax = axes[i % n_cols]
+        elif n_cols == 1:
+            ax = axes[i % n_rows]
+        else:
+            ax = axes[i // n_cols, i % n_cols]
+        
+        # Plot calibration curve for this class
+        ax.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+        
+        prob_true_uncal, prob_pred_uncal = calibration_curve(
+            y_true_onehot[:, i], y_prob_uncalibrated[:, i], n_bins=n_bins
+        )
+        ax.plot(prob_pred_uncal, prob_true_uncal, "s-", label="Uncalibrated")
+        
+        prob_true_cal, prob_pred_cal = calibration_curve(
+            y_true_onehot[:, i], y_prob_calibrated[:, i], n_bins=n_bins
+        )
+        ax.plot(prob_pred_cal, prob_true_cal, "s-", label="Calibrated")
+        
+        ax.set_xlabel("Mean predicted probability")
+        ax.set_ylabel("Fraction of positives")
+        ax.set_title(f"Calibration Curve for {class_name}")
+        ax.legend(loc="lower right")
+    
+    # Hide empty subplots
+    for i in range(n_classes, n_rows * n_cols):
+        if n_rows == 1 and n_cols == 1:
+            pass  # Single plot, nothing to hide
+        elif n_rows == 1:
+            axes[i].axis('off')
+        elif n_cols == 1:
+            axes[i].axis('off')
+        else:
+            axes[i // n_cols, i % n_cols].axis('off')
+    
+    plt.tight_layout()
+    figure_path = os.path.join(config.output_metrics_path, "multiclass_reliability_diagram.png")
+    plt.savefig(figure_path)
+    plt.close(fig)
+    
+    return figure_path
+
+
+def main(config=None):
     """Main entry point for the calibration script."""
     try:
+        # Use provided config or create from environment
+        config = config or CalibrationConfig.from_env()
         logger.info("Starting model calibration")
+        logger.info(f"Running in {'binary' if config.is_binary else 'multi-class'} mode")
         
         # Create output directories
-        create_directories()
+        create_directories(config)
         
-        # Load data
-        df = load_data()
-        
-        # Extract features and target
-        y_true = df[LABEL_FIELD].values
-        y_prob_uncalibrated = df[SCORE_FIELD].values
-        
-        # Select and train calibration model
-        if CALIBRATION_METHOD == "gam":
-            if not HAS_PYGAM:
-                logger.warning("pygam not installed, falling back to Platt scaling")
-                calibrator = train_platt_scaling(y_prob_uncalibrated, y_true)
-            else:
-                calibrator = train_gam_calibration(y_prob_uncalibrated, y_true)
-        elif CALIBRATION_METHOD == "isotonic":
-            calibrator = train_isotonic_calibration(y_prob_uncalibrated, y_true)
-        elif CALIBRATION_METHOD == "platt":
-            calibrator = train_platt_scaling(y_prob_uncalibrated, y_true)
-        else:
-            raise ValueError(f"Unknown calibration method: {CALIBRATION_METHOD}")
-        
-        # Apply calibration to get calibrated probabilities
-        if isinstance(calibrator, IsotonicRegression):
-            y_prob_calibrated = calibrator.transform(y_prob_uncalibrated)
-        elif isinstance(calibrator, LogisticRegression):
-            y_prob_calibrated = calibrator.predict_proba(y_prob_uncalibrated.reshape(-1, 1))[:, 1]
-        else:  # GAM
-            y_prob_calibrated = calibrator.predict_proba(y_prob_uncalibrated.reshape(-1, 1))
-        
-        # Compute calibration metrics for before and after
-        uncalibrated_metrics = compute_calibration_metrics(y_true, y_prob_uncalibrated)
-        calibrated_metrics = compute_calibration_metrics(y_true, y_prob_calibrated)
-        
-        # Create visualization
-        plot_path = plot_reliability_diagram(y_true, y_prob_uncalibrated, y_prob_calibrated)
-        
-        # Create comprehensive metrics report
-        metrics_report = {
-            "calibration_method": CALIBRATION_METHOD,
-            "uncalibrated": uncalibrated_metrics,
-            "calibrated": calibrated_metrics,
-            "improvement": {
-                "ece_reduction": uncalibrated_metrics["expected_calibration_error"] - calibrated_metrics["expected_calibration_error"],
-                "mce_reduction": uncalibrated_metrics["maximum_calibration_error"] - calibrated_metrics["maximum_calibration_error"],
-                "brier_reduction": uncalibrated_metrics["brier_score"] - calibrated_metrics["brier_score"],
-                "auc_change": calibrated_metrics["auc_roc"] - uncalibrated_metrics["auc_roc"],
-            },
-            "visualization_paths": {
-                "reliability_diagram": plot_path
-            },
-            "config": {
-                "label_field": LABEL_FIELD,
-                "score_field": SCORE_FIELD,
-                "monotonic_constraint": MONOTONIC_CONSTRAINT,
-                "gam_splines": GAM_SPLINES,
-                "error_threshold": ERROR_THRESHOLD
-            }
-        }
-        
-        # Save metrics report
-        metrics_path = os.path.join(OUTPUT_METRICS_PATH, "calibration_metrics.json")
-        with open(metrics_path, "w") as f:
-            json.dump(metrics_report, f, indent=2)
-        
-        # Save calibrator model
-        calibrator_path = os.path.join(OUTPUT_CALIBRATION_PATH, "calibration_model.joblib")
-        joblib.dump(calibrator, calibrator_path)
-        
-        # Add calibrated scores to dataframe and save
-        df["calibrated_" + SCORE_FIELD] = y_prob_calibrated
-        output_path = os.path.join(OUTPUT_CALIBRATED_DATA_PATH, "calibrated_data.parquet")
-        df.to_parquet(output_path, index=False)
-        
-        # Write summary
-        summary = {
-            "status": "success",
-            "calibration_method": CALIBRATION_METHOD,
-            "uncalibrated_ece": uncalibrated_metrics["expected_calibration_error"],
-            "calibrated_ece": calibrated_metrics["expected_calibration_error"],
-            "improvement_percentage": (1 - calibrated_metrics["expected_calibration_error"] / max(uncalibrated_metrics["expected_calibration_error"], 1e-10)) * 100,
-            "output_files": {
-                "metrics": metrics_path,
-                "calibrator": calibrator_path,
-                "calibrated_data": output_path
-            }
-        }
-        
-        summary_path = os.path.join(OUTPUT_CALIBRATION_PATH, "calibration_summary.json")
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2)
-        
-        # Check if calibration improved by error threshold
-        if summary["improvement_percentage"] < 0:
-            logger.warning("Calibration did not improve expected calibration error!")
-        elif summary["improvement_percentage"] < 5:
-            logger.warning("Calibration only marginally improved expected calibration error")
+        if config.is_binary:
+            # Binary classification workflow
+            # Load data and extract features and target
+            df, y_true, y_prob_uncalibrated, _ = load_and_prepare_data(config)
             
-        logger.info(f"Calibration complete. ECE reduced from {uncalibrated_metrics['expected_calibration_error']:.4f} to {calibrated_metrics['expected_calibration_error']:.4f}")
-        logger.info(f"All outputs saved to: {OUTPUT_CALIBRATION_PATH}, {OUTPUT_METRICS_PATH}, and {OUTPUT_CALIBRATED_DATA_PATH}")
+            # Select and train calibration model
+            if config.calibration_method == "gam":
+                if not HAS_PYGAM:
+                    logger.warning("pygam not installed, falling back to Platt scaling")
+                    calibrator = train_platt_scaling(y_prob_uncalibrated, y_true, config)
+                else:
+                    calibrator = train_gam_calibration(y_prob_uncalibrated, y_true, config)
+            elif config.calibration_method == "isotonic":
+                calibrator = train_isotonic_calibration(y_prob_uncalibrated, y_true, config)
+            elif config.calibration_method == "platt":
+                calibrator = train_platt_scaling(y_prob_uncalibrated, y_true, config)
+            else:
+                raise ValueError(f"Unknown calibration method: {config.calibration_method}")
+            
+            log_section("CALIBRATION APPLICATION")
+            # Apply calibration to get calibrated probabilities
+            if isinstance(calibrator, IsotonicRegression):
+                logger.info("Applying Isotonic Regression calibration")
+                y_prob_calibrated = calibrator.transform(y_prob_uncalibrated)
+            elif isinstance(calibrator, LogisticRegression):
+                logger.info("Applying Platt Scaling (Logistic Regression) calibration")
+                y_prob_calibrated = calibrator.predict_proba(y_prob_uncalibrated.reshape(-1, 1))[:, 1]
+                
+                # Log the logistic regression parameters
+                logger.info(f"Platt scaling parameters - intercept: {calibrator.intercept_[0]:.6f}, "
+                        f"coefficient: {calibrator.coef_[0][0]:.6f}")
+            else:  # GAM
+                logger.info("Applying GAM calibration")
+                y_prob_calibrated = calibrator.predict_proba(y_prob_uncalibrated.reshape(-1, 1))
+            
+            # Log statistics about calibrated probabilities
+            log_array_stats(y_prob_calibrated, "Calibrated probabilities")
+            
+            log_section("CALIBRATION METRICS CALCULATION")
+            # Compute calibration metrics for before and after
+            uncalibrated_metrics = compute_calibration_metrics(y_true, y_prob_uncalibrated)
+            calibrated_metrics = compute_calibration_metrics(y_true, y_prob_calibrated)
+            
+            logger.info("Uncalibrated metrics:")
+            log_metrics(uncalibrated_metrics, "  ")
+            
+            logger.info("Calibrated metrics:")
+            log_metrics(calibrated_metrics, "  ")
+            
+            # Log key improvement metrics
+            ece_improvement = uncalibrated_metrics["expected_calibration_error"] - calibrated_metrics["expected_calibration_error"]
+            mce_improvement = uncalibrated_metrics["maximum_calibration_error"] - calibrated_metrics["maximum_calibration_error"]
+            brier_improvement = uncalibrated_metrics["brier_score"] - calibrated_metrics["brier_score"]
+            auc_change = calibrated_metrics["auc_roc"] - uncalibrated_metrics["auc_roc"]
+            
+            log_section("CALIBRATION IMPROVEMENTS")
+            logger.info(f"ECE Reduction: {ece_improvement:.6f} ({ece_improvement/max(uncalibrated_metrics['expected_calibration_error'], 1e-10)*100:.2f}%)")
+            logger.info(f"MCE Reduction: {mce_improvement:.6f} ({mce_improvement/max(uncalibrated_metrics['maximum_calibration_error'], 1e-10)*100:.2f}%)")
+            logger.info(f"Brier Score Reduction: {brier_improvement:.6f} ({brier_improvement/max(uncalibrated_metrics['brier_score'], 1e-10)*100:.2f}%)")
+            logger.info(f"AUC-ROC Change: {auc_change:.6f} ({auc_change/max(uncalibrated_metrics['auc_roc'], 1e-10)*100:.2f}%)")
+            
+            # Create visualization
+            plot_path = plot_reliability_diagram(y_true, y_prob_uncalibrated, y_prob_calibrated, config=config)
+            
+            # Create comprehensive metrics report
+            metrics_report = {
+                "mode": "binary",
+                "calibration_method": config.calibration_method,
+                "uncalibrated": uncalibrated_metrics,
+                "calibrated": calibrated_metrics,
+                "improvement": {
+                    "ece_reduction": uncalibrated_metrics["expected_calibration_error"] - calibrated_metrics["expected_calibration_error"],
+                    "mce_reduction": uncalibrated_metrics["maximum_calibration_error"] - calibrated_metrics["maximum_calibration_error"],
+                    "brier_reduction": uncalibrated_metrics["brier_score"] - calibrated_metrics["brier_score"],
+                    "auc_change": calibrated_metrics["auc_roc"] - uncalibrated_metrics["auc_roc"],
+                },
+                "visualization_paths": {
+                    "reliability_diagram": plot_path
+                },
+                "config": {
+                    "label_field": config.label_field,
+                    "score_field": config.score_field,
+                    "monotonic_constraint": config.monotonic_constraint,
+                    "gam_splines": config.gam_splines,
+                    "error_threshold": config.error_threshold,
+                    "is_binary": config.is_binary
+                }
+            }
+            
+            log_section("SAVING OUTPUTS")
+            # Save metrics report
+            metrics_path = os.path.join(config.output_metrics_path, "calibration_metrics.json")
+            with open(metrics_path, "w") as f:
+                json.dump(metrics_report, f, indent=2)
+            logger.info(f"Saved metrics report to {metrics_path}")
+            
+            # Save calibrator model
+            calibrator_path = os.path.join(config.output_calibration_path, "calibration_model.joblib")
+            joblib.dump(calibrator, calibrator_path)
+            logger.info(f"Saved calibrator model to {calibrator_path}")
+            
+            # Add calibrated scores to dataframe and save
+            df["calibrated_" + config.score_field] = y_prob_calibrated
+            output_path = os.path.join(config.output_calibrated_data_path, "calibrated_data.parquet")
+            df.to_parquet(output_path, index=False)
+            
+            # Write summary
+            summary = {
+                "status": "success",
+                "mode": "binary",
+                "calibration_method": config.calibration_method,
+                "uncalibrated_ece": uncalibrated_metrics["expected_calibration_error"],
+                "calibrated_ece": calibrated_metrics["expected_calibration_error"],
+                "improvement_percentage": (1 - calibrated_metrics["expected_calibration_error"] / max(uncalibrated_metrics["expected_calibration_error"], 1e-10)) * 100,
+                "output_files": {
+                    "metrics": metrics_path,
+                    "calibrator": calibrator_path,
+                    "calibrated_data": output_path
+                }
+            }
+            
+            summary_path = os.path.join(config.output_calibration_path, "calibration_summary.json")
+            with open(summary_path, "w") as f:
+                json.dump(summary, f, indent=2)
+            
+            # Check if calibration improved by error threshold
+            if summary["improvement_percentage"] < 0:
+                logger.warning("Calibration did not improve expected calibration error!")
+            elif summary["improvement_percentage"] < 5:
+                logger.warning("Calibration only marginally improved expected calibration error")
+                
+            log_section("CALIBRATION COMPLETE")
+            logger.info(f"Binary calibration complete. ECE reduced from {uncalibrated_metrics['expected_calibration_error']:.6f} to {calibrated_metrics['expected_calibration_error']:.6f}")
+            logger.info(f"Improvement: {ece_improvement:.6f} ({ece_improvement/max(uncalibrated_metrics['expected_calibration_error'], 1e-10)*100:.2f}%)")
+            
+        else:
+            # Multi-class classification workflow
+            # Load data with all probability columns
+            df, y_true, _, y_prob_matrix = load_and_prepare_data(config)
+            
+            # Train calibration models for each class
+            logger.info(f"Training {config.calibration_method} calibration for {config.num_classes} classes")
+            calibrators = train_multiclass_calibration(y_prob_matrix, y_true, config.calibration_method, config)
+            
+            # Apply calibration to get calibrated probabilities
+            y_prob_calibrated = apply_multiclass_calibration(y_prob_matrix, calibrators, config)
+            
+            # Compute metrics
+            uncalibrated_metrics = compute_multiclass_calibration_metrics(y_true, y_prob_matrix, config=config)
+            calibrated_metrics = compute_multiclass_calibration_metrics(y_true, y_prob_calibrated, config=config)
+            
+            # Create visualizations
+            plot_path = plot_multiclass_reliability_diagram(y_true, y_prob_matrix, y_prob_calibrated, config=config)
+            
+            # Create metrics report
+            metrics_report = {
+                "mode": "multi-class",
+                "calibration_method": config.calibration_method,
+                "num_classes": config.num_classes,
+                "class_names": config.multiclass_categories,
+                "uncalibrated": uncalibrated_metrics,
+                "calibrated": calibrated_metrics,
+                "improvement": {
+                    "macro_ece_reduction": uncalibrated_metrics["macro_expected_calibration_error"] - 
+                                           calibrated_metrics["macro_expected_calibration_error"],
+                    "multiclass_brier_reduction": uncalibrated_metrics["multiclass_brier_score"] - 
+                                        calibrated_metrics["multiclass_brier_score"],
+                },
+                "visualization_paths": {
+                    "reliability_diagram": plot_path
+                },
+                "config": {
+                    "label_field": config.label_field,
+                    "score_field_prefix": config.score_field_prefix,
+                    "num_classes": config.num_classes,
+                    "class_names": config.multiclass_categories,
+                    "monotonic_constraint": config.monotonic_constraint,
+                    "gam_splines": config.gam_splines,
+                    "error_threshold": config.error_threshold,
+                    "is_binary": config.is_binary
+                }
+            }
+            
+            # Save metrics report
+            metrics_path = os.path.join(config.output_metrics_path, "calibration_metrics.json")
+            with open(metrics_path, "w") as f:
+                json.dump(metrics_report, f, indent=2)
+            
+            # Save calibrator models
+            calibrator_dir = os.path.join(config.output_calibration_path, "calibration_models")
+            os.makedirs(calibrator_dir, exist_ok=True)
+            
+            calibrator_paths = {}
+            for i, calibrator in enumerate(calibrators):
+                class_name = config.multiclass_categories[i]
+                calibrator_path = os.path.join(calibrator_dir, f"calibration_model_class_{class_name}.joblib")
+                joblib.dump(calibrator, calibrator_path)
+                calibrator_paths[f"class_{class_name}"] = calibrator_path
+            
+            # Add calibrated scores to dataframe and save
+            for i in range(config.num_classes):
+                class_name = config.multiclass_categories[i]
+                col_name = f"{config.score_field_prefix}{class_name}"
+                df[f"calibrated_{col_name}"] = y_prob_calibrated[:, i]
+            
+            output_path = os.path.join(config.output_calibrated_data_path, "calibrated_data.parquet")
+            df.to_parquet(output_path, index=False)
+            
+            # Write summary
+            summary = {
+                "status": "success",
+                "mode": "multi-class",
+                "num_classes": config.num_classes,
+                "class_names": config.multiclass_categories,
+                "calibration_method": config.calibration_method,
+                "uncalibrated_macro_ece": uncalibrated_metrics["macro_expected_calibration_error"],
+                "calibrated_macro_ece": calibrated_metrics["macro_expected_calibration_error"],
+                "improvement_percentage": (1 - calibrated_metrics["macro_expected_calibration_error"] / 
+                                          max(uncalibrated_metrics["macro_expected_calibration_error"], 1e-10)) * 100,
+                "output_files": {
+                    "metrics": metrics_path,
+                    "calibrators": calibrator_paths,
+                    "calibrated_data": output_path
+                }
+            }
+            
+            summary_path = os.path.join(config.output_calibration_path, "calibration_summary.json")
+            with open(summary_path, "w") as f:
+                json.dump(summary, f, indent=2)
+            
+            # Check if calibration improved by error threshold
+            if summary["improvement_percentage"] < 0:
+                logger.warning("Calibration did not improve expected calibration error!")
+            elif summary["improvement_percentage"] < 5:
+                logger.warning("Calibration only marginally improved expected calibration error")
+                
+            logger.info(f"Multi-class calibration complete. Macro ECE reduced from " +
+                      f"{uncalibrated_metrics['macro_expected_calibration_error']:.4f} to " +
+                      f"{calibrated_metrics['macro_expected_calibration_error']:.4f}")
+        
+        logger.info(f"All outputs saved to: {config.output_calibration_path}, {config.output_metrics_path}, and {config.output_calibrated_data_path}")
         
     except Exception as e:
         logger.error(f"Error in model calibration: {str(e)}")
         logger.error(traceback.format_exc())
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

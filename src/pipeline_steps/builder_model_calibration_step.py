@@ -86,7 +86,8 @@ class ModelCalibrationStepBuilder(StepBuilderBase):
             'processing_volume_size',
             'calibration_method',
             'label_field',
-            'score_field'
+            'score_field',
+            'is_binary'  # Add required is_binary field
         ]
         
         for attr in required_attrs:
@@ -268,8 +269,17 @@ class ModelCalibrationStepBuilder(StepBuilderBase):
             "SCORE_FIELD": self.config.score_field,
             "MONOTONIC_CONSTRAINT": str(self.config.monotonic_constraint).lower(),
             "GAM_SPLINES": str(self.config.gam_splines),
-            "ERROR_THRESHOLD": str(self.config.error_threshold)
+            "ERROR_THRESHOLD": str(self.config.error_threshold),
+            # Add multi-class parameters
+            "IS_BINARY": str(self.config.is_binary).lower(),
+            "NUM_CLASSES": str(self.config.num_classes),
+            "SCORE_FIELD_PREFIX": self.config.score_field_prefix
         })
+        
+        # Add multiclass categories if available
+        if not self.config.is_binary and self.config.multiclass_categories:
+            import json
+            env_vars["MULTICLASS_CATEGORIES"] = json.dumps(self.config.multiclass_categories)
         
         return env_vars
     

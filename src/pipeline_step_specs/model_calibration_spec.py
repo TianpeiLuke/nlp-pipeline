@@ -36,7 +36,7 @@ MODEL_CALIBRATION_SPEC = StepSpecification(
         "calibration_output": OutputSpec(
             logical_name="calibration_output",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="Properties.ProcessingOutputConfig.Outputs['calibration_output'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['calibration_output'].S3Output.S3Uri",
             aliases=["calibration_model", "calibration_artifacts", "probability_calibration", "calibrator", "score_transformer", "probability_adjustment"],
             data_type="S3Uri",
             description="Calibration mapping and artifacts"
@@ -44,7 +44,7 @@ MODEL_CALIBRATION_SPEC = StepSpecification(
         "metrics_output": OutputSpec(
             logical_name="metrics_output",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="Properties.ProcessingOutputConfig.Outputs['metrics_output'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['metrics_output'].S3Output.S3Uri",
             aliases=["calibration_metrics", "reliability_metrics", "probability_metrics", "calibration_performance", "calibration_evaluation"],
             data_type="S3Uri",
             description="Calibration quality metrics and visualizations"
@@ -52,7 +52,7 @@ MODEL_CALIBRATION_SPEC = StepSpecification(
         "calibrated_data": OutputSpec(
             logical_name="calibrated_data",
             output_type=DependencyType.PROCESSING_OUTPUT,
-            property_path="Properties.ProcessingOutputConfig.Outputs['calibrated_data'].S3Output.S3Uri",
+            property_path="properties.ProcessingOutputConfig.Outputs['calibrated_data'].S3Output.S3Uri",
             aliases=["calibrated_predictions", "calibrated_probabilities", "probability_scores", "adjusted_predictions", "calibrated_outputs"],
             data_type="S3Uri",
             description="Dataset with calibrated probabilities"
