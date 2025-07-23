@@ -76,7 +76,33 @@ This method implements the core of the specification-driven dependency resolutio
 2. For each dependency in the destination step, it checks if the source step can provide it
 3. It calculates compatibility scores between dependencies and outputs
 4. It selects the best match for each dependency based on compatibility score
-5. It stores the matches in the step_messages dictionary for later use
+5. It compares with existing matches (from previous edges) and only updates if the new match has a higher compatibility score
+6. It stores the highest-scoring match in the step_messages dictionary for later use
+
+The comparison with existing matches is a key feature that ensures the highest-quality connections are preserved, even when multiple source steps could provide a dependency:
+
+```python
+# Check if there's already a better match
+existing_match = self.step_messages.get(dst_step, {}).get(dep_name)
+should_update = True
+
+if existing_match:
+    existing_score = existing_match.get('compatibility', 0)
+    if existing_score >= best_match[2]:
+        should_update = False
+        logger.debug(f"Skipping lower-scoring match for {dst_step}.{dep_name}")
+
+if should_update:
+    # Store in step_messages
+    self.step_messages[dst_step][dep_name] = {
+        'source_step': src_step,
+        'source_output': best_match[0],
+        'match_type': 'specification_match',
+        'compatibility': best_match[2]
+    }
+```
+
+This approach prevents lower-scoring matches from overriding higher-scoring ones when multiple connections to a step are possible, ensuring optimal input selection.
 
 ### Output Generation
 

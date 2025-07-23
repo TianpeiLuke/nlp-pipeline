@@ -221,14 +221,25 @@ class PipelineAssembler:
                     matches.sort(key=lambda x: x[2], reverse=True)
                     best_match = matches[0]
                     
-                    # Store in step_messages
-                    self.step_messages[dst_step][dep_name] = {
-                        'source_step': src_step,
-                        'source_output': best_match[0],
-                        'match_type': 'specification_match',
-                        'compatibility': best_match[2]
-                    }
-                    logger.info(f"Matched {dst_step}.{dep_name} to {src_step}.{best_match[0]} (score: {best_match[2]:.2f})")
+                    # Check if there's already a better match
+                    existing_match = self.step_messages.get(dst_step, {}).get(dep_name)
+                    should_update = True
+
+                    if existing_match:
+                        existing_score = existing_match.get('compatibility', 0)
+                        if existing_score >= best_match[2]:
+                            should_update = False
+                            logger.debug(f"Skipping lower-scoring match for {dst_step}.{dep_name}: {src_step}.{best_match[0]} (score: {best_match[2]:.2f} < existing: {existing_score:.2f})")
+
+                    if should_update:
+                        # Store in step_messages
+                        self.step_messages[dst_step][dep_name] = {
+                            'source_step': src_step,
+                            'source_output': best_match[0],
+                            'match_type': 'specification_match',
+                            'compatibility': best_match[2]
+                        }
+                        logger.info(f"Matched {dst_step}.{dep_name} to {src_step}.{best_match[0]} (score: {best_match[2]:.2f})")
 
     def _generate_outputs(self, step_name: str) -> Dict[str, Any]:
         """
