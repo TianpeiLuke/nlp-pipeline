@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # Constants
 MODEL_PATH = Path("/opt/ml/processing/input/model")
 SCRIPT_PATH = Path("/opt/ml/processing/input/script")
+CALIBRATION_PATH = Path("/opt/ml/processing/input/calibration")  # New path for calibration model
 OUTPUT_PATH = Path("/opt/ml/processing/output")
 WORKING_DIRECTORY = Path("/tmp/mims_packaging_directory")
 CODE_DIRECTORY = WORKING_DIRECTORY / "code"
@@ -182,6 +183,79 @@ def extract_tarfile(tar_path: Path, extract_path: Path):
         logger.error(f"Error during tar extraction: {str(e)}", exc_info=True)
 
 
+def include_calibration_model(working_dir: Path) -> bool:
+    """Check for and include calibration model in packaging if available.
+    
+    Args:
+        working_dir: The working directory where model contents are being assembled
+        
+    Returns:
+        bool: True if calibration model was found and included, False otherwise
+    """
+    logger.info(f"\n{'='*20} Checking for Calibration Model {'='*20}")
+    
+    if not CALIBRATION_PATH.exists():
+        logger.info("No calibration input directory found. Continuing without calibration.")
+        return False
+        
+    list_directory_contents(CALIBRATION_PATH, "Calibration input directory")
+    
+    # Check for binary calibration model file
+    calibration_model = CALIBRATION_PATH / "calibration_model.joblib"
+    if check_file_exists(calibration_model, "Binary calibration model"):
+        logger.info("Found binary calibration model")
+        # Create destination directory
+        calibration_dest_dir = working_dir / "calibration"
+        ensure_directory(calibration_dest_dir)
+        
+        # Copy calibration model
+        dest_path = calibration_dest_dir / "calibration_model.joblib"
+        copy_file_robust(calibration_model, dest_path)
+        
+        # Copy calibration summary if it exists
+        summary_file = CALIBRATION_PATH / "calibration_summary.json"
+        if check_file_exists(summary_file, "Calibration summary"):
+            summary_dest = calibration_dest_dir / "calibration_summary.json"
+            copy_file_robust(summary_file, summary_dest)
+            
+        logger.info("Binary calibration model included in packaging")
+        return True
+    
+    # Check for multiclass calibration models directory
+    calibration_dir = CALIBRATION_PATH / "calibration_models"
+    if calibration_dir.exists() and calibration_dir.is_dir():
+        logger.info("Found multiclass calibration models directory")
+        
+        # Create destination directory
+        calibration_dest_dir = working_dir / "calibration"
+        ensure_directory(calibration_dest_dir)
+        
+        # Copy calibration summary if it exists
+        summary_file = CALIBRATION_PATH / "calibration_summary.json"
+        if check_file_exists(summary_file, "Calibration summary"):
+            summary_dest = calibration_dest_dir / "calibration_summary.json"
+            copy_file_robust(summary_file, summary_dest)
+        
+        # Create calibration models directory
+        models_dest_dir = calibration_dest_dir / "calibration_models"
+        ensure_directory(models_dest_dir)
+        
+        # Copy all calibration models
+        files_copied = 0
+        total_size = 0
+        for model_file in calibration_dir.glob("*.joblib"):
+            dest_path = models_dest_dir / model_file.name
+            if copy_file_robust(model_file, dest_path):
+                files_copied += 1
+                total_size += model_file.stat().st_size / 1024 / 1024
+                
+        logger.info(f"Copied {files_copied} multiclass calibration models, total size: {total_size:.2f}MB")
+        return True
+    
+    logger.info("No calibration model found. Continuing without calibration.")
+    return False
+
+
 def create_tarfile(output_tar_path: Path, source_dir: Path):
     """Create a tar file from the contents of a directory."""
     logger.info(f"\n{'='*20} Creating Tar File {'='*20}")
@@ -244,6 +318,9 @@ def main():
                     files_copied += 1
                     total_size += item.stat().st_size / 1024 / 1024
         logger.info(f"\nCopied {files_copied} files, total size: {total_size:.2f}MB")
+
+    # Check for and include calibration model if available
+    include_calibration_model(WORKING_DIRECTORY)
 
     # Copy inference scripts to WORKING_DIRECTORY/code
     copy_scripts(SCRIPT_PATH, CODE_DIRECTORY)

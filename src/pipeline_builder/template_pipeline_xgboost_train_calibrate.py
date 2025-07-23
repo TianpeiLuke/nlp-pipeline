@@ -1,11 +1,12 @@
 """
-Template-based builder for XGBoost Training and Calibration pipeline.
+Template-based builder for XGBoost Training, Calibration, and Packaging pipeline.
 
 This template creates a simplified pipeline that performs:
 1) Data Loading (for training set) using Cradle
 2) Tabular Preprocessing (for training set)
 3) XGBoost Model Training
 4) Model Calibration
+5) Model Packaging with Calibration
 """
 
 from typing import Dict, List, Any, Optional, Type
@@ -37,6 +38,7 @@ from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBas
 from ..pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
 from ..pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig 
 from ..pipeline_steps.config_model_calibration_step import ModelCalibrationConfig
+from ..pipeline_steps.config_mims_packaging_step import PackageStepConfig
 
 # Step builders
 from ..pipeline_steps.builder_step_base import StepBuilderBase
@@ -44,6 +46,7 @@ from ..pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStep
 from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from ..pipeline_steps.builder_model_calibration_step import ModelCalibrationStepBuilder
+from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
 
 # Import constants from core library (these are the parameters that will be wrapped)
@@ -92,6 +95,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
     2) Tabular Preprocessing (for training set) 
     3) XGBoost Model Training
     4) Model Calibration
+    5) Model Packaging with Calibration
     """
     # Define required and optional inputs for preprocessing steps
     REQUIRED_INPUTS = {"DATA"}
@@ -104,7 +108,8 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
         'ProcessingStepConfigBase':   ProcessingStepConfigBase,
         'TabularPreprocessingConfig': TabularPreprocessingConfig,
         'XGBoostTrainingConfig':      XGBoostTrainingConfig,
-        'ModelCalibrationConfig':     ModelCalibrationConfig
+        'ModelCalibrationConfig':     ModelCalibrationConfig,
+        'PackageStepConfig':          PackageStepConfig
     }
 
     def __init__(
@@ -171,6 +176,13 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
             raise ValueError("No model calibration configuration found")
         if len(calibration_configs) > 1:
             raise ValueError("Multiple model calibration configurations found, expected exactly one")
+            
+        # Check for required packaging config
+        packaging_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, PackageStepConfig)]
+        if not packaging_configs:
+            raise ValueError("No packaging configuration found")
+        if len(packaging_configs) > 1:
+            raise ValueError("Multiple packaging configurations found, expected exactly one")
                 
         logger.info("Basic configuration structure validation passed")
 
@@ -199,6 +211,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
             STEP_NAMES["TabularPreprocessing"]["spec_type"]: TabularPreprocessingStepBuilder,
             STEP_NAMES["XGBoostTraining"]["spec_type"]: XGBoostTrainingStepBuilder,
             STEP_NAMES["ModelCalibration"]["spec_type"]: ModelCalibrationStepBuilder,
+            STEP_NAMES["Package"]["spec_type"]: MIMSPackagingStepBuilder,
         }
 
     def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
@@ -236,6 +249,11 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
         calibration_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, ModelCalibrationConfig)]
         if calibration_configs:
             config_map["model_calibration"] = calibration_configs[0]
+            
+        # Add packaging config
+        packaging_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, PackageStepConfig)]
+        if packaging_configs:
+            config_map["model_packaging"] = packaging_configs[0]
         
         # Validate all required configs are present
         missing_configs = [name for name, cfg in config_map.items() if cfg is None]
@@ -258,11 +276,20 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
         dag.add_node("training_preprocess")  # Tabular preprocessing for training
         dag.add_node("xgboost_train")        # XGBoost training step
         dag.add_node("model_calibration")    # Model calibration step
+        dag.add_node("model_packaging")      # Model packaging step
         
         # Create the edges for our DAG
         dag.add_edge("training_data_load", "training_preprocess")
         dag.add_edge("training_preprocess", "xgboost_train")
         dag.add_edge("xgboost_train", "model_calibration")
+        
+        # Connect model_calibration and xgboost_train to packaging
+        dag.add_edge("model_calibration", "model_packaging")
+        dag.add_edge("xgboost_train", "model_packaging")  # Raw model is also input to packaging
+        
+        # Note: To specify exact input/output ports, we would need to use EnhancedPipelineDAG's add_manual_dependency:
+        # enhanced_dag.add_manual_dependency("model_calibration", "calibration_output", 
+        #                                  "model_packaging", "calibration_model")
         
         return dag
     
@@ -286,7 +313,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
         Returns:
             Pipeline name
         """
-        return f"{self.base_config.pipeline_name}-xgb-train-calibrate"
+        return f"{self.base_config.pipeline_name}-xgb-train-calibrate-package"
 
     def fill_execution_document(self, execution_document: Dict[str, Any]) -> Dict[str, Any]:
         """

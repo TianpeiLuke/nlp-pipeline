@@ -11,7 +11,8 @@ MIMS_PACKAGE_CONTRACT = ScriptContract(
     entry_point="mims_package.py",
     expected_input_paths={
         "model_input": "/opt/ml/processing/input/model",
-        "inference_scripts_input": "/opt/ml/processing/input/script"
+        "inference_scripts_input": "/opt/ml/processing/input/script",
+        "calibration_model": "/opt/ml/processing/input/calibration"
     },
     expected_output_paths={
         "packaged_model": "/opt/ml/processing/output"
@@ -30,13 +31,15 @@ MIMS_PACKAGE_CONTRACT = ScriptContract(
     description="""
     MIMS packaging script that:
     1. Extracts model artifacts from input model directory or model.tar.gz
-    2. Copies inference scripts to code directory
-    3. Creates a packaged model.tar.gz file for deployment
+    2. Includes calibration model if available
+    3. Copies inference scripts to code directory
+    4. Creates a packaged model.tar.gz file for deployment
     4. Provides detailed logging of the packaging process
     
     Input Structure:
     - /opt/ml/processing/input/model: Model artifacts (files or model.tar.gz)
     - /opt/ml/processing/input/script: Inference scripts to include
+    - /opt/ml/processing/input/calibration: Optional calibration model artifacts
     
     Output Structure:
     - /opt/ml/processing/output/model.tar.gz: Packaged model ready for deployment

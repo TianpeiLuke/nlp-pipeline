@@ -36,6 +36,15 @@ PACKAGING_SPEC = StepSpecification(
             semantic_keywords=["inference", "scripts", "code", "InferenceScripts"],
             data_type="String",
             description="Inference scripts and code for model deployment (can be local directory path or S3 URI)"
+        ),
+        DependencySpec(
+            logical_name="calibration_model",
+            dependency_type=DependencyType.PROCESSING_OUTPUT,
+            required=False,
+            compatible_sources=["ModelCalibration"],
+            semantic_keywords=["calibration", "calibration_model", "calibrator", "probability", "calibrated"],
+            data_type="S3Uri",
+            description="Calibration model and artifacts for probability calibration (optional)"
         )
     ],
     outputs=[
