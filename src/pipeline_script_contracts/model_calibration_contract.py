@@ -36,8 +36,7 @@ MODEL_CALIBRATION_CONTRACT = ScriptContract(
         "pandas": ">=1.2.0,<2.0.0",
         "numpy": ">=1.20.0",
         "pygam": ">=0.8.0",
-        "matplotlib": ">=3.3.0",
-        "joblib": ">=1.0.0" 
+        "matplotlib": ">=3.3.0"
     },
     description="""Contract for model calibration processing step.
     

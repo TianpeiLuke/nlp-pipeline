@@ -2,6 +2,7 @@
 
 # Standard library imports
 import os
+import sys
 import json
 import logging
 import pickle as pkl  # Add this line
@@ -10,7 +11,6 @@ from typing import Dict, Any, Union, Tuple, List, Optional
 from io import StringIO, BytesIO
 
 # Third-party imports
-import boto3
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -30,12 +30,21 @@ IMPUTE_DICT_FILE = "impute_dict.pkl"
 FEATURE_IMPORTANCE_FILE = "feature_importance.json"
 FEATURE_COLUMNS_FILE = "feature_columns.txt"
 HYPERPARAMETERS_FILE = "hyperparameters.json"
-CALIBRATION_MODEL_FILE = "calibration_model.joblib"
 
 # Content types
 CONTENT_TYPE_CSV = 'text/csv'
 CONTENT_TYPE_JSON = 'application/json'
 CONTENT_TYPE_PARQUET = 'application/x-parquet'
+
+
+# Simple Response class for type hints
+class InferenceResponse:
+    """Simple response class for type hints."""
+    def __init__(self, response: str, status: int = 200, mimetype: str = 'text/plain'):
+        self.response = response
+        self.status = status
+        self.mimetype = mimetype
+
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -168,31 +177,6 @@ def load_hyperparameters(model_dir: str) -> Dict[str, Any]:
         return {}
 
 
-def load_calibration_model(model_dir: str) -> Optional[Any]:
-    """
-    Load calibration model if it exists in model.tar.gz
-    
-    Args:
-        model_dir: Directory containing model artifacts
-        
-    Returns:
-        Calibration model or None if not found
-    """
-    calibration_path = os.path.join(model_dir, CALIBRATION_MODEL_FILE)
-    if os.path.exists(calibration_path):
-        try:
-            import joblib
-            calibrator = joblib.load(calibration_path)
-            logger.info(f"Loaded calibration model: {type(calibrator).__name__}")
-            return calibrator
-        except Exception as e:
-            logger.warning(f"Failed to load calibration model: {e}")
-            return None
-    else:
-        logger.info("No calibration model found - using raw scores")
-        return None
-
-
 def create_model_config(
     model: xgb.Booster,
     feature_columns: List[str],
@@ -239,9 +223,6 @@ def model_fn(model_dir: str) -> Dict[str, Any]:
         feature_columns = read_feature_columns(model_dir)
         hyperparameters = load_hyperparameters(model_dir)
         
-        # Load calibration model (optional)
-        calibrator = load_calibration_model(model_dir)
-        
         # Create configuration
         config = create_model_config(model, feature_columns, hyperparameters)
         
@@ -251,7 +232,6 @@ def model_fn(model_dir: str) -> Dict[str, Any]:
             "numerical_processor": numerical_processor,
             "feature_importance": feature_importance,
             "config": config,
-            "calibrator": calibrator,
             "version": __version__
         }
         
@@ -267,7 +247,7 @@ def input_fn(
     request_body: Union[str, bytes], 
     request_content_type: str, 
     context: Optional[Any] = None
-) -> Union[pd.DataFrame, Response]:
+) -> Union[pd.DataFrame, InferenceResponse]:
     """
     Deserialize the Invoke request body into an object we can perform prediction on.
     
@@ -485,59 +465,6 @@ def convert_to_numeric(df: pd.DataFrame, feature_columns: List[str]) -> pd.DataF
     return df
 
 
-def apply_calibration(raw_scores: np.ndarray, calibrator: Any, is_multiclass: bool) -> np.ndarray:
-    """
-    Apply calibration to raw scores if calibrator is available.
-    
-    Args:
-        raw_scores: Raw model scores (probabilities)
-        calibrator: Trained calibration model
-        is_multiclass: Whether this is a multiclass model
-        
-    Returns:
-        Calibrated scores for the legacy-score field
-    """
-    if calibrator is None:
-        return None
-    
-    try:
-        # Handle different calibration model types
-        from sklearn.isotonic import IsotonicRegression
-        from sklearn.linear_model import LogisticRegression
-        
-        # Extract probabilities for calibration
-        if is_multiclass:
-            # For multiclass, calibrate the class-0 probability (legacy-score)
-            if len(raw_scores.shape) == 2 and raw_scores.shape[1] > 2:
-                target_probs = raw_scores[:, 0]  # Use class-0 probabilities
-            else:
-                target_probs = raw_scores.flatten()
-        else:
-            # For binary classification, calibrate class-1 probability
-            if len(raw_scores.shape) == 2 and raw_scores.shape[1] == 2:
-                target_probs = raw_scores[:, 1]  # Use class-1 probabilities
-            else:
-                target_probs = raw_scores.flatten()
-        
-        # Apply calibration based on model type
-        if isinstance(calibrator, IsotonicRegression):
-            calibrated_probs = calibrator.transform(target_probs)
-        elif isinstance(calibrator, LogisticRegression):
-            calibrated_probs = calibrator.predict_proba(target_probs.reshape(-1, 1))[:, 1]
-        else:
-            # Assume GAM or other model with predict_proba method
-            calibrated_probs = calibrator.predict_proba(target_probs.reshape(-1, 1))
-            if len(calibrated_probs.shape) == 2:
-                calibrated_probs = calibrated_probs[:, 1]  # Extract class-1 probabilities
-        
-        logger.info(f"Applied calibration: {type(calibrator).__name__} for {'multiclass' if is_multiclass else 'binary'} model")
-        return calibrated_probs
-        
-    except Exception as e:
-        logger.warning(f"Calibration failed, using raw scores: {e}")
-        return None
-
-
 def generate_predictions(
     model: xgb.Booster,
     df: pd.DataFrame,
@@ -565,7 +492,7 @@ def generate_predictions(
     return predictions
 
 
-def predict_fn(input_data: pd.DataFrame, model_artifacts: Dict[str, Any]) -> Dict[str, Any]:
+def predict_fn(input_data: pd.DataFrame, model_artifacts: Dict[str, Any]) -> np.ndarray:
     """
     Generate predictions from preprocessed input data.
     
@@ -574,7 +501,7 @@ def predict_fn(input_data: pd.DataFrame, model_artifacts: Dict[str, Any]) -> Dic
         model_artifacts: Dictionary containing model and preprocessing objects
         
     Returns:
-        Dict containing both raw and calibrated predictions
+        np.ndarray: Model predictions
         
     Raises:
         ValueError: If input data is invalid or missing required features
@@ -586,7 +513,6 @@ def predict_fn(input_data: pd.DataFrame, model_artifacts: Dict[str, Any]) -> Dic
         numerical_processor = model_artifacts["numerical_processor"]
         config = model_artifacts["config"]
         feature_columns = config["feature_columns"]
-        calibrator = model_artifacts.get("calibrator")
         
         # Validate input
         validate_input_data(input_data, feature_columns)
@@ -600,23 +526,15 @@ def predict_fn(input_data: pd.DataFrame, model_artifacts: Dict[str, Any]) -> Dic
         # Convert to numeric
         df = convert_to_numeric(df, feature_columns)
         
-        # Generate raw predictions
-        raw_predictions = generate_predictions(
+        # Generate predictions
+        predictions = generate_predictions(
             model=model,
             df=df,
             feature_columns=feature_columns,
             is_multiclass=config["is_multiclass"]
         )
         
-        # Apply calibration if available (for both binary and multiclass)
-        calibrated_scores = None
-        if calibrator is not None:
-            calibrated_scores = apply_calibration(raw_predictions, calibrator, config["is_multiclass"])
-        
-        return {
-            "raw_predictions": raw_predictions,
-            "calibrated_scores": calibrated_scores
-        }
+        return predictions
         
     except Exception as e:
         logger.error(f"Error during prediction: {str(e)}", exc_info=True)
@@ -672,14 +590,13 @@ def normalize_predictions(
     return scores_list, is_multiclass
 
 
-def format_json_record(probs: List[float], is_multiclass: bool, calibrated_score: Optional[float] = None) -> Dict[str, Any]:
+def format_json_record(probs: List[float], is_multiclass: bool) -> Dict[str, Any]:
     """
     Format a single prediction record for JSON output.
     
     Args:
         probs: List of probability scores
         is_multiclass: Whether this is a multiclass prediction
-        calibrated_score: Optional calibrated score for binary classification
         
     Returns:
         Dictionary containing formatted prediction record
@@ -687,7 +604,6 @@ def format_json_record(probs: List[float], is_multiclass: bool, calibrated_score
     Notes:
         Binary classification (2 classes):
             - legacy-score: class-1 probability
-            - calibrated-score: calibrated class-1 probability (if available)
             - no additional probability fields
         Multiclass (>2 classes):
             - legacy-score: class-0 probability
@@ -704,18 +620,9 @@ def format_json_record(probs: List[float], is_multiclass: bool, calibrated_score
         if len(probs) != 2:
             raise ValueError(f"Binary classification expects 2 probabilities, got {len(probs)}")
         record["legacy-score"] = str(probs[1])  # class-1 probability
-        
-        # Add calibrated score if available
-        if calibrated_score is not None:
-            record["calibrated-score"] = str(calibrated_score)
     else:
         # Multiclass: include all probabilities
         record["legacy-score"] = str(probs[0])  # class-0 probability
-        
-        # Add calibrated score if available (for multiclass, calibrate legacy-score)
-        if calibrated_score is not None:
-            record["calibrated-score"] = str(calibrated_score)
-        
         # Add remaining probabilities (starting from prob_02)
         record.update({
             f"prob_{str(i+1).zfill(2)}": str(p) 
@@ -829,132 +736,15 @@ def format_csv_response(
     return response_body, CONTENT_TYPE_CSV
 
 
-def format_csv_response_with_calibration(
-    scores_list: List[List[float]],
-    is_multiclass: bool,
-    calibrated_scores: Optional[np.ndarray] = None
-) -> Tuple[str, str]:
-    """
-    Format predictions as CSV response with optional calibrated scores.
-    
-    Args:
-        scores_list: List of prediction scores
-        is_multiclass: Whether this is a multiclass prediction
-        calibrated_scores: Optional calibrated scores
-        
-    Returns:
-        Tuple of (CSV response string, content type)
-        
-    Notes:
-        Column order: legacy-score, calibrated-score (if available), other probs, prediction
-        For binary: legacy-score (class-1), calibrated-score (if available), prediction
-        For multiclass: legacy-score (class-0), calibrated-score (if available), prob_02, prob_03, ..., prediction
-    """
-    csv_lines = []
-    
-    if not is_multiclass:
-        # Binary classification
-        header = ["legacy_score"]
-        if calibrated_scores is not None:
-            header.append("calibrated_score")
-        header.append("prediction")
-        csv_lines.append(",".join(header))
-        
-        for i, probs in enumerate(scores_list):
-            if len(probs) != 2:
-                raise ValueError(f"Binary classification expects 2 probabilities, got {len(probs)}")
-            
-            # Legacy score (class-1 probability)
-            legacy_score = round(float(probs[1]), 4)
-            line = [f"{legacy_score:.4f}"]
-            
-            # Add calibrated score if available
-            if calibrated_scores is not None and i < len(calibrated_scores):
-                calibrated_score = round(float(calibrated_scores[i]), 4)
-                line.append(f"{calibrated_score:.4f}")
-            
-            # Add prediction
-            prediction = "class-1" if probs[1] > probs[0] else "class-0"
-            line.append(prediction)
-            
-            csv_lines.append(",".join(map(str, line)))
-    else:
-        # Multiclass
-        header = ["legacy_score"]  # class-0 probability
-        if calibrated_scores is not None:
-            header.append("calibrated_score")
-        
-        # Add remaining probability columns
-        num_classes = len(scores_list[0])
-        for i in range(1, num_classes):  # Start from class-1 onwards
-            header.append(f"prob_{str(i+1).zfill(2)}")
-        header.append("prediction")
-        csv_lines.append(",".join(header))
-        
-        for i, probs in enumerate(scores_list):
-            # Legacy score (class-0 probability)
-            legacy_score = round(float(probs[0]), 4)
-            line = [f"{legacy_score:.4f}"]
-            
-            # Add calibrated score if available
-            if calibrated_scores is not None and i < len(calibrated_scores):
-                calibrated_score = round(float(calibrated_scores[i]), 4)
-                line.append(f"{calibrated_score:.4f}")
-            
-            # Add remaining probabilities (class-1 onwards)
-            for j in range(1, len(probs)):
-                prob = round(float(probs[j]), 4)
-                line.append(f"{prob:.4f}")
-            
-            # Add prediction
-            max_idx = probs.index(max(probs))
-            line.append(f"class-{max_idx}")
-            
-            csv_lines.append(",".join(map(str, line)))
-
-    response_body = "\n".join(csv_lines) + "\n"
-    return response_body, CONTENT_TYPE_CSV
-
-
-def format_json_response_with_calibration(
-    scores_list: List[List[float]], 
-    is_multiclass: bool,
-    calibrated_scores: Optional[np.ndarray] = None
-) -> Tuple[str, str]:
-    """
-    Format predictions as JSON response with optional calibrated scores.
-    
-    Args:
-        scores_list: List of prediction scores
-        is_multiclass: Whether this is a multiclass prediction
-        calibrated_scores: Optional calibrated scores
-        
-    Returns:
-        Tuple of (JSON response string, content type)
-    """
-    output_records = []
-    
-    for i, probs in enumerate(scores_list):
-        calibrated_score = None
-        if calibrated_scores is not None and i < len(calibrated_scores):
-            calibrated_score = float(calibrated_scores[i])
-        
-        record = format_json_record(probs, is_multiclass, calibrated_score)
-        output_records.append(record)
-    
-    response = json.dumps({"predictions": output_records})
-    return response, CONTENT_TYPE_JSON
-
-
 def output_fn(
-    prediction_output: Union[np.ndarray, List, Dict], 
+    prediction_output: Union[np.ndarray, List], 
     accept: str = CONTENT_TYPE_JSON
 ) -> Tuple[str, str]:
     """
-    Serializes the prediction output including calibrated scores.
+    Serializes the prediction output.
 
     Args:
-        prediction_output: Model predictions as numpy array, list, or dict with calibrated scores
+        prediction_output: Model predictions as numpy array or list of lists
         accept: The requested response MIME type
 
     Returns:
@@ -966,25 +756,15 @@ def output_fn(
     logger.info(f"Received prediction output of type: {type(prediction_output)} for accept type: {accept}")
 
     try:
-        # Handle new dictionary format with calibrated scores
-        if isinstance(prediction_output, dict):
-            raw_predictions = prediction_output["raw_predictions"]
-            calibrated_scores = prediction_output.get("calibrated_scores")
-        else:
-            # Backward compatibility
-            raw_predictions = prediction_output
-            calibrated_scores = None
-        
         # Normalize prediction format
-        scores_list, is_multiclass = normalize_predictions(raw_predictions)
+        scores_list, is_multiclass = normalize_predictions(prediction_output)
         
         # Format response based on accept type
         if accept.lower() == CONTENT_TYPE_JSON:
-            return format_json_response_with_calibration(scores_list, is_multiclass, calibrated_scores)
+            return format_json_response(scores_list, is_multiclass)
             
         elif accept.lower() == CONTENT_TYPE_CSV:
-            # Use calibration-aware CSV formatting
-            return format_csv_response_with_calibration(scores_list, is_multiclass, calibrated_scores)
+            return format_csv_response(scores_list, is_multiclass)
             
         else:
             logger.error(f"Unsupported accept type: {accept}")

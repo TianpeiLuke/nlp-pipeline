@@ -73,7 +73,6 @@ required_packages = [
     "scikit-learn>=0.23.2,<1.0.0",
     "pandas>=1.2.0,<2.0.0",
     "pydantic>=2.0.0,<3.0.0",
-    "joblib>=1.0.0",
     "matplotlib>=3.3.0",
     "pygam>=0.8.0"
 ]
@@ -98,7 +97,7 @@ logger.info("Configured matplotlib to use Agg backend for container compatibilit
 
 import numpy as np
 import pandas as pd
-import joblib
+import pickle
 import matplotlib.pyplot as plt
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
@@ -139,6 +138,11 @@ INPUT_DATA_PATH = "/opt/ml/processing/input/eval_data"
 OUTPUT_CALIBRATION_PATH = "/opt/ml/processing/output/calibration"
 OUTPUT_METRICS_PATH = "/opt/ml/processing/output/metrics"
 OUTPUT_CALIBRATED_DATA_PATH = "/opt/ml/processing/output/calibrated_data"
+
+# Calibration file constants
+CALIBRATION_MODEL_FILE = "calibration_model.pkl"
+CALIBRATION_SUMMARY_FILE = "calibration_summary.json"
+CALIBRATION_MODELS_DIR = "calibration_models"
 
 class CalibrationConfig:
     """Configuration class for model calibration."""
@@ -1149,8 +1153,9 @@ def main(config=None):
             logger.info(f"Saved metrics report to {metrics_path}")
             
             # Save calibrator model
-            calibrator_path = os.path.join(config.output_calibration_path, "calibration_model.joblib")
-            joblib.dump(calibrator, calibrator_path)
+            calibrator_path = os.path.join(config.output_calibration_path, CALIBRATION_MODEL_FILE)
+            with open(calibrator_path, 'wb') as f:
+                pickle.dump(calibrator, f)
             logger.info(f"Saved calibrator model to {calibrator_path}")
             
             # Add calibrated scores to dataframe and save
@@ -1248,14 +1253,15 @@ def main(config=None):
                 json.dump(metrics_report, f, indent=2)
             
             # Save calibrator models
-            calibrator_dir = os.path.join(config.output_calibration_path, "calibration_models")
+            calibrator_dir = os.path.join(config.output_calibration_path, CALIBRATION_MODELS_DIR)
             os.makedirs(calibrator_dir, exist_ok=True)
             
             calibrator_paths = {}
             for i, calibrator in enumerate(calibrators):
                 class_name = config.multiclass_categories[i]
-                calibrator_path = os.path.join(calibrator_dir, f"calibration_model_class_{class_name}.joblib")
-                joblib.dump(calibrator, calibrator_path)
+                calibrator_path = os.path.join(calibrator_dir, f"calibration_model_class_{class_name}.pkl")
+                with open(calibrator_path, 'wb') as f:
+                    pickle.dump(calibrator, f)
                 calibrator_paths[f"class_{class_name}"] = calibrator_path
             
             # Add calibrated scores to dataframe and save

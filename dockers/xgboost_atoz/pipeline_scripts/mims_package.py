@@ -201,7 +201,7 @@ def include_calibration_model(working_dir: Path) -> bool:
     list_directory_contents(CALIBRATION_PATH, "Calibration input directory")
     
     # Check for binary calibration model file
-    calibration_model = CALIBRATION_PATH / "calibration_model.joblib"
+    calibration_model = CALIBRATION_PATH / "calibration_model.pkl"
     if check_file_exists(calibration_model, "Binary calibration model"):
         logger.info("Found binary calibration model")
         # Create destination directory
@@ -209,7 +209,7 @@ def include_calibration_model(working_dir: Path) -> bool:
         ensure_directory(calibration_dest_dir)
         
         # Copy calibration model
-        dest_path = calibration_dest_dir / "calibration_model.joblib"
+        dest_path = calibration_dest_dir / "calibration_model.pkl"
         copy_file_robust(calibration_model, dest_path)
         
         # Copy calibration summary if it exists
@@ -243,7 +243,7 @@ def include_calibration_model(working_dir: Path) -> bool:
         # Copy all calibration models
         files_copied = 0
         total_size = 0
-        for model_file in calibration_dir.glob("*.joblib"):
+        for model_file in calibration_dir.glob("*.pkl"):
             dest_path = models_dest_dir / model_file.name
             if copy_file_robust(model_file, dest_path):
                 files_copied += 1
