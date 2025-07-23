@@ -375,7 +375,40 @@ class XGBoostEndToEndTemplate(PipelineTemplateBase):
             pipeline_configs[step_name]["STEP_CONFIG"] = request_dict
             logger.info(f"Updated execution config for Cradle step: {step_name}")
 
-        # Fill model registration information if available
+        # Find registration config
+        registration_cfg = next(
+            (cfg for _, cfg in self.configs.items() 
+             if isinstance(cfg, ModelRegistrationConfig)), 
+            None
+        )
+        
+        # Fill Registration configurations
+        if registration_cfg:
+            # Get the stored registration configs
+            registration_configs = self.pipeline_metadata.get('registration_configs', {})
+            
+            # Check multiple naming patterns for the registration step
+            registration_step_found = False
+            for registration_step_name in [
+                f"ModelRegistration-{registration_cfg.region}",  # Format from error log
+                f"Registration_{registration_cfg.region}",       # Format from template code
+                "model_registration"                           # Generic fallback
+            ]:
+                if registration_step_name in pipeline_configs:
+                    # Apply the configuration to replace the help text
+                    for step_name, config in registration_configs.items():
+                        pipeline_configs[registration_step_name]["STEP_CONFIG"] = config
+                        logger.info(f"Updated execution config for registration step: {registration_step_name}")
+                        registration_step_found = True
+                        break
+                    
+                    if registration_step_found:
+                        break
+                        
+            if not registration_step_found:
+                logger.warning(f"Registration step not found in execution document with any known naming pattern")
+
+        # Fill model registration information if available (keep existing functionality)
         model_name = self.pipeline_metadata.get('model_name')
         if model_name and "model_registration" in pipeline_configs:
             reg_config = pipeline_configs["model_registration"].get("STEP_CONFIG", {})

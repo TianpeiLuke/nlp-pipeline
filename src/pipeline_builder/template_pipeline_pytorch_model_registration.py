@@ -444,14 +444,29 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         
         # Fill Registration configurations
         if registration_cfg:
+            # Get the stored registration configs
             registration_configs = self.pipeline_metadata.get('registration_configs', {})
-            for step_name, config in registration_configs.items():
-                registration_step_name = f"Registration_{registration_cfg.region}"
-                if registration_step_name not in pipeline_configs:
-                    logger.warning(f"Registration step '{registration_step_name}' not found in execution document")
-                    continue
-                pipeline_configs[registration_step_name]["STEP_CONFIG"] = config
-                logger.info(f"Updated execution config for registration step: {registration_step_name}")
+            
+            # Check multiple naming patterns for the registration step
+            registration_step_found = False
+            for registration_step_name in [
+                f"ModelRegistration-{registration_cfg.region}",  # Format from error log
+                f"Registration_{registration_cfg.region}",       # Format from template code
+                "model_registration"                           # Generic fallback
+            ]:
+                if registration_step_name in pipeline_configs:
+                    # Apply the configuration to replace the help text
+                    for step_name, config in registration_configs.items():
+                        pipeline_configs[registration_step_name]["STEP_CONFIG"] = config
+                        logger.info(f"Updated execution config for registration step: {registration_step_name}")
+                        registration_step_found = True
+                        break
+                    
+                    if registration_step_found:
+                        break
+                        
+            if not registration_step_found:
+                logger.warning(f"Registration step not found in execution document with any known naming pattern")
 
         return execution_document
 
