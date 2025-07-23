@@ -134,3 +134,7 @@ The implementation should work with different versions of the SageMaker SDK, acc
 1. We might want to further enhance the `PropertyReference` class to handle more complex property references.
 2. Consider adding validation for property paths at definition time.
 3. Create utilities to help with constructing common property paths.
+
+## References
+
+1. [SageMaker Pipeline Steps Property Reference Documentation](https://sagemaker.readthedocs.io/en/v2.92.2/amazon_sagemaker_model_building_pipeline.html#data-dependency-property-reference) - Official SageMaker documentation on property references for pipeline steps, including details on data dependency property references.

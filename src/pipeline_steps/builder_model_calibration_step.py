@@ -309,6 +309,8 @@ class ModelCalibrationStepBuilder(StepBuilderBase):
         for input_name, input_value in inputs.items():
             if self._detect_circular_references(input_value):
                 raise ValueError(f"Circular reference detected in input '{input_name}'")
+        
+        # Removed special handling for XGBoost training outputs - this is now handled in the calibration script
             
         processing_inputs = []
         

@@ -224,3 +224,7 @@ errors = XGBOOST_TRAINING_SPEC.validate()  # Returns empty list if valid
 ```
 
 Step Specifications are the **architectural foundation** that enables all higher-level abstractions ([Smart Proxies](smart_proxy.md), [Fluent APIs](fluent_api.md), [Step Contracts](step_contract.md)) to work intelligently and safely together.
+
+## References
+
+1. [SageMaker Data Dependency Property Reference Documentation](https://sagemaker.readthedocs.io/en/v2.92.2/amazon_sagemaker_model_building_pipeline.html#data-dependency-property-reference) - Official SageMaker documentation on property references for pipeline steps, essential for understanding the format of property paths used in OutputSpec.

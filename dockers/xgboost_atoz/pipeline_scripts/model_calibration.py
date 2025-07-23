@@ -90,6 +90,12 @@ import logging
 import traceback
 from typing import Dict, List, Any, Optional, Tuple
 
+# Configure matplotlib to use the Agg backend to prevent GUI errors in containerized environments
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend that works in containers without a display
+logger = logging.getLogger(__name__)
+logger.info("Configured matplotlib to use Agg backend for container compatibility")
+
 import numpy as np
 import pandas as pd
 import joblib
@@ -326,6 +332,11 @@ def extract_and_load_nested_tarball_data(config=None):
         - test/predictions.csv (actual data)
         - test_metrics/... (metrics and plots)
     
+    Also handles cases where the input path contains:
+    - Direct output.tar.gz file
+    - Path to a job directory that contains output/output.tar.gz
+    - Path to a parent directory with job subdirectories
+    
     Args:
         config: Configuration object (optional, created from environment if not provided)
         
@@ -350,16 +361,44 @@ def extract_and_load_nested_tarball_data(config=None):
         # No direct data file, continue with tarball extraction
         pass
     
-    # Find output.tar.gz (primary SageMaker output archive)
+    # First check: Direct tarball in the input directory
     output_archive = None
     for fname in os.listdir(input_dir):
         if fname.lower() == "output.tar.gz":
             output_archive = os.path.join(input_dir, fname)
+            logger.info(f"Found output.tar.gz directly in input directory")
             break
     
+    # Second check: Look for job-specific directories containing output/output.tar.gz
     if not output_archive:
-        # Try standard data loading as fallback if no output.tar.gz found
-        logger.warning("No output.tar.gz found, falling back to standard data loading")
+        logger.info("No output.tar.gz found directly in input directory, checking for job directories")
+        for item in os.listdir(input_dir):
+            item_path = os.path.join(input_dir, item)
+            if os.path.isdir(item_path):
+                # Check if this directory has an output/output.tar.gz file
+                output_dir = os.path.join(item_path, "output")
+                if os.path.isdir(output_dir):
+                    nested_archive = os.path.join(output_dir, "output.tar.gz")
+                    if os.path.isfile(nested_archive):
+                        output_archive = nested_archive
+                        logger.info(f"Found nested output.tar.gz at {output_archive}")
+                        break
+    
+    # Third check: Recursive search for output.tar.gz (most robust but potentially slower)
+    if not output_archive:
+        logger.info("No output.tar.gz found in expected locations, performing recursive search")
+        for root, _, files in os.walk(input_dir):
+            for fname in files:
+                if fname.lower() == "output.tar.gz":
+                    output_archive = os.path.join(root, fname)
+                    logger.info(f"Found output.tar.gz from recursive search at {output_archive}")
+                    break
+            if output_archive:
+                break
+    
+    # If we still don't have it, fall back to standard data loading
+    if not output_archive:
+        logger.warning("No output.tar.gz found anywhere, falling back to standard data loading")
         return load_data(config)
     
     logger.info(f"Found SageMaker output archive: {output_archive}")
@@ -1067,8 +1106,15 @@ def main(config=None):
             logger.info(f"Brier Score Reduction: {brier_improvement:.6f} ({brier_improvement/max(uncalibrated_metrics['brier_score'], 1e-10)*100:.2f}%)")
             logger.info(f"AUC-ROC Change: {auc_change:.6f} ({auc_change/max(uncalibrated_metrics['auc_roc'], 1e-10)*100:.2f}%)")
             
-            # Create visualization
-            plot_path = plot_reliability_diagram(y_true, y_prob_uncalibrated, y_prob_calibrated, config=config)
+            # Create visualization (non-critical step that shouldn't fail the entire process)
+            try:
+                logger.info("Attempting to create reliability diagram with matplotlib Agg backend")
+                plot_path = plot_reliability_diagram(y_true, y_prob_uncalibrated, y_prob_calibrated, config=config)
+                logger.info("Successfully created reliability diagram - Matplotlib Agg backend fix worked!")
+            except Exception as e:
+                logger.warning(f"Failed to create reliability diagram despite Matplotlib Agg backend: {str(e)}")
+                logger.warning(f"This is a non-critical error, continuing with calibration process")
+                plot_path = os.path.join(config.output_metrics_path, "reliability_diagram.png")
             
             # Create comprehensive metrics report
             metrics_report = {
@@ -1157,8 +1203,15 @@ def main(config=None):
             uncalibrated_metrics = compute_multiclass_calibration_metrics(y_true, y_prob_matrix, config=config)
             calibrated_metrics = compute_multiclass_calibration_metrics(y_true, y_prob_calibrated, config=config)
             
-            # Create visualizations
-            plot_path = plot_multiclass_reliability_diagram(y_true, y_prob_matrix, y_prob_calibrated, config=config)
+            # Create visualizations (non-critical step that shouldn't fail the entire process)
+            try:
+                logger.info("Attempting to create multiclass reliability diagram with matplotlib Agg backend")
+                plot_path = plot_multiclass_reliability_diagram(y_true, y_prob_matrix, y_prob_calibrated, config=config)
+                logger.info("Successfully created multiclass reliability diagram - Matplotlib Agg backend fix worked!")
+            except Exception as e:
+                logger.warning(f"Failed to create multiclass reliability diagram despite Matplotlib Agg backend: {str(e)}")
+                logger.warning(f"This is a non-critical error, continuing with calibration process")
+                plot_path = os.path.join(config.output_metrics_path, "multiclass_reliability_diagram.png")
             
             # Create metrics report
             metrics_report = {
