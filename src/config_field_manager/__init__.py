@@ -6,12 +6,19 @@ This package provides robust tools for managing configuration fields, including:
 - Type-aware serialization and deserialization
 - Configuration class registration
 - Configuration merging and loading
+- Three-tier configuration architecture components
 
 Primary API functions:
 - merge_and_save_configs: Merge and save multiple config objects to a unified JSON file
 - load_configs: Load config objects from a saved JSON file
 - serialize_config: Convert a config object to a JSON-serializable dict with type metadata
 - deserialize_config: Convert a serialized dict back to a config object
+
+New Three-Tier Architecture Components:
+- ConfigFieldTierRegistry: Registry for field tier classifications (Tier 1, 2, 3)
+- DefaultValuesProvider: Provider for default values (Tier 2)
+- FieldDerivationEngine: Engine for deriving field values (Tier 3)
+- Essential Input Models: Pydantic models for Data, Model, and Registration configurations
 
 Usage:
     ```python
@@ -28,6 +35,17 @@ Usage:
     
     # Load configs
     loaded_configs = load_configs("output.json")
+    
+    # Using the three-tier architecture
+    from src.config_field_manager import (
+        ConfigFieldTierRegistry, DefaultValuesProvider, 
+        FieldDerivationEngine, DataConfig, ModelConfig, RegistrationConfig
+    )
+    
+    # Apply defaults and derive fields
+    DefaultValuesProvider.apply_defaults(config)
+    field_engine = FieldDerivationEngine()
+    field_engine.derive_fields(config)
     ```
 """
 
@@ -47,15 +65,36 @@ from src.config_field_manager.type_aware_config_serializer import (
 from src.config_field_manager.config_field_categorizer import ConfigFieldCategorizer
 from src.config_field_manager.circular_reference_tracker import CircularReferenceTracker
 
+# Three-tier architecture components
+from src.config_field_manager.tier_registry import ConfigFieldTierRegistry
+from src.config_field_manager.default_values_provider import DefaultValuesProvider
+from src.config_field_manager.field_derivation_engine import FieldDerivationEngine
+from src.config_field_manager.essential_input_models import (
+    DataConfig,
+    ModelConfig,
+    RegistrationConfig,
+    EssentialInputs
+)
+
 
 __all__ = [
+    # Original exports
     'merge_and_save_configs', 
     'load_configs',
     'serialize_config',
     'deserialize_config',
     'ConfigClassStore',  # Export for use as a decorator
     'register_config_class',  # Convenient alias for the decorator
-    'CircularReferenceTracker'  # For advanced circular reference handling
+    'CircularReferenceTracker',  # For advanced circular reference handling
+    
+    # Three-tier architecture components
+    'ConfigFieldTierRegistry',
+    'DefaultValuesProvider',
+    'FieldDerivationEngine',
+    'DataConfig',
+    'ModelConfig',
+    'RegistrationConfig',
+    'EssentialInputs'
 ]
 
 
