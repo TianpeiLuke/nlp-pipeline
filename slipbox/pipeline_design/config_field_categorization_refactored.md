@@ -11,6 +11,7 @@ This document provides a high-level overview of the entire system. For detailed 
 - [Job Type Variant Handling](./job_type_variant_handling.md): How job type variants are supported in configurations
 - [Config Types Format](./config_types_format.md): Format requirements for the config_types metadata
 - [Circular Reference Handling](./circular_reference_handling.md): How circular references in configuration objects are detected and handled
+- [Three-Tier Configuration Field Management](./config_field_categorization_three_tier.md): How fields are categorized into essential user inputs, system inputs, and derived inputs
 
 ## Core Purpose
 
