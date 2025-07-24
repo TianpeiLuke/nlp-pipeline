@@ -31,186 +31,324 @@ This implementation plan is based on the following design documents:
 
 ## Implementation Phases
 
-### Phase 1: Foundation Development (2 weeks)
+### Phase 1: Core Data Structure Development (2 weeks) - ✅ COMPLETED
+
+#### Objectives - ✅ COMPLETED
+- Develop fundamental data structures for the three-tier architecture
+- Create comprehensive field classification and tier registry
+- Implement default value provider system
+- Develop field derivation engine
+
+#### Tasks - ✅ COMPLETED
+1. **Implement ConfigFieldTierRegistry** - ✅ COMPLETED
+   - Developed the central registry for field classification
+   - Created tier assignment mechanisms
+   - Mapped all 83 identified fields to appropriate tiers
+   - Implemented field classification utilities
+
+2. **Develop DefaultValuesProvider** - ✅ COMPLETED
+   - Created default value registry for all Tier 2 (system inputs)
+   - Implemented static and dynamic (lambda-based) default mechanisms
+   - Developed context-aware default application logic
+   - Built default value override system
+
+3. **Implement FieldDerivationEngine** - ✅ COMPLETED
+   - Created the dependency-aware derivation engine
+   - Implemented specific derivation rules for all Tier 3 fields
+   - Developed cross-configuration dependency handling
+   - Built comprehensive logging and diagnostic capabilities
+
+4. **Create Essential Input Models** - ✅ COMPLETED
+   - Developed Pydantic models for Data, Model, and Registration configurations
+   - Implemented validation logic for essential inputs
+   - Created serialization and deserialization utilities
+
+See [Phase 1 Implementation Summary](./2025-07-24_phase1_implementation_summary.md) for details on the completed implementation.
+
+### Phase 2: Integration and Feature Development (2 weeks)
 
 #### Objectives
-- Develop core data models for essential inputs
-- Create feature group registry
-- Implement smart defaults generator framework
-- Build configuration transformation system
+- Develop feature group registry and management system
+- Build comprehensive configuration transformation pipeline
+- Create configuration preview and validation system
+- Implement backward compatibility mechanisms
 
 #### Tasks
-1. **Create Essential Input Models** (3 days)
-   - Develop Pydantic models for Data, Model, and Registration configurations
-   - Implement validation logic for essential inputs
+1. **Develop Feature Group Registry** (3 days)
+   - Create feature group definitions and metadata structure
+   - Implement field mapping to logical groups
+   - Build categorical field recognition system
+   - Develop feature selection utilities
 
-2. **Develop Feature Group Registry** (2 days)
-   - Create feature group definitions
-   - Map fields to appropriate groups
-   - Build categorical field registry
+2. **Build Configuration Transformation System** (4 days)
+   - Create end-to-end pipeline from essential inputs to full configuration
+   - Implement the three-tier processing sequence
+   - Develop configuration validation and error handling
+   - Build backward compatibility utilities for legacy configurations
 
-3. **Implement Smart Defaults Generator** (4 days)
-   - Create base generator class
-   - Implement field list derivation logic
-   - Develop configuration derivation methods for each configuration type
+3. **Configuration Preview System** (3 days)
+   - Create human-readable configuration preview
+   - Implement diff visualization between derived and custom configurations
+   - Develop multi-level detail views (summary, detailed, technical)
+   - Build expandable section views for different configuration components
 
-4. **Build Configuration Transformation System** (3 days)
-   - Create pipeline for transforming essential to full configuration
-   - Implement validation and error handling
-   - Develop configuration merging system
+4. **Create Configuration Testing Framework** (2 days)
+   - Develop automated validation tests for generated configurations
+   - Implement comparison utilities for derived vs. manually created configurations
+   - Create regression testing framework for field derivation
+   - Build diagnostic tools for troubleshooting derivation issues
 
-### Phase 2: User Interface Development (2 weeks)
+### Phase 3: User Interface Development (1 week)
 
 #### Objectives
-- Create intuitive user interface for essential inputs
-- Implement configuration preview system
-- Develop advanced options interface
+- Create intuitive notebook interface leveraging the three-tier architecture
+- Implement user-friendly input collection for essential inputs
+- Develop advanced options for overriding defaults and derivations
+- Build progressive disclosure of configuration complexity
 
 #### Tasks
 1. **Notebook Structure Development** (2 days)
-   - Design notebook cell structure
-   - Implement section organization
-   - Create introduction and instructions
+   - Design notebook cell structure optimized for three-tier approach
+   - Implement progressive disclosure patterns
+   - Create introduction and instructional content
 
-2. **Input Widgets Implementation** (3 days)
-   - Develop region selection widget
-   - Create date range selection widgets
-   - Implement feature group selection interface
-   - Build model configuration widgets
+2. **Input Widgets Implementation** (2 days)
+   - Develop region and date range selection widgets
+   - Create feature group selection interface
+   - Implement model configuration widgets
+   - Build registration configuration interface
 
-3. **Configuration Preview System** (4 days)
-   - Create human-readable configuration preview
-   - Implement diff visualization for changes
-   - Develop expandable section views
-
-4. **Advanced Options Interface** (3 days)
+3. **Advanced Configuration Interface** (1 day)
    - Create expandable advanced options sections
-   - Implement override mechanisms
-   - Build validation feedback system
+   - Implement system default override mechanisms
+   - Build derived field customization interfaces
+   - Develop validation feedback system
 
-### Phase 3: Integration and Testing (1 week)
-
-#### Objectives
-- Integrate all components
-- Conduct thorough testing
-- Implement feedback mechanisms
-
-#### Tasks
-1. **Component Integration** (2 days)
-   - Connect user interface to transformation system
-   - Integrate configuration preview with generation
-   - Link advanced options to override system
-
-2. **Unit and Integration Testing** (2 days)
-   - Test each component individually
-   - Verify component interactions
-   - Validate configuration generation accuracy
-
-3. **User Acceptance Testing** (2 days)
-   - Set up test scenarios for users
-   - Gather and analyze feedback
-   - Implement critical improvements
-
-### Phase 4: Documentation and Deployment (1 week)
+### Phase 4: Testing, Documentation and Deployment (1 week)
 
 #### Objectives
+- Conduct thorough testing of all components
 - Create comprehensive documentation
 - Prepare deployment plan
 - Execute rollout strategy
 
 #### Tasks
-1. **Documentation Creation** (3 days)
-   - Update user guide with final details
-   - Create technical documentation
-   - Develop quickstart guide
+1. **Testing and Refinement** (2 days)
+   - Conduct unit and integration testing of all components
+   - Perform end-to-end testing with realistic configurations
+   - Validate configuration accuracy against manually created configurations
+   - Implement refinements based on testing results
 
-2. **Deployment Preparation** (1 day)
+2. **Documentation Creation** (2 days)
+   - Update user guide with details on the three-tier approach
+   - Create technical documentation for all components
+   - Develop quickstart guide for new users
+   - Create administrator guide for system defaults management
+
+3. **Deployment and Rollout** (1 day)
    - Prepare deployment package
-   - Create installation instructions
-   - Develop rollback plan
-
-3. **Rollout Execution** (1 day)
-   - Deploy to test environment
-   - Validate in production environment
-   - Monitor initial usage
+   - Create installation instructions and rollback plan
+   - Deploy to test and production environments
+   - Implement monitoring and feedback collection system
 
 ## Technical Implementation Details
 
-### Core Components
+### Core Data Structures
 
-1. **Essential Input Models**
+1. **ConfigFieldTierRegistry**
+   ```python
+   class ConfigFieldTierRegistry:
+       """Registry for field tier classifications"""
+       
+       # Default tier classifications based on field analysis
+       DEFAULT_TIER_REGISTRY = {
+           # Essential User Inputs (Tier 1)
+           "region_list": 1,
+           "region_selection": 1,
+           "full_field_list": 1,
+           "cat_field_list": 1,
+           "tab_field_list": 1,
+           "label_name": 1,
+           # Additional essential fields...
+           
+           # System Inputs (Tier 2)
+           "metric_choices": 2,
+           "device": 2,
+           "batch_size": 2,
+           # Additional system inputs...
+       }
+       
+       @classmethod
+       def get_tier(cls, field_name):
+           """Get tier classification for a field"""
+           return cls.DEFAULT_TIER_REGISTRY.get(field_name, 3)  # Default to Tier 3
+           
+       @classmethod
+       def register_field(cls, field_name, tier):
+           """Register a field with a specific tier"""
+           cls.DEFAULT_TIER_REGISTRY[field_name] = tier
+   ```
+
+2. **DefaultValuesProvider**
+   ```python
+   class DefaultValuesProvider:
+       """Provides default values for system inputs (Tier 2)"""
+       
+       # Default values for system inputs
+       DEFAULT_VALUES = {
+           # Base Model Hyperparameters
+           "metric_choices": lambda config: ['f1_score', 'auroc'] if getattr(config, 'is_binary', True) else ['accuracy', 'f1_score'],
+           "device": -1,
+           "batch_size": 32,
+           # Additional defaults...
+       }
+       
+       @classmethod
+       def apply_defaults(cls, config, override_values=None):
+           """Apply default values to a configuration object"""
+           for field_name, default_value in cls.DEFAULT_VALUES.items():
+               # Skip if field is already set
+               if hasattr(config, field_name) and getattr(config, field_name) is not None:
+                   continue
+                   
+               # Apply default (either value or callable)
+               if callable(default_value):
+                   value = default_value(config)
+               else:
+                   value = default_value
+                   
+               # Set the default value
+               setattr(config, field_name, value)
+   ```
+
+3. **FieldDerivationEngine**
+   ```python
+   class FieldDerivationEngine:
+       """Engine for deriving Tier 3 fields from other fields"""
+       
+       def derive_fields(self, config):
+           """Derive all applicable fields for a configuration object"""
+           # Get all derivation methods
+           derivation_methods = [
+               method for name, method in inspect.getmembers(self, inspect.ismethod)
+               if name.startswith("derive_") and name != "derive_fields"
+           ]
+           
+           # Apply each applicable derivation method
+           for method in derivation_methods:
+               method(config)
+               
+       def derive_classification_type(self, config):
+           """
+           Derive classification type fields
+           
+           Derives:
+           - is_binary: Boolean indicating binary classification
+           - num_classes: Number of classes
+           - multiclass_categories: List of class values
+           """
+           # Implementation...
+           
+       # Additional derivation methods for other field groups
+   ```
+
+4. **Essential Input Models**
    ```python
    class DataConfig(BaseModel):
-       region: str
+       """Essential data configuration"""
+       region: str = Field(..., description="Region code (NA, EU, FE)")
        training_period: DateRangePeriod
        calibration_period: DateRangePeriod
        feature_groups: Dict[str, bool]
-       custom_fields: List[str]
+       custom_fields: List[str] = Field(default_factory=list)
        
    class ModelConfig(BaseModel):
-       is_binary: bool
-       label_name: str
-       id_name: str
-       marketplace_id_col: str
-       num_round: int
-       max_depth: int
-       min_child_weight: int
+       """Essential model configuration"""
+       is_binary: bool = True
+       label_name: str = "is_abuse"
+       id_name: str = "order_id"
+       marketplace_id_col: str = "marketplace_id"
+       num_round: int = 300
+       max_depth: int = 10
+       min_child_weight: int = 1
        
    class RegistrationConfig(BaseModel):
+       """Essential registration configuration"""
        model_owner: str
        model_registration_domain: str
-       expected_tps: int
-       max_latency_ms: int
-       max_error_rate: float
+       expected_tps: int = 2
+       max_latency_ms: int = 800
+       max_error_rate: float = 0.2
    ```
 
-2. **Feature Group Registry**
+### Key Integration Components
+
+1. **Feature Group Registry**
    ```python
-   def get_feature_groups(region_lower):
-       return {
-           "buyer_profile": {
-               "name": "Buyer Profile Metrics",
-               "fields": ["COMP_DAYOB", "claimantInfo_allClaimCount365day", ...]
-           },
-           "order_behavior": {
-               "name": "Order Behavior Metrics",
-               "fields": ["Abuse.completed_afn_orders_by_customer_marketplace.n_afn_order_count_last_365_days", ...]
-           },
-           # Additional feature groups...
-       }
+   class FeatureGroupRegistry:
+       """Registry for feature group definitions"""
+       
+       @classmethod
+       def get_feature_groups(cls, region_lower=None):
+           """Get feature group definitions with region-specific field names"""
+           groups = {
+               "buyer_profile": {
+                   "name": "Buyer Profile Metrics",
+                   "description": "General buyer profile and history metrics",
+                   "fields": [
+                       "COMP_DAYOB",
+                       "claimantInfo_allClaimCount365day",
+                       # Additional fields...
+                   ]
+               },
+               # Additional groups...
+           }
+           
+           if region_lower:
+               # Apply region-specific modifications
+               pass
+               
+           return groups
+           
+       @classmethod
+       def map_fields_to_groups(cls, field_list):
+           """Maps fields to their feature groups"""
+           # Implementation...
    ```
 
-3. **Smart Defaults Generator**
+2. **Configuration Transformation System**
    ```python
-   class SmartDefaultsGenerator:
+   class ConfigurationTransformer:
+       """Transforms essential inputs into complete configuration"""
+       
        def __init__(self, essential_config):
-           self.config = essential_config
+           self.essential_config = essential_config
+           self.tier_registry = ConfigFieldTierRegistry()
+           self.defaults_provider = DefaultValuesProvider()
+           self.derivation_engine = FieldDerivationEngine()
            
-       def derive_field_lists(self):
-           """Derive field lists based on feature group selection"""
+       def transform(self):
+           """Transform essential inputs to complete configuration"""
+           # 1. Create config objects from essential inputs
+           config_objects = self._create_config_objects()
            
-       def derive_base_config(self):
-           """Derive base configuration parameters"""
-           
-       def derive_model_hyperparameters(self):
-           """Derive model hyperparameters"""
-           
-       def generate_full_config(self):
-           """Generate the complete configuration structure"""
+           # 2. Apply system defaults (Tier 2)
+           for config in config_objects:
+               self.defaults_provider.apply_defaults(config)
+               
+           # 3. Derive dependent fields (Tier 3)
+           for config in config_objects:
+               self.derivation_engine.derive_fields(config)
+               
+           # 4. Merge configs into final structure
+           return self._merge_configs(config_objects)
    ```
-
-### Integration Points
-
-The implementation will integrate with:
-
-1. **Existing Configuration System**: Ensure compatibility with current JSON format
-2. **Pipeline Execution System**: Connect with pipeline execution code
-3. **SageMaker Integration**: Maintain compatibility with SageMaker configuration
 
 ## Resource Requirements
 
 ### Personnel
 - 1 Senior Software Engineer (Full-time, 6 weeks)
+- 1 Software Engineer with data modeling experience (Full-time, 6 weeks)
 - 1 UX Designer (Part-time, 2 weeks)
 - 2 QA Engineers (Part-time, 1 week)
 - 3-5 Beta Testers (Part-time, 1 week)
@@ -220,6 +358,7 @@ The implementation will integrate with:
 - Test AWS account with SAIS access
 - Access to test MDS/EDX data sources
 - Version control system for code management
+- Automated testing framework for configuration validation
 
 ## Migration Strategy
 
@@ -253,27 +392,27 @@ To ensure a smooth transition from the traditional to the essential inputs appro
 ## Timeline
 
 ```
-Week 1-2: Foundation Development
-  ├── Create Essential Input Models
-  ├── Develop Feature Group Registry
-  ├── Implement Smart Defaults Generator
-  └── Build Configuration Transformation System
+Week 1-2: Core Data Structure Development ✅ COMPLETED
+  ├── Implement ConfigFieldTierRegistry ✅ COMPLETED
+  ├── Develop DefaultValuesProvider ✅ COMPLETED
+  ├── Implement FieldDerivationEngine ✅ COMPLETED
+  └── Create Essential Input Models ✅ COMPLETED
 
-Week 3-4: User Interface Development
-  ├── Notebook Structure Development
-  ├── Input Widgets Implementation
-  ├── Configuration Preview System
-  └── Advanced Options Interface
+Week 3-4: Integration and Feature Development (CURRENT PHASE)
+  ├── Develop Feature Group Registry (3 days)
+  ├── Build Configuration Transformation System (4 days)
+  ├── Configuration Preview System (3 days)
+  └── Create Configuration Testing Framework (2 days)
 
-Week 5: Integration and Testing
-  ├── Component Integration
-  ├── Unit and Integration Testing
-  └── User Acceptance Testing
+Week 5: User Interface Development
+  ├── Notebook Structure Development (2 days)
+  ├── Input Widgets Implementation (2 days)
+  └── Advanced Configuration Interface (1 day)
 
-Week 6: Documentation and Deployment
-  ├── Documentation Creation
-  ├── Deployment Preparation
-  └── Rollout Execution
+Week 6: Testing, Documentation and Deployment
+  ├── Testing and Refinement (2 days)
+  ├── Documentation Creation (2 days)
+  └── Deployment and Rollout (1 day)
 
 Month 2-4: Migration Strategy
   ├── Parallel Availability (Month 2)
