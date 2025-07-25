@@ -620,6 +620,22 @@ The expected outcomes include not only quantitative improvements in efficiency a
 
 ## Related Documents
 
+### Integration Architecture Documents
+- **[Adaptive Specification Integration](./adaptive_specification_integration.md)** - Integration with existing specification-driven architecture
+- **[Adaptive Fluent Proxy Integration](./adaptive_fluent_proxy_integration.md)** - Unified system with Smart Proxies and Fluent APIs
+
+### Layer Design Documents
+- **[Intent Capture Layer Design](./intent_capture_layer_design.md)** - User interface layer with progressive complexity
+- **[Intelligence Layer Design](./intelligence_layer_design.md)** - Core intelligence engine with ML capabilities
+- **[Storage & Representation Layer Design](./storage_representation_layer_design.md)** - Configuration management with adaptive categorization
+- **[Execution Layer Design](./execution_layer_design.md)** - Runtime management with environment adaptation
+
+### Supporting Framework Documents
+- **[Context Analysis Framework](./context_analysis_framework.md)** - Intelligence foundation for user, environment, and data analysis
+- **[User Profiler Design](./user_profiler_design.md)** - User intelligence component for expertise tracking
+- **[Environment Detector Design](./environment_detector_design.md)** - Environment intelligence for constraint analysis
+- **[Intelligent Processing Engine](./intelligent_processing_engine.md)** - Core processing logic with ML integration
+
 ### Foundation Documents
 - **[Config Field Categorization Refactored](./config_field_categorization_refactored.md)** - Sophisticated storage and representation system
 - **[Essential Inputs Notebook Design](./essential_inputs_notebook_design.md)** - User-centric three-tier architecture
