@@ -1,10 +1,10 @@
 # File: pipeline_steps/config_cradle_data_load.py
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 import re
 from datetime import datetime
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict, PrivateAttr
 
 from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
     OUTPUT_TYPE_DATA,
@@ -15,36 +15,186 @@ from secure_ai_sandbox_workflow_python_sdk.utils.constants import (
 from .config_base import BasePipelineConfig
 
 
-class MdsDataSourceConfig(BaseModel):
+def get_flattened_fields(config_obj, prefix="") -> Dict[str, List[str]]:
     """
-    Corresponds to MdsDataSourceProperties:
-      - service_name
-      - org_id: integer organization ID
-      - region: e.g. "NA", "EU", or "FE"
-      - output_schema: list of Field-like dicts (each with field_name & field_type)
-      - use_hourly_edx_data_set: bool
+    Recursively gather all fields from a config object and its nested objects,
+    flattening them into a single list with dot notation to indicate hierarchy.
+    
+    Args:
+        config_obj: Configuration object to analyze
+        prefix: String prefix for nested fields (for recursive calls)
+        
+    Returns:
+        Dict with keys 'essential', 'system', and 'derived' mapping to lists of field names
     """
+    # Get the fields at this level
+    if hasattr(config_obj, 'categorize_fields'):
+        categories = config_obj.categorize_fields()
+    else:
+        # Initialize empty categories if the object doesn't support categorization
+        categories = {'essential': [], 'system': [], 'derived': []}
+    
+    # Add the prefix to the field names
+    result = {
+        'essential': [f"{prefix}{field}" for field in categories['essential']],
+        'system': [f"{prefix}{field}" for field in categories['system']],
+        'derived': [f"{prefix}{field}" for field in categories['derived']]
+    }
+    
+    # Handle nested configuration objects
+    for field_name in categories['essential'] + categories['system']:
+        field_value = getattr(config_obj, field_name)
+        
+        # Skip None values
+        if field_value is None:
+            continue
+            
+        # Handle list of configuration objects
+        if isinstance(field_value, list) and len(field_value) > 0:
+            # Check if items have categorize_fields method
+            if all(hasattr(item, 'categorize_fields') for item in field_value if item is not None):
+                for i, item in enumerate(field_value):
+                    if item is None:
+                        continue
+                    nested_result = get_flattened_fields(item, f"{prefix}{field_name}[{i}].")
+                    for cat, fields in nested_result.items():
+                        result[cat].extend(fields)
+        
+        # Handle single configuration objects
+        elif hasattr(field_value, 'categorize_fields'):
+            nested_result = get_flattened_fields(field_value, f"{prefix}{field_name}.")
+            for cat, fields in nested_result.items():
+                result[cat].extend(fields)
+    
+    return result
+
+
+class BaseCradleComponentConfig(BaseModel):
+    """
+    Base class for Cradle configuration components with three-tier field classification support.
+    
+    Implements common functionality for categorizing fields and supporting inheritance.
+    
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
+    """
+    # Model configuration
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        extra="forbid"
+    )
+    
+    def categorize_fields(self) -> Dict[str, List[str]]:
+        """
+        Categorize all fields into three tiers:
+        1. Tier 1: Essential User Inputs - fields with no defaults (required)
+        2. Tier 2: System Inputs - fields with defaults (optional)
+        3. Tier 3: Derived Fields - properties that access private attributes
+        
+        Returns:
+            Dict with keys 'essential', 'system', and 'derived' mapping to lists of field names
+        """
+        # Initialize categories
+        categories = {
+            'essential': [],  # Tier 1: Required, public
+            'system': [],     # Tier 2: Optional (has default), public
+            'derived': []     # Tier 3: Public properties
+        }
+        
+        # Get model fields
+        model_fields = self.__class__.model_fields
+        
+        # Categorize public fields into essential (required) or system (with defaults)
+        for field_name, field_info in model_fields.items():
+            # Skip private fields
+            if field_name.startswith('_'):
+                continue
+                
+            # Use is_required() to determine if a field is essential
+            if field_info.is_required():
+                categories['essential'].append(field_name)
+            else:
+                categories['system'].append(field_name)
+        
+        # Find derived properties (public properties that aren't in model_fields)
+        for attr_name in dir(self):
+            if (not attr_name.startswith('_') and 
+                attr_name not in model_fields and
+                isinstance(getattr(type(self), attr_name, None), property)):
+                categories['derived'].append(attr_name)
+        
+        return categories
+    
+    def get_public_init_fields(self) -> Dict[str, Any]:
+        """
+        Get fields suitable for initializing a child config.
+        Only includes fields that should be passed to child class constructors.
+        
+        Returns:
+            Dict[str, Any]: Dictionary of field names to values for child initialization
+        """
+        # Use categorize_fields to get essential and system fields
+        categories = self.categorize_fields()
+        
+        # Initialize result dict
+        init_fields = {}
+        
+        # Add all essential fields (Tier 1)
+        for field_name in categories['essential']:
+            init_fields[field_name] = getattr(self, field_name)
+        
+        # Add all system fields (Tier 2) that aren't None
+        for field_name in categories['system']:
+            value = getattr(self, field_name)
+            if value is not None:  # Only include non-None values
+                init_fields[field_name] = value
+        
+        return init_fields
+
+
+class MdsDataSourceConfig(BaseCradleComponentConfig):
+    """
+    Configuration for MDS data source with three-tier field classification.
+    
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
+    """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     service_name: str = Field(
-        ...,
         description="Name of the MDS service"
     )
+    
+    region: str = Field(
+        description="Region code for MDS (e.g. 'NA', 'EU', 'FE')"
+    )
+    
+    output_schema: List[Dict[str, Any]] = Field(
+        description="List of dictionaries describing each output column, "
+                  "e.g. [{'field_name':'objectId','field_type':'STRING'}, …]"
+    )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
+    
     org_id: int = Field(
         default=0,
         description="Organization ID (integer) for MDS. Default as 0 for regional MDS bucket."
     )
-    region: str = Field(
-        ...,
-        description="Region code for MDS (e.g. 'NA', 'EU', 'FE')"
-    )
-    output_schema: List[Dict[str, Any]] = Field(
-        ...,
-        description="List of dictionaries describing each output column, "
-                    "e.g. [{'field_name':'objectId','field_type':'STRING'}, …]"
-    )
+    
     use_hourly_edx_data_set: bool = Field(
         default=False,
         description="Whether to use the hourly EDX dataset flag in MDS"
     )
+    
+    # ===== Derived Fields (Tier 3) =====
+    # None currently for this class
 
     @field_validator("region")
     @classmethod
@@ -55,83 +205,117 @@ class MdsDataSourceConfig(BaseModel):
         return v
 
 
-class EdxDataSourceConfig(BaseModel):
+class EdxDataSourceConfig(BaseCradleComponentConfig):
     """
-    Corresponds to EdxDataSourceProperties, but now:
-      - edx_manifest: must begin with
-          "arn:amazon:edx:iad::manifest/{edx_provider}/{edx_subject}/{edx_dataset}/"
-      - edx_provider: part of ARN path
-      - edx_subject: part of ARN path
-      - edx_dataset: part of ARN path
-      - schema_overrides: list of Field-like dicts (each with field_name & field_type)
+    Configuration for EDX data source with three-tier field classification.
+    
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     edx_provider: str = Field(
-        ...,
         description="Provider portion of the EDX manifest ARN"
     )
+    
     edx_subject: str = Field(
-        ...,
         description="Subject portion of the EDX manifest ARN"
     )
+    
     edx_dataset: str = Field(
-        ...,
         description="Dataset portion of the EDX manifest ARN"
     )
-    edx_manifest: str = Field(
-        ...,
-        description=(
-            "Full ARN of the EDX manifest. Must begin with "
-            "'arn:amazon:edx:iad::manifest/{edx_provider}/{edx_subject}/{edx_dataset}/…'"
-        )
+    
+    edx_manifest_key: str = Field(
+        description="Manifest key in format '[\"xxx\",...]' that completes the ARN"
     )
+    
     schema_overrides: List[Dict[str, Any]] = Field(
-        ...,
         description=(
             "List of dicts overriding the EDX schema, e.g. "
             "[{'field_name':'order_id','field_type':'STRING'}, …]"
         )
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # None currently for this class
+    
+    # ===== Derived Fields (Tier 3) =====
+    # These are fields calculated from other fields
+    
+    _edx_manifest: Optional[str] = PrivateAttr(default=None)
+    
+    @property
+    def edx_manifest(self) -> str:
+        """Get EDX manifest ARN derived from provider, subject, dataset and key."""
+        if self._edx_manifest is None:
+            self._edx_manifest = (
+                f"arn:amazon:edx:iad::manifest/"
+                f"{self.edx_provider}/{self.edx_subject}/{self.edx_dataset}/{self.edx_manifest_key}"
+            )
+        return self._edx_manifest
+        
+    @field_validator("edx_manifest_key")
+    @classmethod
+    def validate_manifest_key_format(cls, v: str) -> str:
+        """Validate that edx_manifest_key is in the format '[...]'"""
+        if not (v.startswith('[') and v.endswith(']')):
+            raise ValueError(
+                f"edx_manifest_key must be in format '[\"xxx\",...]', got '{v}'"
+            )
+        return v
 
     @model_validator(mode="after")
-    @classmethod
-    def check_manifest_prefix(cls, model: "EdxDataSourceConfig") -> "EdxDataSourceConfig":
-        """
-        Ensure edx_manifest starts with the exact prefix:
-            "arn:amazon:edx:iad::manifest/{edx_provider}/{edx_subject}/{edx_dataset}/"
-        """
-        prefix = (
+    def initialize_derived_fields(self) -> 'EdxDataSourceConfig':
+        """Initialize derived fields after validation."""
+        # Initialize the manifest using the key
+        self._edx_manifest = (
             f"arn:amazon:edx:iad::manifest/"
-            f"{model.edx_provider}/{model.edx_subject}/{model.edx_dataset}/"
+            f"{self.edx_provider}/{self.edx_subject}/{self.edx_dataset}/{self.edx_manifest_key}"
         )
-        if not model.edx_manifest.startswith(prefix):
-            raise ValueError(
-                f"edx_manifest must begin with '{prefix}', got '{model.edx_manifest}'"
-            )
-        return model
+        return self
 
-    
-class AndesDataSourceConfig(BaseModel):
+
+class AndesDataSourceConfig(BaseCradleComponentConfig):
     """
-    Configuration for Andes Data Source Properties.
+    Configuration for Andes data source with three-tier field classification.
     
-    Attributes:
-        provider: Andes provider ID (32-digit UUID or 'booker')
-        table_name: Name of the Andes table
-        andes3_enabled: Whether the table uses Andes 3.0
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     provider: str = Field(
-        ...,
         description="Andes provider ID (32-digit UUID or 'booker')"
     )
     
     table_name: str = Field(
-        ...,
         description="Name of the Andes table"
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
     
     andes3_enabled: bool = Field(
         default=True,
         description="Whether the table uses Andes 3.0 with latest version"
+    )
+    
+    # ===== Derived Fields (Tier 3) =====
+    # None currently for this class
+    
+    # Model configuration overrides
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True, 
+        extra="forbid",
+        str_strip_whitespace=True
     )
 
     @field_validator("provider")
@@ -177,12 +361,6 @@ class AndesDataSourceConfig(BaseModel):
             
         return v
 
-    class Config:
-        """Pydantic model configuration."""
-        frozen = True  # Make the config immutable
-        extra = "forbid"  # Prevent additional attributes
-        str_strip_whitespace = True  # Strip whitespace from string values
-
     def __str__(self) -> str:
         """String representation of the Andes config."""
         return (
@@ -190,25 +368,32 @@ class AndesDataSourceConfig(BaseModel):
             f"table_name='{self.table_name}', "
             f"andes3_enabled={self.andes3_enabled})"
         )
-    
 
-class DataSourceConfig(BaseModel):
+
+class DataSourceConfig(BaseCradleComponentConfig):
     """
-    Corresponds to com.amazon.secureaisandboxproxyservice.models.datasource.DataSource:
-      - data_source_name: e.g. 'RAW_MDS_NA' or 'TAGS'
-      - data_source_type: one of 'MDS', 'EDX', or 'ANDES'
-      - one of mds_data_source_properties, edx_data_source_properties, 
-        or andes_data_source_properties must be present
+    Configuration for data sources with three-tier field classification.
+    
+    Corresponds to com.amazon.secureaisandboxproxyservice.models.datasource.DataSource
+    
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     data_source_name: str = Field(
-        ...,
         description="Logical name for this data source (e.g. 'RAW_MDS_NA' or 'TAGS')"
     )
     
     data_source_type: str = Field(
-        ...,
         description="One of 'MDS', 'EDX', or 'ANDES'"
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
     
     mds_data_source_properties: Optional[MdsDataSourceConfig] = Field(
         default=None,
@@ -223,6 +408,17 @@ class DataSourceConfig(BaseModel):
     andes_data_source_properties: Optional[AndesDataSourceConfig] = Field(
         default=None,
         description="If data_source_type=='ANDES', this must be provided"
+    )
+    
+    # ===== Derived Fields (Tier 3) =====
+    # None currently for this class
+    
+    # Override model_config to set frozen=True for this class
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        extra="forbid",
+        frozen=True
     )
 
     @field_validator("data_source_type")
@@ -267,31 +463,38 @@ class DataSourceConfig(BaseModel):
             
         return model
 
-    class Config:
-        """Pydantic model configuration."""
-        frozen = True
-        extra = "forbid"
 
-
-class DataSourcesSpecificationConfig(BaseModel):
+class DataSourcesSpecificationConfig(BaseCradleComponentConfig):
     """
-    Corresponds to com.amazon.secureaisandboxproxyservice.models.datasourcesspecification.DataSourcesSpecification:
-      - start_date (exact format 'YYYY-mm-DDTHH:MM:SS')
-      - end_date (exact format 'YYYY-mm-DDTHH:MM:SS')
-      - data_sources: list of DataSourceConfig
+    Configuration for data sources specification with three-tier field classification.
+    
+    Corresponds to com.amazon.secureaisandboxproxyservice.models.datasourcesspecification.DataSourcesSpecification
+    
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     start_date: str = Field(
-        ...,
         description="Start timestamp exactly 'YYYY-mm-DDTHH:MM:SS', e.g. '2025-01-01T00:00:00'"
     )
+    
     end_date: str = Field(
-        ...,
         description="End timestamp exactly 'YYYY-mm-DDTHH:MM:SS', e.g. '2025-04-17T00:00:00'"
     )
+    
     data_sources: List[DataSourceConfig] = Field(
-        ...,
         description="List of DataSourceConfig objects (both MDS and EDX)"
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # None currently for this class
+    
+    # ===== Derived Fields (Tier 3) =====
+    # None currently for this class
 
     @field_validator("start_date", "end_date")
     @classmethod
@@ -313,25 +516,36 @@ class DataSourcesSpecificationConfig(BaseModel):
         return v
 
 
-class JobSplitOptionsConfig(BaseModel):
+class JobSplitOptionsConfig(BaseCradleComponentConfig):
     """
     Corresponds to com.amazon.secureaisandboxproxyservice.models.jobsplitoptions.JobSplitOptions:
       - split_job: bool
       - days_per_split: int
       - merge_sql: str
+      
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
-    split_job: bool = Field(
-        default=False,
-        description="Whether to split the Cradle job into multiple daily runs"
-    )
-    days_per_split: int = Field(
-        default=7,
-        description="Number of days per split (only used if split_job=True)"
-    )
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide (when split_job=True)
     merge_sql: Optional[str] = Field(
         default=None,
         description="SQL to run after merging split results (if split_job=True). "
                     "For example: 'SELECT * FROM INPUT'."
+    )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
+    split_job: bool = Field(
+        default=False,
+        description="Whether to split the Cradle job into multiple daily runs"
+    )
+    
+    days_per_split: int = Field(
+        default=7,
+        description="Number of days per split (only used if split_job=True)"
     )
 
     @field_validator("days_per_split")
@@ -349,69 +563,114 @@ class JobSplitOptionsConfig(BaseModel):
         return model
 
 
-class TransformSpecificationConfig(BaseModel):
+class TransformSpecificationConfig(BaseCradleComponentConfig):
     """
     Corresponds to com.amazon.secureaisandboxproxyservice.models.transformspecification.TransformSpecification:
       - transform_sql: str
       - job_split_options: JobSplitOptionsConfig
+      
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
     transform_sql: str = Field(
-        ...,
         description="The SQL string used to join MDS and TAGS (or do any other transformation)."
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
     job_split_options: JobSplitOptionsConfig = Field(
-        ...,
+        default_factory=JobSplitOptionsConfig,
         description="Options for splitting the Cradle job into multiple runs"
     )
+    
+    # ===== Derived Fields (Tier 3) =====
+    # None currently for this class
 
 
-class OutputSpecificationConfig(BaseModel):
+class OutputSpecificationConfig(BaseCradleComponentConfig):
     """
     Corresponds to com.amazon.secureaisandboxproxyservice.models.outputspecification.OutputSpecification:
       - output_schema: List[str]
-      - output_path: str (S3 URI)
+      - job_type: str (e.g. 'training', 'calibration')
       - output_format: str (e.g. 'PARQUET', 'CSV', etc.)
       - output_save_mode: str (e.g. 'ERRORIFEXISTS', 'OVERWRITE', 'APPEND', 'IGNORE')
       - output_file_count: int (0 means "auto")
       - keep_dot_in_output_schema: bool
       - include_header_in_s3_output: bool
+      
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     output_schema: List[str] = Field(
-        ...,
         description="List of column names to emit (e.g. ['objectId','transactionDate',…])."
     )
-    output_path: str = Field(
-        ...,
-        description="Target S3 URI for output data (e.g. 's3://my-bucket/output-folder')"
+    
+    job_type: str = Field(
+        description="Type of job (training, validation, testing, calibration)"
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
+    
     output_format: str = Field(
         default="PARQUET",
         description="Format for Cradle output: one of ['CSV','UNESCAPED_TSV','JSON','ION','PARQUET']"
     )
+    
     output_save_mode: str = Field(
         default="ERRORIFEXISTS",
         description="One of ['ERRORIFEXISTS','OVERWRITE','APPEND','IGNORE']"
     )
+    
     output_file_count: int = Field(
         default=0,
         ge=0,
         description="Number of output files (0 means auto‐split)"
     )
+    
     keep_dot_in_output_schema: bool = Field(
         default=False,
         description="If False, replace '.' with '__DOT__' in the output header"
     )
+    
     include_header_in_s3_output: bool = Field(
         default=True,
         description="Whether to write the header row in S3 output files"
     )
+    
+    # ===== Derived Fields (Tier 3) =====
+    # These are fields calculated from other fields
+    
+    _output_path: Optional[str] = PrivateAttr(default=None)
+    
+    @property
+    def output_path(self) -> str:
+        """Get output path derived from pipeline_s3_loc and job_type."""
+        if self._output_path is None:
+            # This will be populated from the BasePipelineConfig reference
+            # Since OutputSpecificationConfig is used within CradleDataLoadConfig
+            # which inherits from BasePipelineConfig
+            if hasattr(self, 'config') and hasattr(self.config, 'pipeline_s3_loc'):
+                self._output_path = f"{self.config.pipeline_s3_loc}/data-load/{self.job_type}"
+            else:
+                # Fallback for backward compatibility
+                self._output_path = f"s3://default-bucket/data-load/{self.job_type}"
+        return self._output_path
 
-    @field_validator("output_path")
-    @classmethod
-    def validate_s3_uri(cls, v: str) -> str:
-        if not v.startswith("s3://"):
+    # Property validator to ensure the output_path is a valid S3 URI
+    def validate_output_path(self) -> None:
+        """Validate that output_path is a valid S3 URI."""
+        if not self.output_path.startswith("s3://"):
             raise ValueError("output_path must start with 's3://'")
-        return v
 
     @field_validator("output_format")
     @classmethod
@@ -430,26 +689,37 @@ class OutputSpecificationConfig(BaseModel):
         return v
 
 
-class CradleJobSpecificationConfig(BaseModel):
+class CradleJobSpecificationConfig(BaseCradleComponentConfig):
     """
     Corresponds to com.amazon.secureaisandboxproxyservice.models.cradlejobspecification.CradleJobSpecification:
       - cluster_type: str (e.g. 'SMALL', 'MEDIUM', 'LARGE')
       - cradle_account: str
       - extra_spark_job_arguments: Optional[str]
       - job_retry_count: int
+      
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
     """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    cradle_account: str = Field(
+        description="Cradle account name (e.g. 'Buyer-Abuse-RnD-Dev')"
+    )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
     cluster_type: str = Field(
         default='STANDARD',
         description="Cluster size for Cradle job (e.g. 'STANDARD', 'SMALL', 'MEDIUM', 'LARGE')"
     )
-    cradle_account: str = Field(
-        ...,
-        description="Cradle account name (e.g. 'Buyer-Abuse-RnD-Dev')"
-    )
+    
     extra_spark_job_arguments: Optional[str] = Field(
         default="",
         description="Any extra Spark driver options (string or blank)"
     )
+    
     job_retry_count: int = Field(
         default=1,
         ge=0,
@@ -467,45 +737,56 @@ class CradleJobSpecificationConfig(BaseModel):
 
 class CradleDataLoadConfig(BasePipelineConfig):
     """
-    Top‐level Pydantic config for creating a CreateCradleDataLoadJobRequest.
-
-    Instead of requiring each subfield directly, the user now provides:
-      - job_type: str, one of ["training","validation","test","calibration"]
-      - data_sources_spec: DataSourcesSpecificationConfig
-      - transform_spec: TransformSpecificationConfig
-      - output_spec: OutputSpecificationConfig
-      - cradle_job_spec: CradleJobSpecificationConfig
-      - (optional) s3_input_override
-    """
+    Top‐level configuration for creating a CreateCradleDataLoadJobRequest with three-tier field classification.
     
-    class Config(BasePipelineConfig.Config):
-        arbitrary_types_allowed = True
-        validate_assignment = True
-        extra = 'allow'  # Allow extra fields like __model_type__ and __model_module__ for type-aware serialization
-
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private attributes with properties)
+    
+    This class inherits from BasePipelineConfig (not BaseCradleComponentConfig) to maintain
+    consistency with other pipeline configurations.
+    """
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
     job_type: str = Field(
-        ...,
         description="One of ['training','validation','testing','calibration'] to indicate which dataset this job is pulling"
     )
+    
     data_sources_spec: DataSourcesSpecificationConfig = Field(
-        ...,
         description="Full data‐sources specification (start/end dates plus list of sources)."
     )
+    
     transform_spec: TransformSpecificationConfig = Field(
-        ...,
         description="Transform specification: SQL + job‐split options."
     )
+    
     output_spec: OutputSpecificationConfig = Field(
-        ...,
-        description="Output specification: schema, path, format, save mode, etc."
+        description="Output specification: schema, output format, save mode, etc."
     )
+    
     cradle_job_spec: CradleJobSpecificationConfig = Field(
-        ...,
         description="Cradle job specification: cluster type, account, retry count, etc."
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
+    
     s3_input_override: Optional[str] = Field(
         default=None,
         description="If set, skip Cradle data pull and use this S3 prefix directly"
+    )
+    
+    # ===== Derived Fields (Tier 3) =====
+    # These are initialized in the model_validator based on other fields
+    # The output_path in output_spec is a derived field that depends on job_type
+    
+    # Model configuration - inherit from BasePipelineConfig.Config
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        extra="allow"  # Allow extra fields like __model_type__ and __model_module__ for type-aware serialization
     )
 
     @field_validator("job_type")
@@ -517,15 +798,84 @@ class CradleDataLoadConfig(BasePipelineConfig):
         return v
 
     @model_validator(mode="after")
-    @classmethod
-    def check_split_and_override(cls, model: "CradleDataLoadConfig") -> "CradleDataLoadConfig":
+    def initialize_derived_fields(self) -> 'CradleDataLoadConfig':
+        """Initialize all derived fields once after validation."""
+        # Initialize base class derived fields first
+        super().initialize_derived_fields()
+        
+        # Pass the job_type to the output_spec
+        if hasattr(self.output_spec, 'job_type'):
+            self.output_spec.job_type = self.job_type
+        
+        # Store a reference to self in output_spec to allow it to access pipeline_s3_loc
+        # This enables the derived output_path property to work
+        if hasattr(self.output_spec, '_output_path'):
+            self.output_spec.config = self
+        
+        return self
+    
+    def categorize_fields(self) -> Dict[str, List[str]]:
+        """
+        Categorize all fields into three tiers:
+        1. Tier 1: Essential User Inputs - fields with no defaults (required)
+        2. Tier 2: System Inputs - fields with defaults (optional)
+        3. Tier 3: Derived Fields - properties that access private attributes
+        
+        Returns:
+            Dict with keys 'essential', 'system', and 'derived' mapping to lists of field names
+        """
+        # Initialize categories
+        categories = {
+            'essential': [],  # Tier 1: Required, public
+            'system': [],     # Tier 2: Optional (has default), public
+            'derived': []     # Tier 3: Public properties
+        }
+        
+        # Get model fields
+        model_fields = self.__class__.model_fields
+        
+        # Categorize public fields into essential (required) or system (with defaults)
+        for field_name, field_info in model_fields.items():
+            # Skip private fields
+            if field_name.startswith('_'):
+                continue
+                
+            # Use is_required() to determine if a field is essential
+            if field_info.is_required():
+                categories['essential'].append(field_name)
+            else:
+                categories['system'].append(field_name)
+        
+        # Find derived properties (public properties that aren't in model_fields)
+        for attr_name in dir(self):
+            if (not attr_name.startswith('_') and 
+                attr_name not in model_fields and
+                isinstance(getattr(type(self), attr_name, None), property)):
+                categories['derived'].append(attr_name)
+                
+        # Add nested derived fields
+        if hasattr(self.output_spec, 'categorize_fields'):
+            nested_categories = self.output_spec.categorize_fields()
+            # Add the nested derived fields with a prefix
+            for nested_field in nested_categories['derived']:
+                categories['derived'].append(f"output_spec.{nested_field}")
+        
+        return categories
+    
+    def get_all_tiered_fields(self) -> Dict[str, List[str]]:
+        """
+        Get a flattened list of all fields (including nested fields) 
+        organized by tier.
+        
+        Returns:
+            Dict with keys 'essential', 'system', and 'derived' mapping to 
+            lists of field names with dot notation for nesting
+        """
+        return get_flattened_fields(self)
+    
+    def check_split_and_override(self) -> None:
+        """Check consistency of split settings and overrides."""
         # If splitting is enabled, merge_sql must be provided
-        if model.transform_spec.job_split_options.split_job \
-           and not model.transform_spec.job_split_options.merge_sql:
+        if self.transform_spec.job_split_options.split_job \
+           and not self.transform_spec.job_split_options.merge_sql:
             raise ValueError("When split_job=True, merge_sql must be provided")
-        
-        # If user supplied s3_input_override, they can skip transform or data sources,
-        # but we don't enforce that here. We simply allow s3_input_override to bypass usage.
-        # No extra checks are necessary—downstream code should look at s3_input_override first.
-        
-        return model
