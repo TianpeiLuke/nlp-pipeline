@@ -4,7 +4,198 @@ This directory contains comprehensive documentation for the ML pipeline architec
 
 ## Overview
 
-The pipeline design represents a sophisticated, specification-driven architecture that transforms complex ML pipeline construction from imperative, error-prone manual processes into declarative, intelligent, and maintainable systems.
+The pipeline design represents a sophisticated, multi-layered architecture that transforms complex ML pipeline construction from imperative, error-prone manual processes into declarative, intelligent, and maintainable systems. The architecture combines specification-driven dependency resolution with robust configuration management and adaptive user interfaces to serve users from beginners to experts.
+
+## Major Design Documents Summary
+
+### 🏗️ Core Architecture Approaches
+
+#### **[Hybrid Design](hybrid_design.md)** - The Implemented Architecture
+- **Purpose**: Combines specification-driven dependency resolution with config-driven step implementation
+- **Key Innovation**: Clean separation between "what steps connect" (specifications) and "how steps work" (configurations)
+- **Benefits**: Zero breaking changes, progressive enhancement, universal dependency resolution
+- **Strategic Value**: Best of both worlds - declarative simplicity with production robustness
+
+#### **[Specification-Driven Design](specification_driven_design.md)** - Declarative Foundation
+- **Purpose**: Pure declarative approach where users express intent and system resolves dependencies automatically
+- **Key Features**: Step specifications, script contracts, semantic dependency matching, runtime validation
+- **Benefits**: Rapid prototyping, automatic pipeline assembly, early error detection
+- **Strategic Value**: Enables intelligent automation and reduces cognitive load
+
+#### **[Config-Driven Design](config_driven_design.md)** - Production Implementation Base
+- **Purpose**: Detailed configuration control with explicit step definitions and manual dependency management
+- **Key Features**: Pydantic validation, comprehensive parameter control, production-ready infrastructure
+- **Benefits**: Full control, battle-tested reliability, extensive customization
+- **Strategic Value**: Proven foundation that hybrid approach builds upon
+
+### 🧠 Adaptive Configuration Management
+
+#### **[Adaptive Configuration Management System](adaptive_configuration_management_system.md)** - Unified Intelligence Architecture
+- **Purpose**: Four-layer system that minimizes user input while maximizing automation and flexibility
+- **Key Innovation**: Adaptive complexity management that adjusts to user expertise and context
+- **Architecture**: Intent Capture → Intelligence → Storage & Representation → Execution layers
+- **Benefits**: 80%+ reduction in user inputs, intelligent defaults, progressive disclosure
+- **Strategic Value**: Transforms configuration from burden to enabler
+
+#### **[Config Field Categorization Refactored](config_field_categorization_refactored.md)** - Sophisticated Field Management
+- **Purpose**: Streamlined architecture for managing configuration fields across multiple configurations
+- **Key Features**: Three-tier field classification, type-safe serialization, circular reference handling
+- **Benefits**: Single source of truth, declarative categorization rules, enhanced maintainability
+- **Strategic Value**: Robust foundation for configuration management with clear separation of concerns
+
+#### **[Essential Inputs Notebook Design](essential_inputs_notebook_design.md)** - User-Centric Configuration
+- **Purpose**: Streamlined approach focusing only on essential user inputs while automating everything else
+- **Key Innovation**: Three-tier architecture (Essential User Inputs → System Inputs → Derived Inputs)
+- **Benefits**: 70%+ reduction in required inputs, feature group management, smart defaults
+- **Strategic Value**: Dramatically improves user experience while maintaining full functionality
+
+### 🔗 Dependency Resolution & Registry Systems
+
+#### **[Dependency Resolver](dependency_resolver.md)** - Intelligent Connection Engine
+- **Purpose**: Automatically connect pipeline steps through semantic compatibility analysis
+- **Key Features**: Multi-criteria scoring, type safety validation, context-scoped resolution, caching
+- **Benefits**: Eliminates manual dependency wiring, ensures compatibility, provides clear error messages
+- **Strategic Value**: Core intelligence that enables automatic pipeline assembly
+
+#### **[Registry Manager](registry_manager.md)** - Multi-Registry Coordination
+- **Purpose**: Centralized orchestration of multiple specification registries with lifecycle management
+- **Key Features**: Multi-context management, simplified API, backward compatibility, global coordination
+- **Benefits**: Sophisticated multi-registry architectures while maintaining simplicity
+- **Strategic Value**: Enables scalable registry systems with proper isolation
+
+#### **[Specification Registry](specification_registry.md)** - Context-Aware Storage
+- **Purpose**: Isolated, testable specification management with built-in compatibility analysis
+- **Key Features**: Context isolation, specification validation, compatibility checking, testable architecture
+- **Benefits**: Atomized, maintainable dependency management with perfect test isolation
+- **Strategic Value**: Foundation for reliable specification-based systems
+
+### 🏛️ Foundation Components
+
+#### **[Pipeline DAG](pipeline_dag.md)** - Structural Foundation
+- **Purpose**: Mathematical framework for pipeline topology and execution
+- **Key Features**: Cycle detection, execution optimization, dependency modeling, topological sorting
+- **Benefits**: Computational backbone for all higher-level abstractions
+- **Strategic Value**: Provides reliable foundation for complex pipeline orchestration
+
+#### **[Step Specification](step_specification.md)** - Comprehensive Step Definition
+- **Purpose**: Define complete step interface including structure, behavior, and quality requirements
+- **Key Features**: Node type classification, semantic dependency matching, automatic validation, quality gates
+- **Benefits**: Single source of truth for step definitions enabling intelligent automation
+- **Strategic Value**: Enables specification-driven architecture with quality assurance
+
+#### **[Step Builder](step_builder.md)** - Implementation Bridge
+- **Purpose**: Translate specifications and configurations into executable SageMaker steps
+- **Key Features**: Input/output transformation, configuration integration, SageMaker abstraction
+- **Benefits**: Separates implementation details from logical structure
+- **Strategic Value**: Clean abstraction layer that enables multiple interface approaches
+
+#### **[Script Contract](script_contract.md)** - Implementation Contracts
+- **Purpose**: Define and enforce contracts between step specifications and their script implementations
+- **Key Features**: Entry point validation, input/output path contracts, environment variable requirements
+- **Benefits**: Ensures implementation aligns with specification promises
+- **Strategic Value**: Bridge between declarative specifications and imperative implementations
+
+### 🎯 User Interface & Experience
+
+#### **[Fluent API](fluent_api.md)** - Natural Language Interface
+- **Purpose**: Transform pipeline construction into intuitive, readable experience
+- **Key Features**: Method chaining, context-aware configuration, progressive complexity disclosure
+- **Benefits**: Dramatically improves developer experience and reduces learning curve
+- **Strategic Value**: Makes complex pipeline construction accessible to broader audience
+
+#### **[Smart Proxy](smart_proxy.md)** - Intelligent Abstraction
+- **Purpose**: Bridge between specifications and pipeline construction reality
+- **Key Features**: Intelligent dependency resolution, type-safe construction, dynamic configuration
+- **Benefits**: Eliminates entire classes of errors while enabling rapid prototyping
+- **Strategic Value**: Provides intelligent automation without sacrificing control
+
+### 🏗️ Pipeline Assembly & Orchestration
+
+#### **[Pipeline Template Builder V2](pipeline_template_builder_v2.md)** - Modern Orchestration
+- **Purpose**: Transform declarative specifications into executable SageMaker pipelines
+- **Key Features**: Component coordination, dependency resolution, specification validation
+- **Benefits**: 90% code reduction while maintaining quality assurance and extensibility
+- **Strategic Value**: Lightweight, maintainable orchestration for specification-driven pipelines
+
+#### **[Pipeline Template Builder V1](pipeline_template_builder_v1.md)** - Current Production System
+- **Purpose**: Build SageMaker pipelines through imperative step instantiation and manual dependency resolution
+- **Key Features**: DAG-based ordering, manual property resolution, pattern matching, comprehensive error handling
+- **Benefits**: Production-ready, battle-tested, comprehensive error handling
+- **Strategic Value**: Proven foundation that V2 builds upon with lessons learned
+
+#### **[Pipeline Assembler](pipeline_assembler.md)** - Component Coordination
+- **Purpose**: Coordinate the assembly of pipeline components into executable SageMaker pipelines
+- **Key Features**: Step coordination, dependency validation, resource management
+- **Benefits**: Centralized assembly logic with proper error handling
+- **Strategic Value**: Clean separation between pipeline structure and assembly mechanics
+
+### ⚙️ Configuration Management Components
+
+#### **[Config Merger](config_merger.md)** - Configuration Integration
+- **Purpose**: Handle merging of multiple configuration objects into unified structures
+- **Key Features**: Shared/specific field categorization, type-safe serialization, conflict resolution
+- **Benefits**: Robust configuration combination with proper validation
+- **Strategic Value**: Enables complex configuration scenarios with maintainable logic
+
+#### **[Config Registry](config_registry.md)** - Configuration Discovery
+- **Purpose**: Centralized registration system for configuration classes
+- **Key Features**: Single source of truth for config classes, easy discovery, consistent usage
+- **Benefits**: Eliminates redundant class lookups and references
+- **Strategic Value**: Foundation for configuration management systems
+
+#### **[Default Values Provider Design](default_values_provider_design.md)** - Intelligent Defaults
+- **Purpose**: System for providing intelligent default values based on context and best practices
+- **Key Features**: Context-aware defaults, machine learning integration, best practice application
+- **Benefits**: Reduces user burden while maintaining quality
+- **Strategic Value**: Core component of adaptive configuration management
+
+### 🔧 Technical Infrastructure
+
+#### **[Circular Reference Handling](circular_reference_handling.md)** - Robust Object Management
+- **Purpose**: Detection and handling mechanisms for circular references in complex configuration structures
+- **Key Features**: Path tracking, diagnostic reporting, prevention mechanisms
+- **Benefits**: Prevents infinite recursion while maintaining configuration integrity
+- **Strategic Value**: Enables complex configuration scenarios with safety guarantees
+
+#### **[Type-Aware Serializer](type_aware_serializer.md)** - Robust Serialization
+- **Purpose**: Serialize and deserialize complex types with complete type information preservation
+- **Key Features**: Type metadata preservation, complex object handling, validation integration
+- **Benefits**: Configurations can be correctly reconstructed during loading
+- **Strategic Value**: Foundation for reliable configuration persistence
+
+#### **[Environment Detector Design](environment_detector_design.md)** - Context Intelligence
+- **Purpose**: Intelligent detection and analysis of deployment environments and constraints
+- **Key Features**: Environment classification, constraint analysis, adaptation recommendations
+- **Benefits**: Automatic environment-specific configuration adaptation
+- **Strategic Value**: Enables context-aware configuration management
+
+### 📋 Governance & Quality
+
+#### **[Design Principles](design_principles.md)** - Architectural Philosophy
+- **Purpose**: Guide system development and evolution decisions
+- **Key Features**: Declarative over imperative, composition over inheritance, fail fast, single source of truth
+- **Benefits**: Ensures architectural consistency and quality over time
+- **Strategic Value**: Foundation for maintainable, scalable system evolution
+
+#### **[Standardization Rules](standardization_rules.md)** - Quality Enforcement
+- **Purpose**: Enforce universal patterns and consistency across all components
+- **Key Features**: Automated validation, quality gates, evolution governance, compliance checking
+- **Benefits**: Maintains system-wide coherence while enabling controlled growth
+- **Strategic Value**: Ensures quality and consistency as system scales
+
+### 🔄 System Evolution & Analysis
+
+#### **[Design Evolution](design_evolution.md)** - Historical Context
+- **Purpose**: Document the evolution of pipeline design approaches and lessons learned
+- **Key Features**: Historical analysis, decision rationale, evolution patterns
+- **Benefits**: Understanding of why current architecture exists and future directions
+- **Strategic Value**: Provides context for architectural decisions and future planning
+
+#### **[Context Analysis Framework](context_analysis_framework.md)** - Intelligence Foundation
+- **Purpose**: Comprehensive framework for analyzing user, environment, and data context
+- **Key Features**: Multi-dimensional analysis, pattern recognition, recommendation generation
+- **Benefits**: Foundation for intelligent automation and adaptation
+- **Strategic Value**: Enables context-aware decision making across the system
 
 ## Architecture Components
 
@@ -73,12 +264,12 @@ The pipeline design represents a sophisticated, specification-driven architectur
 
 ### Governance Components
 
-13. **[Design Principles](design_principles.md)** - Architectural philosophy layer
+12. **[Design Principles](design_principles.md)** - Architectural philosophy layer
     - **Purpose**: Guide system development and evolution decisions
     - **Key Features**: Declarative over imperative, composition over inheritance, fail fast
     - **Strategic Value**: Ensures architectural consistency and quality over time
 
-14. **[Standardization Rules](standardization_rules.md)** - Enhanced constraint enforcement layer
+13. **[Standardization Rules](standardization_rules.md)** - Enhanced constraint enforcement layer
     - **Purpose**: Enforce universal patterns and consistency across all components
     - **Key Features**: Automated validation, quality gates, evolution governance
     - **Strategic Value**: Maintains system-wide coherence while enabling controlled growth
