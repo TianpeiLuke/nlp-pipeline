@@ -26,10 +26,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Standard paths defined in contract
-# These paths align with logical names in the dummy_training_contract.py:
-# - pretrained_model_path: "/opt/ml/processing/input/model/model.tar.gz"
-# - hyperparameters_s3_uri: "/opt/ml/processing/input/config/hyperparameters.json"
-# - model_input: "/opt/ml/processing/output/model" (aligns with packaging step dependency)
 MODEL_INPUT_PATH = "/opt/ml/processing/input/model/model.tar.gz"
 HYPERPARAMS_INPUT_PATH = "/opt/ml/processing/input/config/hyperparameters.json"
 MODEL_OUTPUT_DIR = "/opt/ml/processing/output/model"

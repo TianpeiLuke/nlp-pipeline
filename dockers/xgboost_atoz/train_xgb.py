@@ -12,16 +12,6 @@ import numpy as np
 import pickle as pkl
 import xgboost as xgb
 
-import tarfile
-import matplotlib.pyplot as plt
-from sklearn.metrics import (
-    roc_auc_score,
-    average_precision_score,
-    f1_score,
-    roc_curve,
-    precision_recall_curve,
-)
-
 
 # -------------------------------------------------------------------------
 # Assuming the processor is in a directory that can be imported
@@ -200,7 +190,6 @@ def prepare_dmatrices(config: dict, train_df: pd.DataFrame, val_df: pd.DataFrame
     
     return dtrain, dval, feature_columns
 
-
 def train_model(config: dict, dtrain: xgb.DMatrix, dval: xgb.DMatrix) -> xgb.Booster:
     """
     Trains the XGBoost model.
@@ -313,143 +302,11 @@ def save_artifacts(model: xgb.Booster, risk_tables: dict, impute_dict: dict, mod
     with open(hyperparameters_file, "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)
     logger.info(f"Saved hyperparameters configuration to {hyperparameters_file}")
-
-
-# -------------------------------------------------------------------------
-# New: inference + evaluation helpers
-# -------------------------------------------------------------------------
-def save_preds_and_metrics(ids, y_true, y_prob, id_col, label_col, out_dir, is_binary):
-    os.makedirs(out_dir, exist_ok=True)
-    # metrics
-    metrics = {}
-    if is_binary:
-        score = y_prob[:,1]
-        metrics = {
-            "auc_roc": roc_auc_score(y_true, score),
-            "average_precision": average_precision_score(y_true, score),
-            "f1_score": f1_score(y_true, score>0.5),
-        }
-        logger.info(f"AUC-ROC: {metrics['auc_roc']}")
-        logger.info(f"Average Precision: {metrics['average_precision']}")
-        logger.info(f"F1-Score: {metrics['f1_score']}")
-    else:
-        n = y_prob.shape[1]
-        for i in range(n):
-            y_bin = (y_true == i).astype(int)
-            metrics[f"auc_roc_class_{i}"] = roc_auc_score(y_bin, y_prob[:,i])
-            metrics[f"average_precision_class_{i}"] = average_precision_score(y_bin, y_prob[:,i])
-            metrics[f"f1_score_class_{i}"] = f1_score(y_bin, y_prob[:,i]>0.5)
-        metrics["auc_roc_micro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="micro")
-        metrics["auc_roc_macro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="macro")
-        metrics["average_precision_micro"] = average_precision_score(y_true, y_prob, average="micro")
-        metrics["average_precision_macro"] = average_precision_score(y_true, y_prob, average="macro")
-        y_pred = np.argmax(y_prob, axis=1)
-        metrics["f1_score_micro"] = f1_score(y_true, y_pred, average="micro")
-        metrics["f1_score_macro"] = f1_score(y_true, y_pred, average="macro")
-        logger.info(f"AUC-ROC (micro): {metrics['auc_roc_micro']}")
-        logger.info(f"AUC-ROC (macro): {metrics['auc_roc_macro']}")
-        logger.info(f"Average Precision (micro): {metrics['average_precision_micro']}")
-        logger.info(f"Average Precision (macro): {metrics['average_precision_macro']}")
-        logger.info(f"F1-Score (micro): {metrics['f1_score_micro']}")
-        logger.info(f"F1-Score (macro): {metrics['f1_score_macro']}")
-    with open(os.path.join(out_dir, "metrics.json"), "w") as f:
-        json.dump(metrics, f, indent=2)
-    # preds
-    df = pd.DataFrame({id_col: ids, label_col: y_true})
-    for i in range(y_prob.shape[1]): df[f"prob_class_{i}"] = y_prob[:,i]
-    df.to_csv(os.path.join(out_dir, "predictions.csv"), index=False)
-
-
-def plot_curves(y_true, y_prob, out_dir, prefix, is_binary):
-    os.makedirs(out_dir, exist_ok=True)
-    if is_binary:
-        score = y_prob[:,1]
-        fpr, tpr, _ = roc_curve(y_true, score)
-        auc = roc_auc_score(y_true, score)
-        plt.figure()
-        plt.plot(fpr, tpr, label=f"AUC={auc:.3f}")
-        plt.plot([0,1], [0,1], "--")
-        plt.title(f"{prefix} ROC")
-        plt.xlabel("FPR")
-        plt.ylabel("TPR")
-        plt.legend()
-        plt.savefig(os.path.join(out_dir, f"{prefix}roc.jpg"))
-        plt.close()
-        precision, recall, _ = precision_recall_curve(y_true, score)
-        ap = average_precision_score(y_true, score)
-        plt.figure()
-        plt.plot(recall, precision, label=f"AP={ap:.3f}")
-        plt.title(f"{prefix} PR")
-        plt.xlabel("Recall")
-        plt.ylabel("Precision")
-        plt.legend()
-        plt.savefig(os.path.join(out_dir, f"{prefix}pr.jpg"))
-        plt.close()
-    else:
-        n = y_prob.shape[1]
-        for i in range(n):
-            y_bin = (y_true == i).astype(int)
-            if len(np.unique(y_bin))>1:
-                fpr, tpr,_ = roc_curve(y_bin, y_prob[:,i])
-                auc = roc_auc_score(y_bin, y_prob[:,i])
-                plt.figure()
-                plt.plot(fpr, tpr, label=f"AUC={auc:.3f}")
-                plt.plot([0,1], [0,1], "--")
-                plt.title(f"{prefix} class {i} ROC")
-                plt.xlabel("FPR")
-                plt.ylabel("TPR")
-                plt.legend()
-                plt.savefig(os.path.join(out_dir, f"{prefix}class_{i}_roc.jpg"))
-                plt.close()
-                precision, recall, _ = precision_recall_curve(y_bin, y_prob[:,i])
-                ap = average_precision_score(y_bin, y_prob[:,i])
-                plt.figure()
-                plt.plot(recall, precision, label=f"AP={ap:.3f}")
-                plt.title(f"{prefix} class {i} PR")
-                plt.xlabel("Recall")
-                plt.ylabel("Precision")
-                plt.legend()
-                plt.savefig(os.path.join(out_dir, f"{prefix}class_{i}_pr.jpg"))
-                plt.close()
-
-
-def evaluate_split(name, df, feats, model, cfg, prefix="/opt/ml/output/data"):
-    is_bin = cfg.get("is_binary", True)
-    label = cfg["label_name"]
-    idi   = cfg.get("id_name", "id")
-
-    ids    = df.get(idi, np.arange(len(df)))
-    y_true = df[label].astype(int).values
-
-    # Build DMatrix *with* feature names
-    X = df[feats]
-    dmat = xgb.DMatrix(data=X, feature_names=feats)
-
-    y_prob = model.predict(dmat)
-    if y_prob.ndim == 1:
-        y_prob = np.vstack([1-y_prob, y_prob]).T
-
-    # directories
-    out_base    = os.path.join(prefix, name)
-    out_metrics = os.path.join(prefix, f"{name}_metrics")
-
-    # save preds & metrics, then plots, then tar
-    save_preds_and_metrics(ids, y_true, y_prob, idi, label, out_base, is_bin)
-    plot_curves(y_true,        y_prob, out_metrics, f"{name}_", is_bin)
-
-    tar = os.path.join(prefix, f"{name}.tar.gz")
-    with tarfile.open(tar, "w:gz") as t:
-        t.add(out_base,    arcname=name)
-        t.add(out_metrics, arcname=f"{name}_metrics")
-
-    logger.info(f"{name} outputs packaged → {tar}")
-
-
-
+    
 # -------------------------------------------------------------------------
 # Main Orchestrator
 # -------------------------------------------------------------------------
-def main(hparam_path: str, input_path: str, model_path: str, output_path: str):
+def main(hparam_path: str, input_path: str, model_path: str):
     """Main function to execute the XGBoost training logic."""
     logger.info("Starting XGBoost training process...")
     logger.info(f"Loading configuration from {hparam_path}")
@@ -489,15 +346,7 @@ def main(hparam_path: str, input_path: str, model_path: str, output_path: str):
         config=config
     )
     
-    # --- inference + evaluation on val and test ---
-    logger.info("Starting inference & evaluation on validation set")
-    evaluate_split("val",  val_df,  feature_columns, model, config, output_path)
-    logger.info("Starting inference & evaluation on test set")
-    evaluate_split("test", test_df, feature_columns, model, config, output_path)
-    logger.info("All done.")
-    
     logger.info("Training script finished successfully.")
-
 
 # -------------------------------------------------------------------------
 # Script Entry Point
@@ -512,9 +361,6 @@ if __name__ == "__main__":
     # The model artifacts are saved to the standard model directory
     model_path = os.path.join(prefix, "model")
     
-    # The data from the previous step is on the main 'data' channel
-    output_path = os.path.join(prefix, "output", "data")
-    
     # FIX: The path to hyperparameters is now determined by the 'config' input channel,
     # which is the recommended way to pass large configuration files.
     config_channel_path = os.path.join(input_path, "config")
@@ -522,7 +368,7 @@ if __name__ == "__main__":
 
     try:
         logger.info(f"Starting main process with paths: input={input_path}, model={model_path}")
-        main(hparam_path, input_path, model_path, output_path)
+        main(hparam_path, input_path, model_path)
     except Exception:
         logger.error(f"Exception during training:\n{traceback.format_exc()}")
         sys.exit(1)

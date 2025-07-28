@@ -110,9 +110,10 @@ class NumericalBinningProcessor(Processor):
         
         if current_strategy == 'equal-width': 
             if self.min_fitted_value_ == self.max_fitted_value_:
-                logger.warning(f"Column '{self.column_name}' has a single unique value ({self.min_fitted_value_}). Creating one bin encompassing this value.")
-                epsilon = max(1e-9, abs(self.min_fitted_value_ * 1e-6))  # Ensure epsilon is small but non-zero
-                self.bin_edges_ = np.array([self.min_fitted_value_ - epsilon, self.min_fitted_value_ + epsilon])
+                 logger.warning(f"Column '{self.column_name}' has a single unique value ({self.min_fitted_value_}). Creating one bin encompassing this value.")
+                 epsilon = 1e-9 if abs(self.min_fitted_value_) < 1e-9 else abs(self.min_fitted_value_ * 1e-6)
+                 epsilon = max(epsilon, 1e-9) 
+                 self.bin_edges_ = np.array([self.min_fitted_value_ - epsilon, self.max_fitted_value_ + epsilon])
             else:
                 _, self.bin_edges_ = pd.cut(column_data, bins=n_bins_to_try, retbins=True, include_lowest=True, right=True)
         
@@ -258,14 +259,23 @@ class NumericalBinningProcessor(Processor):
             final_binned_series.loc[still_nan_after_cut_mask & (series_to_bin <= self.bin_edges_[0])] = self.actual_labels_[0]
             final_binned_series.loc[still_nan_after_cut_mask & (series_to_bin >= self.bin_edges_[-1])] = self.actual_labels_[-1]
         elif self.handle_out_of_range != "boundary_bins":
-            final_binned_series.loc[still_nan_after_cut_mask] = self.handle_out_of_range
+             final_binned_series.loc[still_nan_after_cut_mask] = self.handle_out_of_range
 
 
         # Determine final output type
-        if self.actual_labels_ is False:  # Interval notation
-            final_binned_series = pd.Series(final_binned_series, dtype=pd.CategoricalDtype())  # Ensure categorical dtype
-        else:  # String labels
-            final_binned_series = pd.Series(final_binned_series, dtype=pd.CategoricalDtype(categories=self.actual_labels_, ordered=True))
+        if self.actual_labels_ is False: # Interval notation
+            # Convert to CategoricalDtype, NaNs will be pd.NA
+            final_binned_series = pd.Series(final_binned_series, dtype='category')
+            if self.handle_missing_value == "as_is":
+                 final_binned_series = final_binned_series. όπου(original_nan_mask, pd.NA)
+
+        else: # String labels
+            # Convert to string, NaNs will become "nan" or the custom missing label
+            # If handle_missing_value was "as_is", we want actual NaNs to become "nan" string
+            # If it was a custom string, it's already set.
+            final_binned_series = final_binned_series.astype(str)
+            if self.handle_missing_value == "as_is":
+                final_binned_series[original_nan_mask] = "nan" # Explicitly make it "nan" string for consistency
 
         if isinstance(output_data, pd.DataFrame):
             output_data[self.output_column_name] = final_binned_series

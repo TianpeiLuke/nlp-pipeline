@@ -4,73 +4,6 @@ import sys
 from subprocess import check_call
 import boto3
 
-
-def _get_secure_pypi_access_tokens() -> str:
-    os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
-    sts = boto3.client("sts", region_name="us-east-1")
-    caller_identity = sts.get_caller_identity()
-    assumed_role_object = sts.assume_role(
-        RoleArn="arn:aws:iam::675292366480:role/SecurePyPIReadRole_" + caller_identity["Account"],
-        RoleSessionName="SecurePypiReadRole",
-    )
-    credentials = assumed_role_object["Credentials"]
-    code_artifact_client = boto3.client(
-        "codeartifact",
-        aws_access_key_id=credentials["AccessKeyId"],
-        aws_secret_access_key=credentials["SecretAccessKey"],
-        aws_session_token=credentials["SessionToken"],
-        region_name="us-west-2",
-    )
-    token = code_artifact_client.get_authorization_token(
-        domain="amazon", domainOwner="149122183214"
-    )["authorizationToken"]
-
-    return token
-
-
-def install_requirements(path: str = "requirements.txt") -> None:
-    token = _get_secure_pypi_access_tokens()
-    check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--index-url",
-            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
-            "-r",
-            path,
-        ]
-    )
-
-
-def install_requirements_single(package: str = "numpy") -> None:
-    token = _get_secure_pypi_access_tokens()
-    check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--index-url",
-            f"https://aws:{token}@amazon-149122183214.d.codeartifact.us-west-2.amazonaws.com/pypi/secure-pypi/simple/",
-            package,
-        ]
-    )
-
-
-# Install required packages
-required_packages = [
-    "scikit-learn>=0.23.2,<1.0.0",
-    "pandas>=1.2.0,<2.0.0",
-    "pydantic>=2.0.0,<3.0.0"
-]
-
-for package in required_packages:
-    install_requirements_single(package)
-print("***********************Package Installed*********************")
-
-
 import json
 import argparse
 import pandas as pd
@@ -241,7 +174,7 @@ def log_metrics_summary(metrics, is_binary=True):
         logger.info(f"METRIC_KEY: F1 Score              = {metrics.get('f1_score', 'N/A'):.4f}")
     else:
         logger.info(f"METRIC_KEY: Macro AUC-ROC         = {metrics.get('auc_roc_macro', 'N/A'):.4f}")
-        logger.info(f"METRIC_KEY: Micro AUC-ROC         = {metrics.get('auc_roc_micro', 'N/A'):.4f}")
+        logger.info(f"METRIC_KEY: Weighted AUC-ROC      = {metrics.get('auc_roc_weighted', 'N/A'):.4f}")
         logger.info(f"METRIC_KEY: Macro Average Precision = {metrics.get('average_precision_macro', 'N/A'):.4f}")
         logger.info(f"METRIC_KEY: Macro F1              = {metrics.get('f1_score_macro', 'N/A'):.4f}")
         logger.info(f"METRIC_KEY: Micro F1              = {metrics.get('f1_score_micro', 'N/A'):.4f}")
@@ -296,8 +229,9 @@ def compute_metrics_multiclass(y_true, y_prob, n_classes):
         metrics[f"f1_score_class_{i}"] = f1_score(y_true_bin, y_score > 0.5)
     
     # Micro and macro averages
-    metrics["auc_roc_micro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="micro")
+    # For multiclass ROC AUC, only 'macro' and 'weighted' averages are supported for multi_class="ovr"
     metrics["auc_roc_macro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="macro")
+    metrics["auc_roc_weighted"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="weighted")
     metrics["average_precision_micro"] = average_precision_score(y_true, y_prob, average="micro")
     metrics["average_precision_macro"] = average_precision_score(y_true, y_prob, average="macro")
     
@@ -312,7 +246,7 @@ def compute_metrics_multiclass(y_true, y_prob, n_classes):
         metrics[f"class_{cls}_ratio"] = float(count) / len(y_true)
     
     # Log basic summary and detailed formatted metrics
-    logger.info(f"Multiclass metrics computed: Macro AUC={metrics['auc_roc_macro']:.4f}, Micro AUC={metrics['auc_roc_micro']:.4f}")
+    logger.info(f"Multiclass metrics computed: Macro AUC={metrics['auc_roc_macro']:.4f}, Weighted AUC={metrics['auc_roc_weighted']:.4f}")
     log_metrics_summary(metrics, is_binary=False)
     
     return metrics
@@ -381,11 +315,13 @@ def save_metrics(metrics, output_metrics_dir):
         # Write key metrics at the top
         if "auc_roc" in metrics:  # Binary classification
             f.write(f"AUC-ROC:           {metrics['auc_roc']:.4f}\n")
-            f.write(f"Average Precision: {metrics['average_precision']:.4f}\n")
-            f.write(f"F1 Score:          {metrics['f1_score']:.4f}\n")
+            if 'average_precision' in metrics:
+                f.write(f"Average Precision: {metrics['average_precision']:.4f}\n")
+            if 'f1_score' in metrics:
+                f.write(f"F1 Score:          {metrics['f1_score']:.4f}\n")
         else:  # Multiclass classification
             f.write(f"AUC-ROC (Macro):   {metrics.get('auc_roc_macro', 'N/A'):.4f}\n")
-            f.write(f"AUC-ROC (Micro):   {metrics.get('auc_roc_micro', 'N/A'):.4f}\n")
+            f.write(f"AUC-ROC (Weighted): {metrics.get('auc_roc_weighted', 'N/A'):.4f}\n")
             f.write(f"F1 Score (Macro):  {metrics.get('f1_score_macro', 'N/A'):.4f}\n")
         
         f.write("=" * 50 + "\n\n")
@@ -484,10 +420,6 @@ def evaluate_model(model, df, feature_columns, id_col, label_col, hyperparams, o
 
 
 def main():
-    """
-    Main entry point for XGBoost model evaluation script.
-    Loads model and data, runs evaluation, and saves results.
-    """
     """
     Main entry point for XGBoost model evaluation script.
     Loads model and data, runs evaluation, and saves results.

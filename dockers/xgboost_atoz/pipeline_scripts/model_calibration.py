@@ -73,6 +73,7 @@ required_packages = [
     "scikit-learn>=0.23.2,<1.0.0",
     "pandas>=1.2.0,<2.0.0",
     "pydantic>=2.0.0,<3.0.0",
+    "joblib>=1.0.0",
     "matplotlib>=3.3.0",
     "pygam>=0.8.0"
 ]
@@ -89,15 +90,9 @@ import logging
 import traceback
 from typing import Dict, List, Any, Optional, Tuple
 
-# Configure matplotlib to use the Agg backend to prevent GUI errors in containerized environments
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend that works in containers without a display
-logger = logging.getLogger(__name__)
-logger.info("Configured matplotlib to use Agg backend for container compatibility")
-
 import numpy as np
 import pandas as pd
-import pickle
+import joblib
 import matplotlib.pyplot as plt
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
@@ -138,11 +133,6 @@ INPUT_DATA_PATH = "/opt/ml/processing/input/eval_data"
 OUTPUT_CALIBRATION_PATH = "/opt/ml/processing/output/calibration"
 OUTPUT_METRICS_PATH = "/opt/ml/processing/output/metrics"
 OUTPUT_CALIBRATED_DATA_PATH = "/opt/ml/processing/output/calibrated_data"
-
-# Calibration file constants
-CALIBRATION_MODEL_FILE = "calibration_model.pkl"
-CALIBRATION_SUMMARY_FILE = "calibration_summary.json"
-CALIBRATION_MODELS_DIR = "calibration_models"
 
 class CalibrationConfig:
     """Configuration class for model calibration."""
@@ -1112,11 +1102,9 @@ def main(config=None):
             
             # Create visualization (non-critical step that shouldn't fail the entire process)
             try:
-                logger.info("Attempting to create reliability diagram with matplotlib Agg backend")
                 plot_path = plot_reliability_diagram(y_true, y_prob_uncalibrated, y_prob_calibrated, config=config)
-                logger.info("Successfully created reliability diagram - Matplotlib Agg backend fix worked!")
             except Exception as e:
-                logger.warning(f"Failed to create reliability diagram despite Matplotlib Agg backend: {str(e)}")
+                logger.warning(f"Failed to create reliability diagram: {str(e)}")
                 logger.warning(f"This is a non-critical error, continuing with calibration process")
                 plot_path = os.path.join(config.output_metrics_path, "reliability_diagram.png")
             
@@ -1153,9 +1141,8 @@ def main(config=None):
             logger.info(f"Saved metrics report to {metrics_path}")
             
             # Save calibrator model
-            calibrator_path = os.path.join(config.output_calibration_path, CALIBRATION_MODEL_FILE)
-            with open(calibrator_path, 'wb') as f:
-                pickle.dump(calibrator, f)
+            calibrator_path = os.path.join(config.output_calibration_path, "calibration_model.joblib")
+            joblib.dump(calibrator, calibrator_path)
             logger.info(f"Saved calibrator model to {calibrator_path}")
             
             # Add calibrated scores to dataframe and save
@@ -1210,11 +1197,9 @@ def main(config=None):
             
             # Create visualizations (non-critical step that shouldn't fail the entire process)
             try:
-                logger.info("Attempting to create multiclass reliability diagram with matplotlib Agg backend")
                 plot_path = plot_multiclass_reliability_diagram(y_true, y_prob_matrix, y_prob_calibrated, config=config)
-                logger.info("Successfully created multiclass reliability diagram - Matplotlib Agg backend fix worked!")
             except Exception as e:
-                logger.warning(f"Failed to create multiclass reliability diagram despite Matplotlib Agg backend: {str(e)}")
+                logger.warning(f"Failed to create multiclass reliability diagram: {str(e)}")
                 logger.warning(f"This is a non-critical error, continuing with calibration process")
                 plot_path = os.path.join(config.output_metrics_path, "multiclass_reliability_diagram.png")
             
@@ -1253,15 +1238,14 @@ def main(config=None):
                 json.dump(metrics_report, f, indent=2)
             
             # Save calibrator models
-            calibrator_dir = os.path.join(config.output_calibration_path, CALIBRATION_MODELS_DIR)
+            calibrator_dir = os.path.join(config.output_calibration_path, "calibration_models")
             os.makedirs(calibrator_dir, exist_ok=True)
             
             calibrator_paths = {}
             for i, calibrator in enumerate(calibrators):
                 class_name = config.multiclass_categories[i]
-                calibrator_path = os.path.join(calibrator_dir, f"calibration_model_class_{class_name}.pkl")
-                with open(calibrator_path, 'wb') as f:
-                    pickle.dump(calibrator, f)
+                calibrator_path = os.path.join(calibrator_dir, f"calibration_model_class_{class_name}.joblib")
+                joblib.dump(calibrator, calibrator_path)
                 calibrator_paths[f"class_{class_name}"] = calibrator_path
             
             # Add calibrated scores to dataframe and save

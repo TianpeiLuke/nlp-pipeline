@@ -1,23 +1,29 @@
 # AWS SDK
-boto3>=1.26.0
+boto3>=1.26.0,<2.0.0  # More specific range
 
 # XGBoost - version compatible with SageMaker XGBoost 1.7-1
 xgboost==1.7.6
 
-# Data Processing and ML
-scikit-learn>=0.23.2,<1.0.0
-pandas>=1.2.0,<2.0.0
-pyarrow>=4.0.0,<6.0.0
+# Data Processing and ML - aligned with SageMaker scikit-learn 1.2-1
+scikit-learn==1.2.1
+pandas==1.1.3
+scipy==1.8.0
+numpy==1.23.5  # Added explicit numpy version to avoid conflicts
+pyarrow==5.0.0  # Fixed version to avoid conflicts
 
 # Web Scraping and API
-beautifulsoup4>=4.9.3
-flask>=2.0.0,<3.0.0
+beautifulsoup4==4.9.3  # Fixed version
+flask==2.0.1  # Fixed version
 
 # Type Hints and Validation
-pydantic>=2.0.0,<3.0.0
-typing-extensions>=4.2.0
+pydantic==2.11.7  # Fixed version that's known to work
+typing-extensions==4.5.0  # Version compatible with pydantic
 
 # Model Calibration Support
-joblib>=1.0.0
-matplotlib>=3.3.0
-pygam>=0.8.0
+joblib==1.2.0  # Fixed version compatible with scikit-learn
+matplotlib==3.5.3  # Version known to work with numpy 1.23.5
+pygam==0.8.0  # Fixed version
+
+# Additional Dependencies (often required)
+setuptools>=65.5.1  # Added for compatibility
+wheel>=0.38.0  # Added for compatibility
