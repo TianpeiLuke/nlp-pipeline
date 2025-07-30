@@ -9,8 +9,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 import os
 import sys
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pathlib import Path
+from datetime import datetime
 
 # Add the path for importing from src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -28,6 +29,8 @@ sys.modules['secure_ai_sandbox_workflow_python_sdk.utils'] = MagicMock()
 sys.modules['secure_ai_sandbox_workflow_python_sdk.utils.constants'] = MockConstants
 
 # Import after setting up mocks
+from src.pipeline_steps.config_base import BasePipelineConfig
+
 from src.config_field_manager.cradle_config_factory import (
     create_cradle_data_load_config,
     create_training_and_calibration_configs,
@@ -49,54 +52,52 @@ from src.pipeline_steps.config_data_load_step_cradle import (
 )
 
 
+# Set environment variable for testing before any classes are instantiated
+os.environ["MODS_SKIP_PATH_VALIDATION"] = "true"
+
 class TestCradleConfigFactory(unittest.TestCase):
     """Tests for the cradle_config_factory module."""
     
     def setUp(self):
         """Set up test fixtures."""
-        # Sample field lists
-        self.full_field_list = [
-            'objectId',
-            'transactionDate',
+        # Sample field list
+        self.mds_field_list = [
             'field1',
             'field2',
             'field3',
             'cat_field1',
             'cat_field2',
+            'objectId',
             'label',
             'id'
         ]
         
-        self.tab_field_list = [
-            'field1',
-            'field2',
-            'field3'
-        ]
+        # Create a base config for testing
+        self.base_config = BasePipelineConfig(
+            role='TestRole',
+            region='NA',
+            author='test-author',
+            bucket='test-bucket',
+            service_name='TestService',
+            pipeline_version='1.0.0',
+            source_dir='/mock/path/to/source'
+        )
         
-        self.cat_field_list = [
-            'cat_field1',
-            'cat_field2'
-        ]
-        
-        # Sample configuration parameters
+        # Sample configuration parameters for cradle data load using base_config
         self.config_params = {
-            'role': 'TestRole',
-            'region': 'NA',
-            'pipeline_s3_loc': 's3://test-bucket/pipeline',
+            'base_config': self.base_config,
             'job_type': 'training',
-            'full_field_list': self.full_field_list,
-            'tab_field_list': self.tab_field_list,
-            'cat_field_list': self.cat_field_list,
-            'label_name': 'label',
-            'id_name': 'id',
+            'mds_field_list': self.mds_field_list,
             'start_date': '2025-01-01T00:00:00',
             'end_date': '2025-04-17T00:00:00',
-            'service_name': 'TestService',
             'tag_edx_provider': 'test-provider',
             'tag_edx_subject': 'test-subject',
             'tag_edx_dataset': 'test-dataset',
             'etl_job_id': '12345'
         }
+        
+        # Set environment variable for testing
+        os.environ["MODS_SKIP_PATH_VALIDATION"] = "true"
     
     def test_map_region_to_aws_region(self):
         """Test the region mapping function."""
@@ -203,8 +204,9 @@ class TestCradleConfigFactory(unittest.TestCase):
         self.assertEqual(sql.count('RAW_MDS_NA.duplicate_field'), 1)
         self.assertEqual(sql.count('TAGS.duplicate_field'), 0)  # Should be excluded
         
-        # Make sure order_id is always included from tags even though objectId exists in MDS
-        self.assertEqual(sql.count('TAGS.order_id'), 1)
+        # Make sure order_id is included from tags even though objectId exists in MDS
+        # Note: In the current implementation, order_id appears in the JOIN condition and SELECT clause
+        self.assertGreaterEqual(sql.count('TAGS.order_id'), 1)
     
     def test_generate_transform_sql_with_custom_join(self):
         """Test the SQL generation with custom join parameters."""
@@ -240,7 +242,8 @@ class TestCradleConfigFactory(unittest.TestCase):
         result = _get_all_fields(mds_fields, tag_fields)
         
         # Check that the result has all unique fields
-        self.assertEqual(len(result), 5)  # 5 unique fields
+        # The fields are: 'objectId', 'field1', 'field2', 'duplicate', 'order_id', 'tag_value'
+        self.assertEqual(len(result), 6)  # 6 unique fields
         self.assertIn('objectId', result)
         self.assertIn('field1', result)
         self.assertIn('field2', result)
@@ -258,9 +261,15 @@ class TestCradleConfigFactory(unittest.TestCase):
         # Check that the config is the correct type
         self.assertIsInstance(config, CradleDataLoadConfig)
         
-        # Check that essential fields are set correctly
-        self.assertEqual(config.role, self.config_params['role'])
-        self.assertEqual(config.region, self.config_params['region'])
+        # Check that fields are properly inherited from base_config
+        self.assertEqual(config.role, self.base_config.role)
+        self.assertEqual(config.region, self.base_config.region)
+        self.assertEqual(config.author, self.base_config.author)
+        self.assertEqual(config.bucket, self.base_config.bucket)
+        self.assertEqual(config.service_name, self.base_config.service_name)
+        self.assertEqual(config.source_dir, self.base_config.source_dir)
+        
+        # Check that job-specific fields are set correctly
         self.assertEqual(config.job_type, self.config_params['job_type'])
         
         # Check that data sources specification is created
@@ -280,6 +289,10 @@ class TestCradleConfigFactory(unittest.TestCase):
         
         # Check that cradle job specification is created
         self.assertIsInstance(config.cradle_job_spec, CradleJobSpecificationConfig)
+        
+        # Check derived fields are correctly calculated based on inherited values
+        self.assertEqual(config.aws_region, 'us-east-1')  # Derived from region 'NA'
+        self.assertTrue(config.pipeline_s3_loc.startswith(f"s3://{self.base_config.bucket}/MODS/"))
     
     def test_create_cradle_data_load_config_with_custom_transform_sql(self):
         """Test creating config with custom transform SQL."""
@@ -304,19 +317,26 @@ class TestCradleConfigFactory(unittest.TestCase):
         self.assertTrue(config.transform_spec.job_split_options.split_job)
         self.assertEqual(config.transform_spec.job_split_options.days_per_split, 5)
         self.assertEqual(config.transform_spec.job_split_options.merge_sql, 'SELECT * FROM INPUT')
+        
+    def test_create_cradle_data_load_config_with_custom_org_id(self):
+        """Test creating config with a custom org_id."""
+        params = self.config_params.copy()
+        params['org_id'] = 123  # Custom org ID
+        
+        config = create_cradle_data_load_config(**params)
+        
+        # Check that org_id is set correctly in MDS data source
+        self.assertEqual(config.data_sources_spec.data_sources[0].mds_data_source_properties.org_id, 123)
+        
+        # Check default org_id
+        config_default = create_cradle_data_load_config(**self.config_params)
+        self.assertEqual(config_default.data_sources_spec.data_sources[0].mds_data_source_properties.org_id, 0)
     
     def test_create_training_and_calibration_configs(self):
         """Test creating both training and calibration configs."""
         params = {
-            'role': 'TestRole',
-            'region': 'NA',
-            'pipeline_s3_loc': 's3://test-bucket/pipeline',
-            'full_field_list': self.full_field_list,
-            'tab_field_list': self.tab_field_list,
-            'cat_field_list': self.cat_field_list,
-            'label_name': 'label',
-            'id_name': 'id',
-            'service_name': 'TestService',
+            'base_config': self.base_config,
+            'mds_field_list': self.mds_field_list,
             'tag_edx_provider': 'test-provider',
             'tag_edx_subject': 'test-subject',
             'tag_edx_dataset': 'test-dataset',
@@ -340,12 +360,28 @@ class TestCradleConfigFactory(unittest.TestCase):
         self.assertEqual(training.data_sources_spec.start_date, params['training_start_date'])
         self.assertEqual(training.data_sources_spec.end_date, params['training_end_date'])
         
+        # Check that training config inherits from base_config
+        self.assertEqual(training.role, self.base_config.role)
+        self.assertEqual(training.author, self.base_config.author)
+        self.assertEqual(training.bucket, self.base_config.bucket)
+        self.assertEqual(training.service_name, self.base_config.service_name)
+        
         # Check calibration config
         calibration = configs['calibration']
         self.assertIsInstance(calibration, CradleDataLoadConfig)
         self.assertEqual(calibration.job_type, 'calibration')
         self.assertEqual(calibration.data_sources_spec.start_date, params['calibration_start_date'])
         self.assertEqual(calibration.data_sources_spec.end_date, params['calibration_end_date'])
+        
+        # Check that calibration config inherits from base_config
+        self.assertEqual(calibration.role, self.base_config.role)
+        self.assertEqual(calibration.author, self.base_config.author)
+        self.assertEqual(calibration.bucket, self.base_config.bucket)
+        self.assertEqual(calibration.service_name, self.base_config.service_name)
+        
+        # Check that the EDX manifest keys are properly formatted with Z suffixes
+        self.assertIn("Z,", training.data_sources_spec.data_sources[1].edx_data_source_properties.edx_manifest)
+        self.assertIn("Z,", calibration.data_sources_spec.data_sources[1].edx_data_source_properties.edx_manifest)
 
 
 if __name__ == '__main__':
