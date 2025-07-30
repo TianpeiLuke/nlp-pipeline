@@ -42,6 +42,12 @@ from ..pipeline_api.exceptions import RegistryError
 logger = logging.getLogger(__name__)
 
 
+# Create reverse mapping from builder step names to canonical step names for efficient lookup
+REVERSE_BUILDER_MAPPING = {
+    info["builder_step_name"]: step_name 
+    for step_name, info in STEP_NAMES.items()
+}
+
 # Decorator for auto-registering step builders
 def register_builder(step_type: str = None):
     """
@@ -49,7 +55,7 @@ def register_builder(step_type: str = None):
     
     Args:
         step_type: Optional step type name. If not provided,
-                  will be derived from the class name.
+                  will be derived from the class name using the STEP_NAMES registry.
     """
     def decorator(cls):
         if not issubclass(cls, StepBuilderBase):
@@ -58,11 +64,20 @@ def register_builder(step_type: str = None):
         # Determine step type if not provided
         nonlocal step_type
         if step_type is None:
-            if cls.__name__.endswith('StepBuilder'):
-                derived_type = cls.__name__[:-11]  # Remove 'StepBuilder'
+            class_name = cls.__name__
+            
+            # First, try to find in STEP_NAMES registry (single source of truth)
+            if class_name in REVERSE_BUILDER_MAPPING:
+                step_type = REVERSE_BUILDER_MAPPING[class_name]
+                logger.debug(f"Found step type '{step_type}' for class '{class_name}' in STEP_NAMES registry")
             else:
-                derived_type = cls.__name__
-            step_type = derived_type
+                # Fallback to current logic for backward compatibility
+                logger.debug(f"Class '{class_name}' not found in STEP_NAMES registry, using fallback logic")
+                if class_name.endswith('StepBuilder'):
+                    step_type = class_name[:-11]  # Remove 'StepBuilder'
+                else:
+                    step_type = class_name
+                logger.warning(f"Using fallback step type '{step_type}' for class '{class_name}'. Consider adding to STEP_NAMES registry.")
         
         # Register the class
         StepBuilderRegistry.register_builder_class(step_type, cls)
@@ -137,24 +152,23 @@ class StepBuilderRegistry:
                                 issubclass(obj, builder_step_base.StepBuilderBase) and 
                                 obj != builder_step_base.StepBuilderBase):
                                 
-                                # Get step type from class name (remove 'StepBuilder' suffix)
-                                if name.endswith('StepBuilder'):
-                                    step_type = name[:-11]  # Remove 'StepBuilder'
+                                # Use the same logic as register_builder decorator for consistency
+                                step_type = None
+                                
+                                # First, try to find in STEP_NAMES registry (single source of truth)
+                                if name in REVERSE_BUILDER_MAPPING:
+                                    step_type = REVERSE_BUILDER_MAPPING[name]
+                                    logging.getLogger(__name__).debug(f"Found step type '{step_type}' for class '{name}' in STEP_NAMES registry")
                                 else:
-                                    step_type = name
+                                    # Fallback to current logic for backward compatibility
+                                    if name.endswith('StepBuilder'):
+                                        step_type = name[:-11]  # Remove 'StepBuilder'
+                                    else:
+                                        step_type = name
+                                    logging.getLogger(__name__).debug(f"Class '{name}' not found in STEP_NAMES registry, using fallback step type '{step_type}'")
                                 
-                                # Find canonical step name from step registry if possible
-                                canonical_name = None
-                                for s_name, info in STEP_NAMES.items():
-                                    builder_name = info.get("builder_step_name", "")
-                                    if builder_name == f"{step_type}Step" or builder_name == name:
-                                        canonical_name = s_name
-                                        break
-                                
-                                # Register with canonical name if found, otherwise use derived step_type
-                                key = canonical_name or step_type
-                                discovered_builders[key] = obj
-                                logging.getLogger(__name__).debug(f"Discovered builder: {key} -> {name}")
+                                discovered_builders[step_type] = obj
+                                logging.getLogger(__name__).debug(f"Discovered builder: {step_type} -> {name}")
                     
                     except (ImportError, AttributeError) as e:
                         logging.getLogger(__name__).warning(f"Error discovering builders in {module_name}: {e}")

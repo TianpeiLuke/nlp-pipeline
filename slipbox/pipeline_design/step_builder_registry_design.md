@@ -91,7 +91,7 @@ class StepBuilderRegistry:
 
 ### Builder Discovery
 
-The discovery mechanism automatically finds and registers step builders:
+The discovery mechanism automatically finds and registers step builders using the same `STEP_NAMES` registry logic as the registration decorator:
 
 ```python
 @classmethod
@@ -119,39 +119,45 @@ def discover_builders(cls):
                     issubclass(obj, builder_step_base.StepBuilderBase) and 
                     obj != builder_step_base.StepBuilderBase):
                     
-                    # Get step type from class name (remove 'StepBuilder' suffix)
-                    if name.endswith('StepBuilder'):
-                        step_type = name[:-11]  # Remove 'StepBuilder'
+                    # Use the same logic as register_builder decorator for consistency
+                    step_type = None
+                    
+                    # First, try to find in STEP_NAMES registry (single source of truth)
+                    if name in REVERSE_BUILDER_MAPPING:
+                        step_type = REVERSE_BUILDER_MAPPING[name]
+                        logging.getLogger(__name__).debug(f"Found step type '{step_type}' for class '{name}' in STEP_NAMES registry")
                     else:
-                        step_type = name
+                        # Fallback to current logic for backward compatibility
+                        if name.endswith('StepBuilder'):
+                            step_type = name[:-11]  # Remove 'StepBuilder'
+                        else:
+                            step_type = name
+                        logging.getLogger(__name__).debug(f"Class '{name}' not found in STEP_NAMES registry, using fallback step type '{step_type}'")
                     
-                    # Find canonical step name from step registry if possible
-                    from ..pipeline_registry.step_names import BUILDER_STEP_NAMES
-                    canonical_name = None
-                    for step_name, builder_name in BUILDER_STEP_NAMES.items():
-                        if builder_name == f"{step_type}Step":
-                            canonical_name = step_name
-                            break
-                    
-                    # Register with canonical name if found, otherwise use derived step_type
-                    key = canonical_name or step_type
-                    discovered_builders[key] = obj
+                    discovered_builders[step_type] = obj
+                    logging.getLogger(__name__).debug(f"Discovered builder: {step_type} -> {name}")
     
     return discovered_builders
 ```
 
 ### Registration Decorator
 
-The registration decorator provides an easy way to auto-register step builders:
+The registration decorator provides an easy way to auto-register step builders and now uses the `STEP_NAMES` registry as the single source of truth:
 
 ```python
+# Create reverse mapping from builder step names to canonical step names for efficient lookup
+REVERSE_BUILDER_MAPPING = {
+    info["builder_step_name"]: step_name 
+    for step_name, info in STEP_NAMES.items()
+}
+
 def register_builder(step_type: str = None):
     """
     Decorator to automatically register a step builder class.
     
     Args:
         step_type: Optional step type name. If not provided,
-                  will be derived from the class name.
+                  will be derived from the class name using the STEP_NAMES registry.
     """
     def decorator(cls):
         if not issubclass(cls, StepBuilderBase):
@@ -160,11 +166,20 @@ def register_builder(step_type: str = None):
         # Determine step type if not provided
         nonlocal step_type
         if step_type is None:
-            if cls.__name__.endswith('StepBuilder'):
-                derived_type = cls.__name__[:-11]  # Remove 'StepBuilder'
+            class_name = cls.__name__
+            
+            # First, try to find in STEP_NAMES registry (single source of truth)
+            if class_name in REVERSE_BUILDER_MAPPING:
+                step_type = REVERSE_BUILDER_MAPPING[class_name]
+                logger.debug(f"Found step type '{step_type}' for class '{class_name}' in STEP_NAMES registry")
             else:
-                derived_type = cls.__name__
-            step_type = derived_type
+                # Fallback to current logic for backward compatibility
+                logger.debug(f"Class '{class_name}' not found in STEP_NAMES registry, using fallback logic")
+                if class_name.endswith('StepBuilder'):
+                    step_type = class_name[:-11]  # Remove 'StepBuilder'
+                else:
+                    step_type = class_name
+                logger.warning(f"Using fallback step type '{step_type}' for class '{class_name}'. Consider adding to STEP_NAMES registry.")
         
         # Register the class
         StepBuilderRegistry.register_builder_class(step_type, cls)
@@ -253,6 +268,25 @@ if validation['missing']:
         print(f"  - {entry}")
 ```
 
+## Recent Improvements
+
+### STEP_NAMES Registry Integration (July 30, 2025)
+
+The step type inference logic has been significantly improved to use the `STEP_NAMES` registry as the single source of truth:
+
+**Key Changes:**
+1. **Reverse Mapping**: Created `REVERSE_BUILDER_MAPPING` for efficient lookup from builder class names to canonical step names
+2. **Consistent Logic**: Both the `register_builder` decorator and `discover_builders` method now use identical step type inference logic
+3. **Registry-First Approach**: Step type inference first checks the `STEP_NAMES` registry before falling back to string manipulation
+4. **Enhanced Logging**: Added debug and warning messages to help developers understand the registration process
+5. **Backward Compatibility**: Maintains fallback logic for classes not yet added to the `STEP_NAMES` registry
+
+**Benefits:**
+- **More Reliable**: Uses authoritative mapping instead of error-prone string manipulation
+- **Single Source of Truth**: Eliminates inconsistencies between different registration methods
+- **Better Developer Experience**: Clear warnings guide developers to update the `STEP_NAMES` registry
+- **Maintainable**: Centralized logic makes future changes easier to implement
+
 ## Benefits and Impact
 
 1. **Reduced Maintenance**: Auto-discovery and registration reduce manual maintenance
@@ -260,6 +294,7 @@ if validation['missing']:
 3. **Enhanced Developer Experience**: Clear patterns for adding new steps
 4. **Future-Proof Design**: Flexible approach that accommodates project growth
 5. **Better Error Messages**: Validation helps catch and diagnose issues early
+6. **Reliable Step Type Inference**: Uses centralized registry instead of string manipulation
 
 ## Related Documents
 
