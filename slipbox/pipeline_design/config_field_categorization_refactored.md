@@ -10,7 +10,7 @@ This document provides a high-level overview of the entire system. For detailed 
 - [Registry-Based Step Name Generation](./registry_based_step_name_generation.md): How step names are derived from the pipeline registry
 - [Job Type Variant Handling](./job_type_variant_handling.md): How job type variants are supported in configurations
 - [Config Types Format](./config_types_format.md): Format requirements for the config_types metadata
-- [Circular Reference Handling](./circular_reference_handling.md): How circular references in configuration objects are detected and handled
+- [Circular Reference Tracker](./circular_reference_tracker.md): Advanced tracking and resolution of circular references in configurations
 - [Three-Tier Configuration Field Management](./config_field_categorization_three_tier.md): How fields are categorized into essential user inputs, system inputs, and derived inputs
 
 ## Core Purpose
@@ -114,7 +114,7 @@ For detailed information, see [Config Types Format](./config_types_format.md).
 
 Implements detection and handling mechanisms for circular references that can occur in complex configuration structures, preventing infinite recursion while maintaining configuration integrity.
 
-For detailed information, see [Circular Reference Handling](./circular_reference_handling.md).
+For detailed information, see [Circular Reference Tracker](./circular_reference_tracker.md).
 
 ### 9. CircularReferenceTracker
 

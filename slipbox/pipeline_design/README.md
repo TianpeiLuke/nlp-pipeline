@@ -163,23 +163,12 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 
 ### 🔧 Technical Infrastructure
 
-#### **[Circular Reference Handling](circular_reference_handling.md)** - Robust Object Management
-- **Purpose**: Detection and handling mechanisms for circular references in complex configuration structures
-- **Key Features**: Path tracking, diagnostic reporting, prevention mechanisms
-- **Benefits**: Prevents infinite recursion while maintaining configuration integrity
-- **Strategic Value**: Enables complex configuration scenarios with safety guarantees
-
 #### **[Type-Aware Serializer](type_aware_serializer.md)** - Robust Serialization
 - **Purpose**: Serialize and deserialize complex types with complete type information preservation
 - **Key Features**: Type metadata preservation, complex object handling, validation integration
 - **Benefits**: Configurations can be correctly reconstructed during loading
 - **Strategic Value**: Foundation for reliable configuration persistence
 
-#### **[Environment Detector Design](environment_detector_design.md)** - Context Intelligence
-- **Purpose**: Intelligent detection and analysis of deployment environments and constraints
-- **Key Features**: Environment classification, constraint analysis, adaptation recommendations
-- **Benefits**: Automatic environment-specific configuration adaptation
-- **Strategic Value**: Enables context-aware configuration management
 
 ### 📋 Governance & Quality
 
@@ -222,6 +211,12 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Key Features**: Advanced cycle detection, resolution strategies, diagnostic reporting
 - **Benefits**: Robust handling of complex configuration scenarios with circular dependencies
 - **Strategic Value**: Enables safe handling of complex configuration relationships
+
+#### **[Circular Reference Necessity Analysis](circular_reference_necessity_analysis.md)** - Architectural Decision Analysis
+- **Purpose**: Analysis of whether circular reference detection is needed in the 3-tiered configuration design
+- **Key Features**: Comprehensive analysis of circular reference scenarios, performance impact assessment, implementation recommendations
+- **Benefits**: Informed architectural decisions about safety mechanisms and system robustness
+- **Strategic Value**: Ensures optimal balance between performance and system reliability
 
 ### 🏗️ Implementation & Integration
 

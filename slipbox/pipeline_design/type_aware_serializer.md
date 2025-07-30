@@ -78,7 +78,6 @@ This implementation provides several advantages:
 4. **Enhanced Diagnostics**: Error messages include both the original definition path and the reference path
 
 For detailed information on circular reference handling, see:
-- [Circular Reference Handling](./circular_reference_handling.md)
 - [Circular Reference Tracker](./circular_reference_tracker.md)
 
 These fields are embedded in serialized dictionaries to preserve type information:
@@ -394,6 +393,5 @@ def __init__(self, config_classes=None):
 
 - [Config Field Categorization](./config_field_categorization_refactored.md)
 - [Config Registry](./config_registry.md)
-- [Circular Reference Handling](./circular_reference_handling.md)
 - [Circular Reference Tracker](./circular_reference_tracker.md)
 - [Pydantic Documentation](https://docs.pydantic.dev/latest/)

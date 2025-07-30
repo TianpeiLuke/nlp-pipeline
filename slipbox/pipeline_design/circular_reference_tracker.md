@@ -320,5 +320,4 @@ The CircularReferenceTracker has been fully implemented and integrated with the 
 ## References
 
 - [Config Field Categorization](./config_field_categorization_refactored.md)
-- [Circular Reference Handling](./circular_reference_handling.md)
 - [Type-Aware Serializer](./type_aware_serializer.md)
