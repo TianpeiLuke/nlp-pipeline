@@ -30,7 +30,7 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 
 ### 🧠 Adaptive Configuration Management
 
-#### **[Adaptive Configuration Management System](adaptive_configuration_management_system.md)** - Unified Intelligence Architecture
+#### **[Adaptive Configuration Management System](adaptive_configuration_management_system_revised.md)** - Unified Intelligence Architecture
 - **Purpose**: Four-layer system that minimizes user input while maximizing automation and flexibility
 - **Key Innovation**: Adaptive complexity management that adjusts to user expertise and context
 - **Architecture**: Intent Capture → Intelligence → Storage & Representation → Execution layers
@@ -43,7 +43,7 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: Single source of truth, declarative categorization rules, enhanced maintainability
 - **Strategic Value**: Robust foundation for configuration management with clear separation of concerns
 
-#### **[Essential Inputs Notebook Design](essential_inputs_notebook_design.md)** - User-Centric Configuration
+#### **[Essential Inputs Notebook Design](essential_inputs_notebook_design_revised.md)** - User-Centric Configuration
 - **Purpose**: Streamlined approach focusing only on essential user inputs while automating everything else
 - **Key Innovation**: Three-tier architecture (Essential User Inputs → System Inputs → Derived Inputs)
 - **Benefits**: 70%+ reduction in required inputs, feature group management, smart defaults
@@ -143,11 +143,23 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: Eliminates redundant class lookups and references
 - **Strategic Value**: Foundation for configuration management systems
 
-#### **[Default Values Provider Design](default_values_provider_design.md)** - Intelligent Defaults
+#### **[Default Values Provider Design](default_values_provider_revised.md)** - Intelligent Defaults
 - **Purpose**: System for providing intelligent default values based on context and best practices
 - **Key Features**: Context-aware defaults, machine learning integration, best practice application
 - **Benefits**: Reduces user burden while maintaining quality
 - **Strategic Value**: Core component of adaptive configuration management
+
+#### **[Config Field Categorization](config_field_categorization.md)** - Streamlined Field Classification System
+- **Purpose**: Simplified approach to configuration field categorization with flattened architecture
+- **Key Features**: Two-tier structure (shared/specific), explicit 5-rule categorization, type-aware serialization
+- **Benefits**: Reduced complexity, improved maintainability, easier mental model, better performance
+- **Strategic Value**: Current implementation foundation for configuration management systems
+
+#### **[Config Tiered Design](config_tiered_design.md)** - Hierarchical Configuration Architecture
+- **Purpose**: Multi-tier configuration system with clear separation of concerns
+- **Key Features**: Hierarchical structure, tier-based validation, configuration inheritance
+- **Benefits**: Scalable configuration management, clear separation of concerns, flexible overrides
+- **Strategic Value**: Robust architecture for complex configuration scenarios
 
 ### 🔧 Technical Infrastructure
 
@@ -191,11 +203,46 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: Understanding of why current architecture exists and future directions
 - **Strategic Value**: Provides context for architectural decisions and future planning
 
-#### **[Context Analysis Framework](context_analysis_framework.md)** - Intelligence Foundation
-- **Purpose**: Comprehensive framework for analyzing user, environment, and data context
-- **Key Features**: Multi-dimensional analysis, pattern recognition, recommendation generation
-- **Benefits**: Foundation for intelligent automation and adaptation
-- **Strategic Value**: Enables context-aware decision making across the system
+### 🔬 Advanced Configuration & Analysis
+
+#### **[Dependency Resolution Explained](dependency_resolution_explained.md)** - Deep Dive Analysis
+- **Purpose**: Comprehensive explanation of dependency resolution mechanisms and algorithms
+- **Key Features**: Algorithm analysis, resolution strategies, performance considerations
+- **Benefits**: Deep understanding of dependency resolution for advanced users
+- **Strategic Value**: Enables optimization and troubleshooting of complex dependency scenarios
+
+#### **[Enhanced Property Reference](enhanced_property_reference.md)** - Advanced Property Management
+- **Purpose**: Enhanced system for managing property references across pipeline components
+- **Key Features**: Advanced property resolution, cross-component references, validation
+- **Benefits**: Robust property management for complex pipeline scenarios
+- **Strategic Value**: Foundation for sophisticated pipeline property handling
+
+#### **[Circular Reference Tracker](circular_reference_tracker.md)** - Advanced Cycle Detection
+- **Purpose**: Sophisticated tracking and resolution of circular references in configurations
+- **Key Features**: Advanced cycle detection, resolution strategies, diagnostic reporting
+- **Benefits**: Robust handling of complex configuration scenarios with circular dependencies
+- **Strategic Value**: Enables safe handling of complex configuration relationships
+
+### 🏗️ Implementation & Integration
+
+#### **[Adaptive Fluent Proxy Integration](adaptive_fluent_proxy_integration.md)** - Advanced Integration
+- **Purpose**: Integration patterns for adaptive fluent proxy systems
+- **Key Features**: Integration strategies, adaptation patterns, proxy coordination
+- **Benefits**: Seamless integration of fluent APIs with adaptive systems
+- **Strategic Value**: Enables sophisticated user interface adaptations
+
+#### **[Pipeline Registry](pipeline_registry.md)** - Pipeline Management
+- **Purpose**: Centralized registry system for managing pipeline definitions and metadata
+- **Key Features**: Pipeline discovery, versioning, metadata management, lifecycle tracking
+- **Benefits**: Centralized pipeline management, version control, discovery mechanisms
+- **Strategic Value**: Foundation for enterprise pipeline governance and management
+
+#### **[Pipeline Template Base](pipeline_template_base.md)** - Template Foundation
+- **Purpose**: Base template system for pipeline construction and standardization
+- **Key Features**: Template inheritance, standardization patterns, reusable components
+- **Benefits**: Consistent pipeline structure, reusable templates, standardized patterns
+- **Strategic Value**: Foundation for scalable pipeline template systems
+
 
 ## Architecture Components
 
