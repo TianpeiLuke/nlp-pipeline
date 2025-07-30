@@ -12,9 +12,13 @@ Our pipeline architecture follows a specification-driven approach with a four-la
 
 1. **Step Specifications**: Define inputs and outputs with logical names
 2. **Script Contracts**: Define container paths for script inputs/outputs
-3. **Step Builders**: Connect specifications and contracts via SageMaker
+3. **Step Builders**: Connect specifications and contracts via SageMaker with auto-registration
 4. **Processing Scripts**: Implement the actual business logic
 5. **Hyperparameters**: Define model-specific configuration parameters (for training steps)
+
+Key architectural improvements include:
+- **Three-Tier Config Classification**: Clear separation of user inputs, system defaults, and derived values
+- **Auto-Discovery Registry**: Automatic registration of step builders via decorators
 
 ## Table of Contents
 
@@ -25,6 +29,8 @@ Our pipeline architecture follows a specification-driven approach with a four-la
    - [Step Specification Development](step_specification.md)
    - [Step Builder Implementation](step_builder.md)
    - [Adding a New Hyperparameter Class](hyperparameter_class.md)
+   - [Three-Tier Config Design](three_tier_config_design.md)
+   - [Step Builder Registry Guide](step_builder_registry_guide.md)
 4. [Design Principles](design_principles.md)
 5. [Best Practices](best_practices.md)
 6. [Standardization Rules](standardization_rules.md)
@@ -55,6 +61,29 @@ For detailed guidance, see the [Adding a New Hyperparameter Class](hyperparamete
 - Setting up training scripts to use hyperparameters
 - Configuring step builders to pass hyperparameters to SageMaker
 - Testing your hyperparameter implementation
+
+## Three-Tier Config Design
+
+All step configurations should follow our Three-Tier Config Design pattern, which provides clear separation between different types of configuration fields:
+
+- **Tier 1 (Essential Fields)**: Required inputs explicitly provided by users
+- **Tier 2 (System Fields)**: Default values that can be overridden by users
+- **Tier 3 (Derived Fields)**: Values calculated from other fields
+
+For implementation details, see the [Three-Tier Config Design](three_tier_config_design.md) guide.
+
+## Step Builder Registry and Auto-Discovery
+
+Step builders are automatically discovered and registered with our registry system using the `@register_builder` decorator:
+
+```python
+@register_builder("YourStepType")
+class YourStepStepBuilder(StepBuilderBase):
+    """Builder for your step."""
+    # Implementation here
+```
+
+For detailed guidance on using the registry, see the [Step Builder Registry Guide](step_builder_registry_guide.md).
 
 ## Additional Resources
 

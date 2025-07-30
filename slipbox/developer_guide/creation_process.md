@@ -40,58 +40,81 @@ This registration connects your step's components together and makes them discov
 
 ### 2. Create the Step Configuration
 
-Create a configuration class to hold all parameters needed for your step:
+Create a configuration class using the three-tier field classification design:
 
 **Create New File**: `src/pipeline_steps/config_your_new_step.py`
 
 ```python
+from typing import Dict, Any, Optional, List
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
+
 from .config_base import BasePipelineConfig
 
 class YourNewStepConfig(BasePipelineConfig):
-    """Configuration for YourNewStep."""
+    """
+    Configuration for YourNewStep using three-tier field classification.
     
-    def __init__(
-        self,
-        region: str,
-        pipeline_s3_loc: str,
-        instance_type: str = "ml.m5.xlarge",
-        instance_count: int = 1,
-        volume_size_gb: int = 30,
-        max_runtime_seconds: int = 3600,
-        # Add step-specific parameters here
-        param1: str = "",
-        param2: int = 0,
-    ):
-        """Initialize YourNewStep configuration.
-        
-        Args:
-            region: AWS region
-            pipeline_s3_loc: S3 location for pipeline artifacts
-            instance_type: SageMaker instance type
-            instance_count: Number of instances
-            volume_size_gb: EBS volume size in GB
-            max_runtime_seconds: Maximum runtime in seconds
-            param1: Step-specific parameter 1
-            param2: Step-specific parameter 2
-        """
-        super().__init__(region, pipeline_s3_loc)
-        self.instance_type = instance_type
-        self.instance_count = instance_count
-        self.volume_size_gb = volume_size_gb
-        self.max_runtime_seconds = max_runtime_seconds
-        self.param1 = param1
-        self.param2 = param2
+    Tier 1: Essential fields (required user inputs)
+    Tier 2: System fields (with defaults, can be overridden)
+    Tier 3: Derived fields (private with property access)
+    """
     
+    # Tier 1: Essential user inputs (required, no defaults)
+    region: str = Field(..., description="AWS region code (NA, EU, FE)")
+    pipeline_s3_loc: str = Field(..., description="S3 location for pipeline artifacts")
+    param1: str = Field(..., description="Essential step parameter")
+    
+    # Tier 2: System inputs with defaults (can be overridden)
+    instance_type: str = Field(default="ml.m5.xlarge", description="SageMaker instance type")
+    instance_count: int = Field(default=1, description="Number of instances")
+    volume_size_gb: int = Field(default=30, description="EBS volume size in GB")
+    max_runtime_seconds: int = Field(default=3600, description="Maximum runtime in seconds")
+    param2: int = Field(default=0, description="Optional step parameter")
+    
+    # Tier 3: Derived fields (private with property access)
+    _output_path: Optional[str] = Field(default=None, exclude=True)
+    _job_name_prefix: Optional[str] = Field(default=None, exclude=True)
+    
+    # Internal cache for computed values
+    _cache: Dict[str, Any] = PrivateAttr(default_factory=dict)
+    
+    # Public properties for derived fields
+    @property
+    def output_path(self) -> str:
+        """Get derived output path."""
+        if self._output_path is None:
+            self._output_path = f"{self.pipeline_s3_loc}/your_new_step/{self.region}"
+        return self._output_path
+    
+    @property
+    def job_name_prefix(self) -> str:
+        """Get derived job name prefix."""
+        if self._job_name_prefix is None:
+            self._job_name_prefix = f"your-new-step-{self.region}"
+        return self._job_name_prefix
+    
+    # Include derived fields in serialization
+    def model_dump(self, **kwargs) -> Dict[str, Any]:
+        """Override model_dump to include derived properties."""
+        data = super().model_dump(**kwargs)
+        data["output_path"] = self.output_path
+        data["job_name_prefix"] = self.job_name_prefix
+        return data
+    
+    # Get the script contract
     def get_script_contract(self):
         """Return the script contract for this step."""
         from ..pipeline_script_contracts.your_new_step_contract import YOUR_NEW_STEP_CONTRACT
         return YOUR_NEW_STEP_CONTRACT
 ```
 
-The configuration class should include:
-- All SageMaker-specific parameters (instance type, volume size, etc.)
-- All step-specific parameters needed for your functionality
-- A method to retrieve the script contract
+The configuration class follows the three-tier field classification:
+
+1. **Tier 1 (Essential Fields)**: Required inputs from users (no defaults)
+2. **Tier 2 (System Fields)**: Default values that can be overridden by users
+3. **Tier 3 (Derived Fields)**: Private fields with public property access, computed from other fields
+
+For more details on the three-tier design, see [Three-Tier Config Design](three_tier_config_design.md).
 
 ### 3. Create the Script Contract
 
@@ -223,7 +246,7 @@ The step specification defines:
 
 ### 5. Create the Step Builder
 
-Implement the builder that creates the SageMaker step:
+Implement the builder that creates the SageMaker step, using the `@register_builder` decorator:
 
 **Create New File**: `src/pipeline_steps/builder_your_new_step.py`
 
@@ -234,12 +257,14 @@ from pathlib import Path
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
 
+from ..pipeline_registry.builder_registry import register_builder
 from ..pipeline_deps.base_specifications import StepSpecification
 from ..pipeline_script_contracts.base_script_contract import ScriptContract
 from .builder_step_base import StepBuilderBase
 from .config_your_new_step import YourNewStepConfig
 from ..pipeline_step_specs.your_new_step_spec import YOUR_NEW_STEP_SPEC
 
+@register_builder("YourNewStep")
 class YourNewStepBuilder(StepBuilderBase):
     """Builder for YourNewStep processing step."""
     
@@ -340,23 +365,27 @@ The step builder:
 - Configures environment variables from the config
 - Creates and returns the SageMaker step
 
-### 6. Update Required Registry Files
+### 6. Update Step Names Registry
 
-Make your components discoverable by updating registry files:
+Add your new step to the central step names registry:
 
-#### Update `src/pipeline_steps/__init__.py` to expose your builder:
-
-```python
-# Add to existing imports
-from .builder_your_new_step import YourNewStepBuilder
-```
-
-#### Update `src/pipeline_step_specs/__init__.py` to expose your specification:
+**File to Update**: `src/pipeline_registry/step_names.py`
 
 ```python
-# Add to existing imports
-from .your_new_step_spec import YOUR_NEW_STEP_SPEC
+# Add to existing STEP_NAMES dictionary
+STEP_NAMES = {
+    # ... existing steps ...
+    
+    "YourNewStep": {
+        "config_class": "YourNewStepConfig",
+        "builder_step_name": "YourNewStepBuilder",
+        "spec_type": "YourNewStep",
+        "description": "Description of your new step"
+    },
+}
 ```
+
+Note: With the auto-discovery system, you don't need to manually update `__init__.py` files anymore. The `@register_builder` decorator automatically handles registration, and step builder files are discovered based on their naming pattern.
 
 ### 7. Create Unit Tests
 

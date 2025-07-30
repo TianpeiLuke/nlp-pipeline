@@ -48,6 +48,7 @@ All components must implement standardized interfaces:
 
 All step builders must:
 - Inherit from `StepBuilderBase`
+- Use the `@register_builder` decorator to register with the registry
 - Implement the required methods:
   - `validate_configuration()`
   - `_get_inputs()`
@@ -57,8 +58,21 @@ All step builders must:
 Example:
 
 ```python
+from ..pipeline_registry.builder_registry import register_builder
+
+@register_builder("YourStep")
 class YourStepBuilder(StepBuilderBase):
     """Builder for your processing step."""
+    
+    def __init__(self, config, sagemaker_session=None, role=None, notebook_root=None):
+        super().__init__(
+            config=config,
+            spec=YOUR_STEP_SPEC,
+            sagemaker_session=sagemaker_session,
+            role=role,
+            notebook_root=notebook_root
+        )
+        self.config = config
     
     def validate_configuration(self):
         """Validate the configuration."""
@@ -77,10 +91,43 @@ class YourStepBuilder(StepBuilderBase):
         # Step creation logic
 ```
 
-#### Config Classes
+#### Config Classes (Three-Tier Design)
+
+All configuration classes must follow the three-tier field classification design:
+
+1. **Tier 1 (Essential Fields)**:
+   - Required inputs explicitly provided by users
+   - No default values
+   - Subject to validation
+   - Public access
+   - Example: `region: str = Field(..., description="Region code")`
+
+2. **Tier 2 (System Fields)**:
+   - Default values that can be overridden
+   - Subject to validation
+   - Public access
+   - Example: `instance_type: str = Field(default="ml.m5.xlarge", description="Instance type")`
+
+3. **Tier 3 (Derived Fields)**:
+   - Private fields with leading underscores
+   - Values calculated from other fields
+   - Accessed through read-only properties
+   - Example:
+     ```python
+     _pipeline_name: Optional[str] = Field(default=None, exclude=True)
+     
+     @property
+     def pipeline_name(self) -> str:
+         """Get derived pipeline name."""
+         if self._pipeline_name is None:
+             self._pipeline_name = f"{self.service_name}_{self.region}"
+         return self._pipeline_name
+     ```
 
 All config classes must:
 - Inherit from a base config class (e.g., `BasePipelineConfig`, `ProcessingStepConfigBase`)
+- Use Pydantic for field declarations and validation
+- Override `model_dump()` to include derived properties
 - Implement required methods:
   - `get_script_contract()`
   - `get_script_path()` (for processing steps)
@@ -89,12 +136,33 @@ All config classes must:
 Example:
 
 ```python
-class YourStepConfig(ProcessingStepConfigBase):
+class YourStepConfig(BasePipelineConfig):
     """Configuration for your step."""
     
-    def __init__(self, region: str, pipeline_s3_loc: str, ...):
-        super().__init__(region, pipeline_s3_loc)
-        # Initialize configuration properties
+    # Tier 1: Essential fields
+    region: str = Field(..., description="AWS region code")
+    input_path: str = Field(..., description="Input data path")
+    
+    # Tier 2: System fields
+    instance_type: str = Field(default="ml.m5.xlarge", description="Instance type")
+    instance_count: int = Field(default=1, description="Number of instances")
+    
+    # Tier 3: Derived fields
+    _output_path: Optional[str] = Field(default=None, exclude=True)
+    
+    @property
+    def output_path(self) -> str:
+        """Get output path based on input path."""
+        if self._output_path is None:
+            self._output_path = f"{self.input_path}/output"
+        return self._output_path
+    
+    # Include derived fields in serialization
+    def model_dump(self, **kwargs) -> Dict[str, Any]:
+        """Override model_dump to include derived properties."""
+        data = super().model_dump(**kwargs)
+        data["output_path"] = self.output_path
+        return data
     
     def get_script_contract(self):
         """Return the script contract for this step."""
@@ -303,6 +371,28 @@ if errors:
     print("Documentation violations:")
     for error in errors:
         print(f"  - {error}")
+```
+
+### Builder Registry Validation
+
+```python
+# Example registry validator usage
+from src.pipeline_registry.builder_registry import get_global_registry
+
+registry = get_global_registry()
+validation = registry.validate_registry()
+
+# Check validation results
+print(f"Valid entries: {len(validation['valid'])}")
+if validation['invalid']:
+    print("Invalid entries:")
+    for entry in validation['invalid']:
+        print(f"  - {entry}")
+
+if validation['missing']:
+    print("Missing entries:")
+    for entry in validation['missing']:
+        print(f"  - {entry}")
 ```
 
 ## Integration with Development Process
