@@ -44,12 +44,8 @@ def create_cradle_data_load_config(
     # Job configuration
     job_type: str,  # 'training' or 'calibration'
     
-    # Field lists (from hyperparameters)
-    full_field_list: List[str],
-    tab_field_list: List[str],
-    cat_field_list: List[str],
-    label_name: str,
-    id_name: str,
+    # MDS field list (direct fields to include)
+    mds_field_list: List[str],
     
     # Data timeframe
     start_date: str,
@@ -97,11 +93,7 @@ def create_cradle_data_load_config(
         
         job_type (str): Type of job ('training' or 'calibration')
         
-        full_field_list (List[str]): Complete list of fields used in the model
-        tab_field_list (List[str]): List of tabular (numerical) fields
-        cat_field_list (List[str]): List of categorical fields
-        label_name (str): Name of the label field
-        id_name (str): Name of the ID field
+        mds_field_list (List[str]): List of fields to include from MDS
         
         start_date (str): Start date for data pull (format: YYYY-MM-DDT00:00:00)
         end_date (str): End date for data pull (format: YYYY-MM-DDT00:00:00)
@@ -136,7 +128,7 @@ def create_cradle_data_load_config(
 ### Field Generation
 
 1. **MDS output_schema**:
-   - Generate from `['objectId', 'transactionDate', 'baseCurrency'] + tab_field_list + cat_field_list`
+   - Generate from `DEFAULT_MDS_BASE_FIELDS + mds_field_list`
    - Convert each field to `{'field_name': field, 'field_type': 'STRING'}`
 
 2. **EDX schema_overrides**:
@@ -188,12 +180,8 @@ training_config = create_cradle_data_load_config(
     # Job type
     job_type="training",
     
-    # Field lists from hyperparameters
-    full_field_list=hyperparams.full_field_list,
-    tab_field_list=hyperparams.tab_field_list,
-    cat_field_list=hyperparams.cat_field_list,
-    label_name=hyperparams.label_name,
-    id_name=hyperparams.id_name,
+    # MDS fields to include
+    mds_field_list=hyperparams.mds_field_list,
     
     # Data timeframe
     start_date="2025-01-01T00:00:00",
@@ -231,11 +219,7 @@ def create_training_and_calibration_configs(
         region=region,
         pipeline_s3_loc=pipeline_s3_loc,
         job_type="training",
-        full_field_list=hyperparams.full_field_list,
-        tab_field_list=hyperparams.tab_field_list,
-        cat_field_list=hyperparams.cat_field_list,
-        label_name=hyperparams.label_name,
-        id_name=hyperparams.id_name,
+        mds_field_list=hyperparams.mds_field_list,
         start_date=training_dates["start"],
         end_date=training_dates["end"],
         service_name=service_name,
@@ -251,11 +235,7 @@ def create_training_and_calibration_configs(
         region=region,
         pipeline_s3_loc=pipeline_s3_loc,
         job_type="calibration",
-        full_field_list=hyperparams.full_field_list,
-        tab_field_list=hyperparams.tab_field_list,
-        cat_field_list=hyperparams.cat_field_list,
-        label_name=hyperparams.label_name,
-        id_name=hyperparams.id_name,
+        mds_field_list=hyperparams.mds_field_list,
         start_date=calibration_dates["start"],
         end_date=calibration_dates["end"],
         service_name=service_name,

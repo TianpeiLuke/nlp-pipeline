@@ -84,22 +84,6 @@ This document provides a comprehensive summary of the **Adaptive Configuration M
 - ML recommendation engine with multi-objective optimization
 - Performance optimization and async processing
 
-#### 10. [Adaptive Specification Integration](./adaptive_specification_integration.md)
-**Integration Strategy Document**
-- Integration with existing specification-driven architecture
-- Layer-by-layer integration approach with zero breaking changes
-- Technical integration points and enhanced components
-- Migration strategy and user experience transformation
-- Expected benefits and risk mitigation strategies
-
-#### 11. [Adaptive Fluent Proxy Integration](./adaptive_fluent_proxy_integration.md)
-**Unified System Integration Document**
-- Integration of adaptive system with Smart Proxies and Fluent APIs
-- Four-layer enhancement strategy for unified developer experience
-- Progressive complexity management across all expertise levels
-- Natural language interface with intelligent assistance
-- Holistic pipeline optimization and technical implementation
-
 ## System Architecture Overview
 
 ```mermaid
