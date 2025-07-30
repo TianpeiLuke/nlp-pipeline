@@ -294,46 +294,53 @@ class StepConfigResolver:
 ```python
 class StepBuilderRegistry:
     """
-    Centralized registry mapping configuration types to step builders.
+    Centralized registry mapping step types to builder classes.
     
-    This registry maintains the mapping between configuration classes
-    and their corresponding step builder classes, enabling automatic
-    resolution during pipeline construction.
+    This registry maintains the mapping between step types and their
+    corresponding step builder classes, enabling automatic resolution
+    during pipeline construction. It uses the step_names registry as the
+    single source of truth for step naming.
     """
     
-    # Core registry mapping config types to builders
-    BUILDER_REGISTRY = {
-        "CradleDataLoading": CradleDataLoadingStepBuilder,
-        "TabularPreprocessing": TabularPreprocessingStepBuilder,
-        "XGBoostTraining": XGBoostTrainingStepBuilder,
-        "XGBoostModelEval": XGBoostModelEvalStepBuilder,
-        "MIMSPackaging": MIMSPackagingStepBuilder,
-        "MIMSPayload": MIMSPayloadStepBuilder,
-        "ModelRegistration": ModelRegistrationStepBuilder,
-        "PyTorchTraining": PyTorchTrainingStepBuilder,
-        "PyTorchModel": PyTorchModelStepBuilder,
-        "XGBoostModel": XGBoostModelStepBuilder,
-        "BatchTransform": BatchTransformStepBuilder,
-        "ModelCalibration": ModelCalibrationStepBuilder,
-        "CurrencyConversion": CurrencyConversionStepBuilder,
-        "RiskTableMapping": RiskTableMappingStepBuilder,
-        "DummyTraining": DummyTrainingStepBuilder,
-        "HyperparameterPrep": HyperparameterPrepStepBuilder,
+    # Core registry mapping step types to builders - auto-populated during initialization
+    BUILDER_REGISTRY = {}  
+    
+    # Legacy aliases for backward compatibility
+    LEGACY_ALIASES = {
+        "MIMSPackaging": "Package", 
+        "MIMSPayload": "Payload",
+        "ModelRegistration": "Registration",
+        "PyTorchTraining": "PytorchTraining",
+        "PyTorchModel": "PytorchModel",
     }
+    
+    @classmethod
+    def discover_builders(cls):
+        """Automatically discover and register step builders."""
+        # Auto-discovery implementation that finds all builder classes
+        # and registers them using the canonical names from step_names.py
     
     def get_builder_map(self) -> Dict[str, Type[StepBuilderBase]]:
         """Get the complete builder registry."""
         return self.BUILDER_REGISTRY.copy()
         
     def get_builder_for_config(self, config: BasePipelineConfig) -> Type[StepBuilderBase]:
-        """Get step builder class for a specific configuration."""
+        """Get step builder class for a specific configuration using step_names registry."""
+        
+    def _config_class_to_step_type(self, config_class_name: str) -> str:
+        """Convert configuration class name to step type using step_names registry."""
         
     def register_builder(self, step_type: str, builder_class: Type[StepBuilderBase]):
         """Register a new step builder (for extensibility)."""
         
     def list_supported_step_types(self) -> List[str]:
-        """List all supported step types."""
+        """List all supported step types including canonical names and legacy aliases."""
+        
+    def validate_registry(self) -> Dict[str, List[str]]:
+        """Validate registry consistency with step_names registry."""
 ```
+
+For detailed information on the Step Builder Registry, including auto-discovery, registration mechanisms, and integration with the step names registry, see the [Step Builder Registry Design](./step_builder_registry_design.md) document.
 
 ### 3. Validation and Error Handling
 
@@ -1032,6 +1039,7 @@ converter = PipelineDAGConverter(
 
 ## Related Documentation
 
+- [Step Builder Registry Design](./step_builder_registry_design.md): Registry for step builders with auto-discovery
 - [Pipeline Template Base](pipeline_template_base.md): Foundation architecture
 - [Pipeline Assembler](pipeline_assembler.md): Step coordination system
 - [Pipeline DAG](../pipeline_dag/README.md): DAG structure and algorithms

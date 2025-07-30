@@ -56,6 +56,7 @@ except ImportError:
 
 from .config_data_load_step_cradle import CradleDataLoadConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import constants from the same module used by the data loading step
 try:
@@ -73,6 +74,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("CradleDataLoading")
 class CradleDataLoadingStepBuilder(StepBuilderBase):
     """
     Builder for a Cradle Data Loading ProcessingStep.

@@ -6,6 +6,13 @@ hyperparameters, and other metadata used in the pipeline system. It helps ensure
 consistency in step naming and configuration.
 """
 
+from .builder_registry import (
+    StepBuilderRegistry,
+    get_global_registry,
+    register_global_builder,
+    list_global_step_types
+)
+
 from .step_names import (
     STEP_NAMES,
     CONFIG_STEP_REGISTRY,

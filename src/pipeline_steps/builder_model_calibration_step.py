@@ -20,9 +20,11 @@ from ..pipeline_script_contracts.base_script_contract import ScriptContract
 from .builder_step_base import StepBuilderBase
 from .config_model_calibration_step import ModelCalibrationConfig
 from ..pipeline_step_specs.model_calibration_spec import MODEL_CALIBRATION_SPEC
+from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
+@register_builder("ModelCalibration")
 class ModelCalibrationStepBuilder(StepBuilderBase):
     """Builder for ModelCalibration processing step.
     

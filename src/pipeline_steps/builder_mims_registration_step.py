@@ -15,6 +15,7 @@ from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import the registration specification
 try:
@@ -35,6 +36,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("ModelRegistration")
 class ModelRegistrationStepBuilder(StepBuilderBase):
     """
     Builder for a Model Registration ProcessingStep.

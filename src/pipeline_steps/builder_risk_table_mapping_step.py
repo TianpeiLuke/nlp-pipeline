@@ -17,6 +17,7 @@ from sagemaker.s3 import S3Uploader
 from .config_risk_table_mapping_step import RiskTableMappingConfig
 from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import step specifications
 try:
@@ -32,6 +33,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("RiskTableMapping")
 class RiskTableMappingStepBuilder(StepBuilderBase):
     """
     Builder for a Risk Table Mapping ProcessingStep.

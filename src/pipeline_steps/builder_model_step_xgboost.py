@@ -10,10 +10,12 @@ from sagemaker import image_uris
 from .config_model_step_xgboost import XGBoostModelStepConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_step_specs.xgboost_model_spec import XGBOOST_MODEL_SPEC
+from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
 
+@register_builder("XGBoostModel")
 class XGBoostModelStepBuilder(StepBuilderBase):
     """
     Builder for an XGBoost Model Step.

@@ -25,9 +25,11 @@ from .config_dummy_training_step import DummyTrainingConfig
 from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
 from ..pipeline_step_specs.dummy_training_spec import DUMMY_TRAINING_SPEC
+from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
+@register_builder("DummyTraining")
 class DummyTrainingStepBuilder(StepBuilderBase):
     """Builder for DummyTraining processing step."""
     

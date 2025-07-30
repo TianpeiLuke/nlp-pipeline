@@ -10,6 +10,7 @@ from .config_mims_payload_step import PayloadConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import the payload specification
 try:
@@ -22,6 +23,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("MIMSPayload")
 class MIMSPayloadStepBuilder(StepBuilderBase):
     """
     Builder for a MIMS Payload Generation ProcessingStep.

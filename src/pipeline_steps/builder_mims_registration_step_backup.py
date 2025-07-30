@@ -16,10 +16,12 @@ from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_re
 
 from .config_mims_registration_step import ModelRegistrationConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
 
+@register_builder("ModelRegistration")
 class ModelRegistrationStepBuilder(StepBuilderBase):
     """Builder for model registration steps"""
 

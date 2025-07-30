@@ -18,6 +18,7 @@ from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import XGBoost training specification
 try:
@@ -30,6 +31,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("XGBoostTraining")
 class XGBoostTrainingStepBuilder(StepBuilderBase):
     """
     Builder for an XGBoost Training Step.

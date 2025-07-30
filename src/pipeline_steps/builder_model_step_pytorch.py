@@ -12,10 +12,12 @@ from .builder_step_base import StepBuilderBase
 from ..pipeline_step_specs.pytorch_model_spec import PYTORCH_MODEL_SPEC
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
 
+@register_builder("PyTorchModel")
 class PyTorchModelStepBuilder(StepBuilderBase):
     """
     Builder for a PyTorch Model Step.

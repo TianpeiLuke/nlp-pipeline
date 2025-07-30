@@ -12,6 +12,7 @@ from .builder_step_base import StepBuilderBase
 from .s3_utils import S3PathHandler
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import PyTorch training specification
 try:
@@ -24,6 +25,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("PyTorchTraining")
 class PyTorchTrainingStepBuilder(StepBuilderBase):
     """
     Builder for a PyTorch Training Step.

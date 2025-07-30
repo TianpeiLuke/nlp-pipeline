@@ -11,6 +11,7 @@ from .config_currency_conversion_step import CurrencyConversionConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
+from ..pipeline_registry.builder_registry import register_builder
 
 # Import specifications based on job type
 try:
@@ -26,6 +27,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@register_builder("CurrencyConversion")
 class CurrencyConversionStepBuilder(StepBuilderBase):
     """
     Builder for a Currency Conversion ProcessingStep.

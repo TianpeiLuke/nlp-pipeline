@@ -15,6 +15,7 @@ from sagemaker.workflow.steps import Step
 
 from .config_hyperparameter_prep_step import HyperparameterPrepConfig
 from .builder_step_base import StepBuilderBase
+from ..pipeline_registry.builder_registry import register_builder
 
 # Try to import hyperparameter preparation specification, but don't fail if it doesn't exist
 try:
@@ -36,6 +37,7 @@ class _DummyLambdaRef:
         self.zipped_code_dir = None
 
 
+@register_builder("HyperparameterPrep")
 class HyperparameterPrepStepBuilder(StepBuilderBase):
     """
     Builder for a Hyperparameter Preparation LambdaStep.
