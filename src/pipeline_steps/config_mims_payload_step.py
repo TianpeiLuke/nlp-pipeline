@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator, field_validator, PrivateAttr
-from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING
+from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING, ClassVar
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
@@ -25,48 +25,37 @@ if TYPE_CHECKING:
 
 
 class PayloadConfig(ProcessingStepConfigBase):
-    """Configuration for payload generation and testing."""
+    """
+    Configuration for payload generation and testing.
     
-    # Model framework and registration fields (previously inherited from ModelRegistrationConfig)
-    framework: str = Field(
-        default="xgboost",
-        description="ML framework used for the model"
-    )
-    # Note: We use processing_instance_type_large and processing_instance_type_small from ProcessingStepConfigBase
-    # Note: We use processing_entry_point from ProcessingStepConfigBase
+    This configuration follows the three-tier field categorization:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that users can override
+    3. Tier 3: Derived Fields - fields calculated from other fields, stored in private attributes
+    """
+    
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
+    # Model registration fields
     model_owner: str = Field(
-        default="team id",
         description="Team ID of model owner"
     )
+    
     model_registration_domain: str = Field(
-        default="BuyerSellerMessaging",
         description="Domain for model registration"
     )
-    model_registration_objective: Optional[str] = Field(
-        default=None,
+    
+    model_registration_objective: str = Field(
         description="Objective of model registration"
     )
     
-    # Content and response types
-    source_model_inference_content_types: List[str] = Field(
-        default=["text/csv"],
-        description="Content type for model inference input. Must be exactly ['text/csv'] or ['application/json']"
-    )
-    source_model_inference_response_types: List[str] = Field(
-        default=["application/json"],
-        description="Response type for model inference output. Must be exactly ['text/csv'] or ['application/json']"
-    )
-
-    # Variable lists for input and output (using strings instead of VariableType)
+    # Variable lists for input and output
     source_model_inference_output_variable_list: Dict[str, str] = Field(
-        default={
-            'legacy-score': "NUMERIC"
-        },
         description="Dictionary of output variables and their types (NUMERIC or TEXT)"
     )
     
     source_model_inference_input_variable_list: Union[Dict[str, str], List[List[str]]] = Field(
-        default_factory=dict,
         description="Input variables and their types. Can be either:\n"
                    "1. Dictionary: {'var1': 'NUMERIC', 'var2': 'TEXT'}\n"
                    "2. List of pairs: [['var1', 'NUMERIC'], ['var2', 'TEXT']]"
@@ -74,16 +63,43 @@ class PayloadConfig(ProcessingStepConfigBase):
     
     # Performance metrics
     expected_tps: int = Field(
-        default=2,
         ge=1,
         description="Expected transactions per second"
     )
+    
     max_latency_in_millisecond: int = Field(
-        default=800,
         ge=100,
         le=10000,
         description="Maximum acceptable latency in milliseconds"
     )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
+    
+    # Model framework settings
+    framework: str = Field(
+        default="xgboost",
+        description="ML framework used for the model"
+    )
+    
+    # Entry point script
+    processing_entry_point: str = Field(
+        default="mims_payload.py",
+        description="Entry point script for payload generation"
+    )
+    
+    # Content and response types
+    source_model_inference_content_types: List[str] = Field(
+        default=["text/csv"],
+        description="Content type for model inference input. Must be exactly ['text/csv'] or ['application/json']"
+    )
+    
+    source_model_inference_response_types: List[str] = Field(
+        default=["application/json"],
+        description="Response type for model inference output. Must be exactly ['text/csv'] or ['application/json']"
+    )
+    
+    # Performance thresholds
     max_acceptable_error_rate: float = Field(
         default=0.2,
         ge=0.0,
@@ -91,33 +107,32 @@ class PayloadConfig(ProcessingStepConfigBase):
         description="Maximum acceptable error rate (0-1)"
     )
     
-    # S3 path configuration using PrivateAttr (not a model field)
-    _sample_payload_s3_key = PrivateAttr(default=None)
-    
-    # Property for read-only access to sample_payload_s3_key
-    @property
-    def sample_payload_s3_key(self) -> Optional[str]:
-        """Get the S3 key for sample payload file (read-only)"""
-        return self._sample_payload_s3_key
-    
     # Default values for payload generation
     default_numeric_value: float = Field(
         default=0.0,
         description="Default value for numeric fields"
     )
+    
     default_text_value: str = Field(
         default="DEFAULT_TEXT",
         description="Default value for text fields"
     )
     
-    # Special field values dictionary is now optional
+    # Special field values dictionary
     special_field_values: Optional[Dict[str, str]] = Field(
         default=None,
         description="Optional dictionary of special TEXT fields and their template values"
     )
     
-    # Note: We use processing_script_arguments from ProcessingStepConfigBase instead of payload_script_arguments
-
+    # ===== Derived Fields (Tier 3) =====
+    # These are fields calculated from other fields, stored in private attributes
+    
+    # S3 path configuration using PrivateAttr (not a model field)
+    _sample_payload_s3_key = PrivateAttr(default=None)
+    
+    # Valid types for validation
+    _VALID_TYPES: ClassVar[List[str]] = ["NUMERIC", "TEXT"]
+    
     # Update to Pydantic V2 style model_config
     model_config = {
         'arbitrary_types_allowed': True,
@@ -127,9 +142,14 @@ class PayloadConfig(ProcessingStepConfigBase):
             Path: str
         }
     }
-        
-    # Remove the _preprocess_values validator that was causing recursion issues
-    # Instead, we'll use field validators that validate without modifying the data
+    
+    # Property for read-only access to sample_payload_s3_key
+    @property
+    def sample_payload_s3_key(self) -> Optional[str]:
+        """Get the S3 key for sample payload file (read-only)"""
+        return self._sample_payload_s3_key
+    
+    # Validators for inputs
     
     @field_validator('source_model_inference_input_variable_list')
     @classmethod
@@ -148,9 +168,7 @@ class PayloadConfig(ProcessingStepConfigBase):
             Original value if valid, without modification
         """
         if not v:  # If empty
-            return v
-
-        valid_types = ["NUMERIC", "TEXT"]
+            raise ValueError("Input variable list cannot be empty")
 
         # Handle dictionary format
         if isinstance(v, dict):
@@ -162,7 +180,7 @@ class PayloadConfig(ProcessingStepConfigBase):
                 if not isinstance(value, str):
                     raise ValueError(f"Value must be string, got {type(value)}")
                 
-                if value.upper() not in valid_types:
+                if value.upper() not in cls._VALID_TYPES:
                     raise ValueError(f"Value must be 'NUMERIC' or 'TEXT', got: {value}")
             return v
 
@@ -179,7 +197,7 @@ class PayloadConfig(ProcessingStepConfigBase):
                 if not isinstance(var_type, str):
                     raise ValueError(f"Type must be string, got {type(var_type)}")
                 
-                if var_type.upper() not in valid_types:
+                if var_type.upper() not in cls._VALID_TYPES:
                     raise ValueError(f"Type must be 'NUMERIC' or 'TEXT', got: {var_type}")
             return v
 
@@ -199,9 +217,7 @@ class PayloadConfig(ProcessingStepConfigBase):
             Original dictionary if valid, without modification
         """
         if not v:  # If empty dictionary
-            return v
-        
-        valid_types = ["NUMERIC", "TEXT"]
+            raise ValueError("Output variable list cannot be empty")
         
         for key, value in v.items():
             # Validate key is a string
@@ -212,36 +228,24 @@ class PayloadConfig(ProcessingStepConfigBase):
             if not isinstance(value, str):
                 raise ValueError(f"Value must be string, got {type(value)}")
             
-            if value.upper() not in valid_types:
+            if value.upper() not in cls._VALID_TYPES:
                 raise ValueError(f"Value must be 'NUMERIC' or 'TEXT', got: {value}")
         
         return v
     
-    # Remove the automatic construct_payload_path validator
-    # Now paths are only constructed when explicitly needed by calling ensure_payload_path
+    # Model validators
         
-    # Replace the model validator with a simple field validator
-    @field_validator('model_registration_objective')
-    @classmethod
-    def validate_model_registration_objective(cls, v: Optional[str]) -> str:
-        """Validate model registration objective is provided"""
-        if not v:
-            raise ValueError("model_registration_objective must be provided")
-        return v
+    @model_validator(mode='after')
+    def initialize_derived_fields(self) -> 'PayloadConfig':
+        """Initialize all derived fields once after validation."""
+        # Call parent validator first
+        super().initialize_derived_fields()
         
-    def ensure_payload_path(self) -> None:
-        """Ensure S3 key for payload is set. Only called when needed."""
-        # Early exit if already set to avoid unnecessary work
-        if self._sample_payload_s3_key:
-            return
-
-        # Generate path without using model validators
-        payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
-        if self.model_registration_objective:
-            payload_file_name += f'_{self.model_registration_objective}'
-        # Direct assignment to private field
-        self._sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
-
+        # Don't immediately initialize _sample_payload_s3_key
+        # It will be initialized on-demand by ensure_payload_path
+        
+        return self
+        
     @model_validator(mode='after')
     def validate_special_fields(self) -> 'PayloadConfig':
         """Validate special fields configuration if provided"""
@@ -284,6 +288,30 @@ class PayloadConfig(ProcessingStepConfigBase):
             
         # No model_copy - just return self directly
         return self
+    
+    # Methods for payload generation and paths
+    
+    def get_effective_source_dir(self) -> Optional[str]:
+        """Get the effective source directory"""
+        return self.processing_source_dir or self.source_dir
+    
+    def ensure_payload_path(self) -> None:
+        """
+        Ensure S3 key for payload is set. Only called when needed.
+        
+        This method generates the S3 key based on pipeline name, version,
+        and registration objective, then stores it in a private field.
+        """
+        # Early exit if already set to avoid unnecessary work
+        if self._sample_payload_s3_key:
+            return
+
+        # Generate path without using model validators
+        payload_file_name = f'payload_{self.pipeline_name}_{self.pipeline_version}'
+        if self.model_registration_objective:
+            payload_file_name += f'_{self.model_registration_objective}'
+        # Direct assignment to private field
+        self._sample_payload_s3_key = f'mods/payload/{payload_file_name}.tar.gz'
 
     def get_full_payload_path(self) -> str:
         """Get full S3 path for payload"""
@@ -502,10 +530,17 @@ class PayloadConfig(ProcessingStepConfigBase):
             logger.error(f"Failed to generate and upload payloads: {str(e)}")
             raise
             
-    def get_effective_source_dir(self) -> Optional[str]:
-        """Get the effective source directory"""
-        return self.processing_source_dir or self.source_dir
+    # Script and contract handling
+            
+    def get_script_contract(self) -> 'ScriptContract':
+        """
+        Get script contract for this configuration.
         
+        Returns:
+            The MIMS payload script contract
+        """
+        return MIMS_PAYLOAD_CONTRACT
+
     def get_script_path(self) -> str:
         """
         Get script path with priority order:
@@ -544,16 +579,9 @@ class PayloadConfig(ProcessingStepConfigBase):
             full_path = str(Path(effective_source_dir) / entry_point)
         
         return full_path
-        
-    def get_script_contract(self) -> 'ScriptContract':
-        """
-        Get script contract for this configuration.
-        
-        Returns:
-            The MIMS payload script contract
-        """
-        return MIMS_PAYLOAD_CONTRACT
 
+    # Input/output variable helpers
+    
     def get_normalized_input_variables(self) -> List[List[str]]:
         """
         Get input variables normalized to list format with string types.

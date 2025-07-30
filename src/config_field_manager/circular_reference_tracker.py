@@ -52,8 +52,8 @@ class CircularReferenceTracker:
             self.logger.error(error_msg)
             return True, error_msg
         
-        # Generate object ID
-        obj_id = self._generate_object_id(obj_data)
+        # Generate object ID, passing along field name for better context
+        obj_id = self._generate_object_id(obj_data, field_name)
         
         # Check for circular reference
         if obj_id in self.object_id_to_path:
@@ -162,28 +162,51 @@ class CircularReferenceTracker:
                 f"Current path: {path_str}\n"
                 f"This suggests a potential circular reference or extremely nested structure.")
                 
-    def _generate_object_id(self, obj_data: Any) -> Any:
+    def _generate_object_id(self, obj_data: Any, field_name: Optional[str] = None) -> Any:
         """
         Generate a reliable ID for an object to detect circular refs.
+        Enhanced to avoid false positives for list items and common types.
         
         Args:
             obj_data: The object to identify
+            field_name: The field name containing this object (may include array indices)
             
         Returns:
             Any: An identifier for the object
         """
+        # For non-dict objects, use memory address
         if not isinstance(obj_data, dict):
             return id(obj_data)  # Fallback for non-dict objects
             
-        # For dictionaries with model type info, create a composite ID
+        # For dictionaries with model type info, create a more precise composite ID
         type_name = obj_data.get('__model_type__')
         if not type_name:
             return id(obj_data)  # No type info, use object ID
             
+        # Build context-aware ID parts
         id_parts = [type_name]
-        # Add key identifiers if available
+        
+        # Add field name context (including array indices) to distinguish list items
+        if field_name:
+            # If this is a list item, explicitly include the index in the ID to avoid 
+            # false positives between different items in the same list
+            if '[' in str(field_name):
+                id_parts.append(f"list_item:{field_name}")
+        
+        # Include more discriminating fields for certain object types
+        # For DataSourceConfig, include data_source_name as a primary identifier
+        if type_name == "DataSourceConfig" or type_name.endswith(".DataSourceConfig"):
+            for key in ['data_source_name', 'data_source_type']:
+                if key in obj_data and isinstance(obj_data[key], (str, int, float, bool)):
+                    id_parts.append(f"{key}:{obj_data[key]}")
+        
+        # Add other key identifiers if available
         for key in ['name', 'pipeline_name', 'id', 'step_name']:
             if key in obj_data and isinstance(obj_data[key], (str, int, float, bool)):
                 id_parts.append(f"{key}:{obj_data[key]}")
+        
+        # Include current path depth to help distinguish objects at different nesting levels
+        if self.current_path:
+            id_parts.append(f"depth:{len(self.current_path)}")
                 
         return hash(tuple(id_parts))

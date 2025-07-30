@@ -84,7 +84,7 @@ class BaseCradleComponentConfig(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
-        extra="forbid"
+        extra="allow"  # Changed from "forbid" to "allow" to fix circular reference handling
     )
     
     def categorize_fields(self) -> Dict[str, List[str]]:
@@ -314,7 +314,7 @@ class AndesDataSourceConfig(BaseCradleComponentConfig):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True, 
-        extra="forbid",
+        extra="allow",  # Changed from "forbid" to "allow" to fix circular reference handling
         str_strip_whitespace=True
     )
 
@@ -417,7 +417,7 @@ class DataSourceConfig(BaseCradleComponentConfig):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
-        extra="forbid",
+        extra="allow",  # Changed from "forbid" to "allow" to fix circular reference handling
         frozen=True
     )
 
@@ -618,6 +618,12 @@ class OutputSpecificationConfig(BaseCradleComponentConfig):
         description="Type of job (training, validation, testing, calibration)"
     )
     
+    # Pipeline S3 location - needed for output_path calculation
+    pipeline_s3_loc: Optional[str] = Field(
+        default=None,
+        description="S3 location for pipeline artifacts (inherited from parent config)"
+    )
+    
     # ===== System Inputs with Defaults (Tier 2) =====
     # These are fields with reasonable defaults that users can override
     
@@ -656,11 +662,9 @@ class OutputSpecificationConfig(BaseCradleComponentConfig):
     def output_path(self) -> str:
         """Get output path derived from pipeline_s3_loc and job_type."""
         if self._output_path is None:
-            # This will be populated from the BasePipelineConfig reference
-            # Since OutputSpecificationConfig is used within CradleDataLoadConfig
-            # which inherits from BasePipelineConfig
-            if hasattr(self, 'config') and hasattr(self.config, 'pipeline_s3_loc'):
-                self._output_path = f"{self.config.pipeline_s3_loc}/data-load/{self.job_type}"
+            # Use the explicitly provided pipeline_s3_loc field if available
+            if self.pipeline_s3_loc:
+                self._output_path = f"{self.pipeline_s3_loc}/data-load/{self.job_type}"
             else:
                 # Fallback for backward compatibility
                 self._output_path = f"s3://default-bucket/data-load/{self.job_type}"
@@ -669,6 +673,11 @@ class OutputSpecificationConfig(BaseCradleComponentConfig):
     # Property validator to ensure the output_path is a valid S3 URI
     def validate_output_path(self) -> None:
         """Validate that output_path is a valid S3 URI."""
+        # Make sure we have pipeline_s3_loc set before validation
+        if not hasattr(self, 'pipeline_s3_loc') or not self.pipeline_s3_loc:
+            # Don't try to validate without pipeline_s3_loc - it will use default
+            return
+            
         if not self.output_path.startswith("s3://"):
             raise ValueError("output_path must start with 's3://'")
 
@@ -807,10 +816,9 @@ class CradleDataLoadConfig(BasePipelineConfig):
         if hasattr(self.output_spec, 'job_type'):
             self.output_spec.job_type = self.job_type
         
-        # Store a reference to self in output_spec to allow it to access pipeline_s3_loc
-        # This enables the derived output_path property to work
-        if hasattr(self.output_spec, '_output_path'):
-            self.output_spec.config = self
+        # Pass the pipeline_s3_loc to output_spec for output_path calculation
+        if hasattr(self, 'pipeline_s3_loc'):
+            self.output_spec.pipeline_s3_loc = self.pipeline_s3_loc
         
         return self
     

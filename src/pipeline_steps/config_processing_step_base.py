@@ -146,8 +146,10 @@ class ProcessingStepConfigBase(BasePipelineConfig):
             else:
                 path = Path(v)
                 if not path.exists():
+                    logger.warning(f"Processing source directory does not exist: {v}")
                     raise ValueError(f"Processing source directory does not exist: {v}")
                 if not path.is_dir():
+                    logger.warning(f"Processing source directory is not a directory: {v}")
                     raise ValueError(f"Processing source directory is not a directory: {v}")
         return v
 
@@ -268,6 +270,11 @@ class ProcessingStepConfigBase(BasePipelineConfig):
         else:
             script_full_path = Path(effective_source_dir) / self.processing_entry_point
             if not script_full_path.is_file():
+                logger.warning(
+                    f"Processing entry point script '{self.processing_entry_point}' "
+                    f"not found within effective source directory '{effective_source_dir}'. "
+                    f"Looked at: '{script_full_path}'."
+                )
                 raise FileNotFoundError(
                     f"Processing entry point script '{self.processing_entry_point}' "
                     f"not found within effective source directory '{effective_source_dir}'. "

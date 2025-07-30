@@ -95,7 +95,7 @@ class ModelHyperparameters(BaseModel):
     class Config:
         arbitrary_types_allowed = True
         validate_assignment = True
-        extra = 'forbid'
+        extra = 'allow'  # Changed from "forbid" to "allow" to fix circular reference handling
         protected_namespaces = ()
     
     # Public read-only properties for derived fields

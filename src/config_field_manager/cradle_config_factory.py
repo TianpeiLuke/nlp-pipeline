@@ -10,8 +10,10 @@ Date: July 26, 2025
 
 from typing import List, Dict, Any, Optional, Union
 import uuid
+import os
 from pathlib import Path
 
+from src.pipeline_steps.config_base import BasePipelineConfig
 from src.pipeline_steps.config_data_load_step_cradle import (
     CradleDataLoadConfig,
     MdsDataSourceConfig,
@@ -36,9 +38,7 @@ DEFAULT_TAG_SCHEMA = [
 
 DEFAULT_MDS_BASE_FIELDS = [
     'objectId', 
-    'transactionDate', 
-    'Abuse.currency_exchange_rate_inline.exchangeRate', 
-    'baseCurrency'
+    'transactionDate'
 ]
 
 
@@ -77,6 +77,39 @@ def _create_field_schema(fields: List[str]) -> List[Dict[str, str]]:
     return [{'field_name': field, 'field_type': 'STRING'} for field in fields]
 
 
+def _format_edx_manifest_key(
+    etl_job_id: str,
+    start_date: str,
+    end_date: str,
+    comment: Optional[str] = None
+) -> str:
+    """
+    Format an EDX manifest key with date components and optional comment.
+    
+    This function supports two formats:
+    1. With comment: ["etl_job_id",start_dateZ,end_dateZ,"comment"]
+    2. Without comment: ["etl_job_id",start_dateZ,end_dateZ]
+    
+    Args:
+        etl_job_id (str): ETL job ID
+        start_date (str): Start date string
+        end_date (str): End date string
+        comment (Optional[str]): Optional comment or region code (None for no comment)
+        
+    Returns:
+        str: Properly formatted EDX manifest key
+    """
+    # Ensure the date strings do not already have 'Z' appended
+    start_date_clean = start_date.rstrip('Z')
+    end_date_clean = end_date.rstrip('Z')
+    
+    # Format depends on whether comment is provided
+    if comment:
+        return f'["{etl_job_id}",{start_date_clean}Z,{end_date_clean}Z,"{comment}"]'
+    else:
+        return f'["{etl_job_id}",{start_date_clean}Z,{end_date_clean}Z]'
+
+
 def _create_edx_manifest(
     provider: str,
     subject: str,
@@ -84,7 +117,7 @@ def _create_edx_manifest(
     etl_job_id: str,
     start_date: str,
     end_date: str,
-    region: str
+    comment: Optional[str] = None
 ) -> str:
     """
     Create an EDX manifest ARN with date components.
@@ -96,19 +129,18 @@ def _create_edx_manifest(
         etl_job_id (str): ETL job ID
         start_date (str): Start date string
         end_date (str): End date string
-        region (str): Region code
+        comment (Optional[str]): Optional comment or region code
         
     Returns:
         str: Properly formatted EDX manifest ARN
     """
-    # Ensure the date strings do not already have 'Z' appended
-    start_date_clean = start_date.rstrip('Z')
-    end_date_clean = end_date.rstrip('Z')
+    # Format the manifest key using the helper function
+    manifest_key = _format_edx_manifest_key(etl_job_id, start_date, end_date, comment)
     
     return (
         f'arn:amazon:edx:iad::manifest/'
         f'{provider}/{subject}/{dataset}/'
-        f'["{etl_job_id}",{start_date_clean}Z,{end_date_clean}Z,"{region}"]'
+        f'{manifest_key}'
     )
 
 
@@ -143,56 +175,151 @@ def _generate_transform_sql(
     tag_schema: List[str],
     mds_join_key: str = 'objectId',
     edx_join_key: str = 'order_id',
-    join_type: str = 'JOIN'
+    join_type: str = 'JOIN',
+    use_dedup_sql: bool = False
 ) -> str:
     """
     Generate a SQL query to join MDS and EDX data with configurable join keys.
     
     This function ensures there are no duplicate fields in the SELECT clause
     by checking for fields that appear in both MDS and tag schema.
-    The join is performed using the specified keys and join type.
+    Field names are compared case-insensitively to prevent duplications
+    where the only difference is case (e.g., "OrderId" and "orderid").
+    
+    Two SQL formats are supported:
+    1. Standard format (default): Direct join with source prefixes for each column
+    2. Deduplication format: Uses a subquery with ROW_NUMBER() to ensure only one 
+       record per objectId/order_id pair, and lists fields without source prefixes
+    
+    Special handling for join keys:
+    - Both join keys (from MDS and EDX) are explicitly included in the SQL
+    - This ensures the join operation works correctly even with case differences
+    - The keys are aliased to avoid ambiguity and collisions
     
     Args:
         mds_source_name (str): Logical name for MDS source
         edx_source_name (str): Logical name for EDX source
         mds_field_list (List[str]): List of fields from MDS
         tag_schema (List[str]): List of fields from EDX tags
+        mds_join_key (str): Join key field name from MDS
+        edx_join_key (str): Join key field name from EDX
+        join_type (str): SQL join type (JOIN, LEFT JOIN, etc.)
+        use_dedup_sql (bool): Whether to use the deduplication SQL format with subquery
         
     Returns:
         str: SQL query string
     """
-    # Build the select column list
-    select_variable_text_list = []
-    
-    # Track fields that have been added to avoid duplicates
-    added_fields = set()
-    
-    # Add MDS fields, replacing dots with __DOT__
-    for field in mds_field_list:
-        field_dot_replaced = field.replace('.', '__DOT__')
-        select_variable_text_list.append(f'{mds_source_name}.{field_dot_replaced}')
-        added_fields.add(field.lower())
-    
-    # Add tag fields, skipping any that have already been added from MDS
-    # (except for the join field 'order_id' which we need from the tag source)
-    for var in tag_schema:
-        # Always include 'order_id' from tags, but skip other duplicates
-        if var.lower() != 'order_id' and var.lower() in added_fields:
-            continue
+    if not use_dedup_sql:
+        # Standard format (original behavior)
+        # Build the select column list
+        select_variable_text_list = []
         
-        select_variable_text_list.append(f'{edx_source_name}.{var}')
-        added_fields.add(var.lower())
-    
-    # Join into a comma-separated list
-    schema_list = ',\n'.join(select_variable_text_list)
-    
-    # Create the final SQL
-    transform_sql = f"""
+        # Track lowercase field names to detect duplicates
+        added_fields = {}
+        
+        # Get lowercase versions of join keys for case-insensitive comparison
+        mds_join_key_lower = mds_join_key.lower()
+        edx_join_key_lower = edx_join_key.lower()
+        
+        # Always include both join keys to ensure the JOIN operation works
+        # First add the MDS join key (replacing dots if needed)
+        mds_join_field_dot_replaced = mds_join_key.replace('.', '__DOT__')
+        select_variable_text_list.append(f'{mds_source_name}.{mds_join_field_dot_replaced} as {mds_source_name}_{mds_join_key}')
+        added_fields[mds_join_key_lower] = True
+        
+        # Then add the EDX join key (we'll always include this from EDX)
+        select_variable_text_list.append(f'{edx_source_name}.{edx_join_key} as {edx_source_name}_{edx_join_key}')
+        # Mark both join keys as added (using lowercase for case-insensitive tracking)
+        added_fields[edx_join_key_lower] = True
+        
+        # Add MDS fields, replacing dots with __DOT__
+        for field in mds_field_list:
+            # Skip the join key as we've already added it
+            field_lower = field.lower()
+            if field_lower == mds_join_key_lower:
+                continue
+                
+            field_dot_replaced = field.replace('.', '__DOT__')
+            
+            # Add to our select list and track that we've seen this field
+            select_variable_text_list.append(f'{mds_source_name}.{field_dot_replaced}')
+            added_fields[field_lower] = True
+        
+        # Add tag fields, skipping any that have already been added from MDS
+        # and also skipping the EDX join key which we've already explicitly added
+        for var in tag_schema:
+            var_lower = var.lower()
+            
+            # Skip fields we've already added (including join keys)
+            if var_lower in added_fields:
+                continue
+            
+            select_variable_text_list.append(f'{edx_source_name}.{var}')
+            added_fields[var_lower] = True
+        
+        # Join into a comma-separated list
+        schema_list = ',\n'.join(select_variable_text_list)
+        
+        # Create the final SQL
+        transform_sql = f"""
 SELECT
 {schema_list}
 FROM {mds_source_name}
 {join_type} {edx_source_name} 
 ON {mds_source_name}.{mds_join_key}={edx_source_name}.{edx_join_key}
+"""
+    else:
+        # Deduplication format with subquery and ROW_NUMBER()
+        # Track all unique fields by lowercase name for outer query
+        all_fields = []
+        added_fields_lower = {}
+        
+        # Get lowercase versions of join keys for case-insensitive comparison
+        mds_join_key_lower = mds_join_key.lower()
+        edx_join_key_lower = edx_join_key.lower()
+        
+        # First collect MDS fields
+        for field in mds_field_list:
+            field_lower = field.lower()
+            # Include all fields (even join key) as we'll need them in the subquery
+            if field_lower not in added_fields_lower:
+                field_dot_replaced = field.replace('.', '__DOT__')
+                all_fields.append((field_dot_replaced, f"{mds_source_name}.{field_dot_replaced}", field_lower))
+                added_fields_lower[field_lower] = True
+        
+        # Then collect tag fields
+        for var in tag_schema:
+            var_lower = var.lower()
+            if var_lower not in added_fields_lower:
+                all_fields.append((var, f"{edx_source_name}.{var}", var_lower))
+                added_fields_lower[var_lower] = True
+        
+        # Build the outer query field list (without source prefixes)
+        outer_select_fields = []
+        for field_name, _, _ in all_fields:
+            outer_select_fields.append(field_name)
+        
+        # Build the inner query field list (with source prefixes)
+        inner_select_fields = []
+        for _, field_with_prefix, _ in all_fields:
+            inner_select_fields.append(field_with_prefix)
+            
+        # Join into comma-separated lists
+        outer_field_list = ',\n    '.join(sorted(outer_select_fields))
+        inner_field_list = ',\n        '.join(sorted(inner_select_fields))
+        
+        # Create the deduplication SQL with subquery
+        transform_sql = f"""
+SELECT
+    {outer_field_list}
+FROM (
+    SELECT
+        {inner_field_list},
+        ROW_NUMBER() OVER (PARTITION BY {mds_source_name}.{mds_join_key}, {edx_source_name}.{edx_join_key} ORDER BY {mds_source_name}.transactionDate DESC) as row_num
+    FROM {mds_source_name}
+    {join_type} {edx_source_name} ON {mds_source_name}.{mds_join_key} = {edx_source_name}.{edx_join_key}
+)
+WHERE row_num = 1
 """
     
     return transform_sql
@@ -205,6 +332,10 @@ def _get_all_fields(
     """
     Get a combined list of all fields from MDS and EDX sources.
     
+    This function handles case-insensitivity to avoid duplicate columns in SQL SELECT
+    statements where the only difference is case (e.g., "OrderId" and "orderid").
+    When duplicates with different cases are found, the first occurrence is kept.
+    
     Args:
         mds_fields (List[str]): List of MDS fields
         tag_fields (List[str]): List of tag fields
@@ -212,43 +343,47 @@ def _get_all_fields(
     Returns:
         List[str]: Combined and deduplicated list of fields
     """
-    # Combine and deduplicate
-    return sorted(list(set(mds_fields + tag_fields)))
+    # Track lowercase field names to detect duplicates
+    seen_lowercase = {}
+    deduplicated_fields = []
+    
+    # Process all fields, keeping only the first occurrence when case-insensitive duplicates exist
+    for field in mds_fields + tag_fields:
+        field_lower = field.lower()
+        if field_lower not in seen_lowercase:
+            seen_lowercase[field_lower] = True
+            deduplicated_fields.append(field)
+    
+    return sorted(deduplicated_fields)
 
 
 def create_cradle_data_load_config(
-    # Base pipeline essentials
-    role: str,
-    region: str,
-    pipeline_s3_loc: str,
+    # Base configuration (for inheritance)
+    base_config: BasePipelineConfig,
     
     # Job configuration
     job_type: str,  # 'training' or 'calibration'
     
-    # Field lists (from hyperparameters)
-    full_field_list: List[str],
-    tab_field_list: List[str],
-    cat_field_list: List[str],
-    label_name: str,
-    id_name: str,
+    # MDS field list (direct fields to include)
+    mds_field_list: List[str],
     
     # Data timeframe
     start_date: str,
     end_date: str,
-    
-    # MDS data source
-    service_name: str,
     
     # EDX data source
     tag_edx_provider: str,
     tag_edx_subject: str,
     tag_edx_dataset: str,
     etl_job_id: str,
+    edx_manifest_comment: Optional[str] = None,  # Optional comment for EDX manifest key
+    
+    # MDS data source (if not in base_config)
+    service_name: Optional[str] = None,
     
     # Infrastructure configuration
     cradle_account: str = "Buyer-Abuse-RnD-Dev",
-    aws_region: Optional[str] = None,
-    current_date: Optional[str] = "2025-07-26",
+    org_id: int = 0,  # Default organization ID for regional MDS bucket
     
     # Optional overrides with reasonable defaults
     cluster_type: str = "STANDARD",
@@ -260,6 +395,7 @@ def create_cradle_data_load_config(
     s3_input_override: Optional[str] = None,
     transform_sql: Optional[str] = None,  # Auto-generated if not provided
     tag_schema: Optional[List[str]] = None,  # Default provided if not specified
+    use_dedup_sql: Optional[bool] = None,  # Whether to use dedup SQL format (default: same as split_job)
     
     # Join configuration
     mds_join_key: str = 'objectId',
@@ -279,11 +415,7 @@ def create_cradle_data_load_config(
         
         job_type (str): Type of job ('training' or 'calibration')
         
-        full_field_list (List[str]): Complete list of fields used in the model
-        tab_field_list (List[str]): List of tabular (numerical) fields
-        cat_field_list (List[str]): List of categorical fields
-        label_name (str): Name of the label field
-        id_name (str): Name of the ID field
+        mds_field_list (List[str]): List of fields to include from MDS
         
         start_date (str): Start date for data pull (format: YYYY-MM-DDT00:00:00)
         end_date (str): End date for data pull (format: YYYY-MM-DDT00:00:00)
@@ -318,35 +450,52 @@ def create_cradle_data_load_config(
     if tag_schema is None:
         tag_schema = DEFAULT_TAG_SCHEMA
         
-    # Derive AWS region from marketplace region if not provided
-    if aws_region is None:
-        aws_region = _map_region_to_aws_region(region)
+    # Get service_name from base_config if not provided
+    if service_name is None:
+        service_name = base_config.service_name
+        
+    # Get the region from base_config
+    region = base_config.region
+    
+    # Set path validation env var if needed
+    if "MODS_SKIP_PATH_VALIDATION" not in os.environ:
+        os.environ["MODS_SKIP_PATH_VALIDATION"] = "true"
     
     # If split_job is True, ensure merge_sql is provided
     if split_job and merge_sql is None:
         merge_sql = "SELECT * FROM INPUT"  # Default merge SQL
+        
+    # Set use_dedup_sql default if not provided
+    if use_dedup_sql is None:
+        use_dedup_sql = split_job  # Default to using dedup SQL when split_job is True
     
     # 2. Create MDS Data Source Config
     
-    # Create MDS field list by combining base fields with tabular and categorical fields
-    mds_field_list = list(set(DEFAULT_MDS_BASE_FIELDS + tab_field_list + cat_field_list))
+    # Create complete MDS field list by combining base fields with provided fields
+    complete_mds_field_list = list(set(DEFAULT_MDS_BASE_FIELDS + mds_field_list))
     mds_field_list = sorted(mds_field_list)
     
     # Create MDS schema
-    mds_output_schema = _create_field_schema(mds_field_list)
+    mds_output_schema = _create_field_schema(complete_mds_field_list)
     
     # Create MDS data source inner config
     mds_data_source_inner_config = MdsDataSourceConfig(
         service_name=service_name,
         region=region,
         output_schema=mds_output_schema,
-        org_id=0  # Default for regional MDS bucket
+        org_id=org_id  # Use the provided org_id parameter
     )
     
     # 3. Create EDX Data Source Config
     
-    # Create EDX manifest key
-    edx_manifest_key = f'["{etl_job_id}",{start_date},{end_date},"{region}"]'
+    # Create EDX manifest key with proper Z suffixes for timestamps
+    # Use edx_manifest_comment as-is (including None) - don't default to region
+    edx_manifest_key = _format_edx_manifest_key(
+        etl_job_id=etl_job_id,
+        start_date=start_date,
+        end_date=end_date,
+        comment=edx_manifest_comment
+    )
     
     # Create EDX schema overrides
     edx_schema_overrides = _create_field_schema(tag_schema)
@@ -399,11 +548,12 @@ def create_cradle_data_load_config(
         transform_sql = _generate_transform_sql(
             mds_source_name=mds_data_source.data_source_name,
             edx_source_name=edx_data_source.data_source_name,
-            mds_field_list=mds_field_list,
+            mds_field_list=complete_mds_field_list,
             tag_schema=tag_schema,
             mds_join_key=mds_join_key,
             edx_join_key=edx_join_key,
-            join_type=join_type
+            join_type=join_type,
+            use_dedup_sql=use_dedup_sql
         )
     
     transform_spec = TransformSpecificationConfig(
@@ -414,19 +564,17 @@ def create_cradle_data_load_config(
     # 8. Create Output Specification
     
     # Combine all fields from both sources
-    output_fields = _get_all_fields(mds_field_list, tag_schema)
+    output_fields = _get_all_fields(complete_mds_field_list, tag_schema)
     
-    # Generate a unique output directory
-    output_dir = f'cradle_download_output/{uuid.uuid4()}'
-    output_path = f'{pipeline_s3_loc}/{output_dir}/{job_type}'
-    
+    # Create the output spec - let job_type drive output_path derivation
     output_spec = OutputSpecificationConfig(
         output_schema=output_fields,
-        job_type=job_type,
+        job_type=job_type,  # Required field that will determine the output path
         output_format=output_format,
         output_save_mode=output_save_mode,
         keep_dot_in_output_schema=False,
-        include_header_in_s3_output=True
+        include_header_in_s3_output=True,
+        pipeline_s3_loc=base_config.pipeline_s3_loc  # Pass the pipeline_s3_loc for output_path derivation
     )
     
     # 9. Create Cradle Job Specification
@@ -437,17 +585,15 @@ def create_cradle_data_load_config(
         job_retry_count=4  # Default to 4 retries
     )
     
-    # 10. Create the final CradleDataLoadConfig
+    # 10. Create the final CradleDataLoadConfig using from_base_config
     
-    cradle_data_load_config = CradleDataLoadConfig(
-        # Base pipeline fields
-        role=role,
-        region=region,
-        aws_region=aws_region,
-        pipeline_s3_loc=pipeline_s3_loc,
-        current_date=current_date,
+    # Use from_base_config to inherit from the base configuration
+    # This ensures all base fields (region, role, etc.) are properly inherited
+    # while also respecting the three-tier design pattern
+    cradle_data_load_config = CradleDataLoadConfig.from_base_config(
+        base_config,
         
-        # Step-specific fields
+        # Add step-specific fields
         job_type=job_type,
         data_sources_spec=data_sources_spec,
         transform_spec=transform_spec,
@@ -456,27 +602,15 @@ def create_cradle_data_load_config(
         s3_input_override=s3_input_override
     )
     
-    # Initialize derived fields
-    cradle_data_load_config.initialize_derived_fields()
-    
     return cradle_data_load_config
 
 
 def create_training_and_calibration_configs(
-    # Base fields
-    role: str,
-    region: str,
-    pipeline_s3_loc: str,
+    # Base config for inheritance
+    base_config: BasePipelineConfig,
     
-    # Field lists (from hyperparameters)
-    full_field_list: List[str],
-    tab_field_list: List[str],
-    cat_field_list: List[str],
-    label_name: str,
-    id_name: str,
-    
-    # MDS data source
-    service_name: str,
+    # MDS field list
+    mds_field_list: List[str],
     
     # EDX data source
     tag_edx_provider: str,
@@ -490,10 +624,14 @@ def create_training_and_calibration_configs(
     calibration_start_date: str,
     calibration_end_date: str,
     
+    # MDS data source (if not in base_config)
+    service_name: Optional[str] = None,
+    
+    # EDX manifest configuration
+    edx_manifest_comment: Optional[str] = None,  # Optional comment for EDX manifest key
+    
     # Optional shared configuration
     cradle_account: str = "Buyer-Abuse-RnD-Dev",
-    aws_region: Optional[str] = None,
-    current_date: Optional[str] = "2025-07-26",
     cluster_type: str = "STANDARD",
     output_format: str = "PARQUET",
     output_save_mode: str = "ERRORIFEXISTS",
@@ -511,11 +649,7 @@ def create_training_and_calibration_configs(
         region (str): Marketplace region ('NA', 'EU', 'FE')
         pipeline_s3_loc (str): S3 location for pipeline artifacts
         
-        full_field_list (List[str]): Complete list of fields used in the model
-        tab_field_list (List[str]): List of tabular (numerical) fields
-        cat_field_list (List[str]): List of categorical fields
-        label_name (str): Name of the label field
-        id_name (str): Name of the ID field
+        mds_field_list (List[str]): List of fields to include from MDS
         
         service_name (str): Name of the MDS service
         tag_edx_provider (str): EDX provider for tags
@@ -543,17 +677,11 @@ def create_training_and_calibration_configs(
     Returns:
         Dict[str, CradleDataLoadConfig]: Dictionary with 'training' and 'calibration' configs
     """
-    # Create training config
+    # Create training config using the base_config
     training_config = create_cradle_data_load_config(
-        role=role,
-        region=region,
-        pipeline_s3_loc=pipeline_s3_loc,
+        base_config=base_config,
         job_type="training",
-        full_field_list=full_field_list,
-        tab_field_list=tab_field_list,
-        cat_field_list=cat_field_list,
-        label_name=label_name,
-        id_name=id_name,
+        mds_field_list=mds_field_list,
         start_date=training_start_date,
         end_date=training_end_date,
         service_name=service_name,
@@ -561,9 +689,8 @@ def create_training_and_calibration_configs(
         tag_edx_subject=tag_edx_subject,
         tag_edx_dataset=tag_edx_dataset,
         etl_job_id=etl_job_id,
+        edx_manifest_comment=edx_manifest_comment,
         cradle_account=cradle_account,
-        aws_region=aws_region,
-        current_date=current_date,
         cluster_type=cluster_type,
         output_format=output_format,
         output_save_mode=output_save_mode,
@@ -574,17 +701,11 @@ def create_training_and_calibration_configs(
         tag_schema=tag_schema
     )
     
-    # Create calibration config
+    # Create calibration config using the base_config
     calibration_config = create_cradle_data_load_config(
-        role=role,
-        region=region,
-        pipeline_s3_loc=pipeline_s3_loc,
+        base_config=base_config,
         job_type="calibration",
-        full_field_list=full_field_list,
-        tab_field_list=tab_field_list,
-        cat_field_list=cat_field_list,
-        label_name=label_name,
-        id_name=id_name,
+        mds_field_list=mds_field_list,
         start_date=calibration_start_date,
         end_date=calibration_end_date,
         service_name=service_name,
@@ -592,9 +713,8 @@ def create_training_and_calibration_configs(
         tag_edx_subject=tag_edx_subject,
         tag_edx_dataset=tag_edx_dataset,
         etl_job_id=etl_job_id,
+        edx_manifest_comment=edx_manifest_comment,
         cradle_account=cradle_account,
-        aws_region=aws_region,
-        current_date=current_date,
         cluster_type=cluster_type,
         output_format=output_format,
         output_save_mode=output_save_mode,

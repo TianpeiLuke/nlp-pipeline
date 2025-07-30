@@ -105,7 +105,7 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
             'processing_instance_count', 'processing_volume_size',
             'processing_instance_type_large', 'processing_instance_type_small',
             'processing_framework_version', 'use_large_processing_instance',
-            'job_type'
+            'job_type', 'label_name'
         ]
         
         for attr in required_attrs:
@@ -116,9 +116,9 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         if self.config.job_type not in ["training", "validation", "testing", "calibration"]:
             raise ValueError(f"Invalid job_type: {self.config.job_type}")
         
-        # Validate hyperparameters
-        if not self.config.hyperparameters or not self.config.hyperparameters.label_name:
-            raise ValueError("hyperparameters.label_name must be provided")
+        # Validate label_name
+        if not self.config.label_name or not self.config.label_name.strip():
+            raise ValueError("label_name must be provided and non-empty")
 
     def _create_processor(self) -> SKLearnProcessor:
         """
@@ -151,8 +151,8 @@ class TabularPreprocessingStepBuilder(StepBuilderBase):
         env_vars = super()._get_environment_variables()
         
         # Add additional environment variables specific to this step
-        if hasattr(self.config, 'hyperparameters') and hasattr(self.config.hyperparameters, 'label_name'):
-            env_vars["LABEL_FIELD"] = self.config.hyperparameters.label_name
+        if hasattr(self.config, 'label_name'):
+            env_vars["LABEL_FIELD"] = self.config.label_name
         
         if hasattr(self.config, 'train_ratio'):
             env_vars["TRAIN_RATIO"] = str(self.config.train_ratio)

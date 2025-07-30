@@ -210,8 +210,10 @@ class BasePipelineConfig(BaseModel):
         """Validate that source_dir exists if it's a local path."""
         if v is not None and not v.startswith('s3://'):  # Only validate local paths
             if not Path(v).exists():
+                logger.warning(f"Local source directory does not exist: {v}")
                 raise ValueError(f"Local source directory does not exist: {v}")
             if not Path(v).is_dir():
+                logger.warning(f"Local source_dir is not a directory: {v}")
                 raise ValueError(f"Local source_dir is not a directory: {v}")
         return v
     

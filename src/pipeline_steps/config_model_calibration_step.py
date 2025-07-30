@@ -1,75 +1,94 @@
-#!/usr/bin/env python
-"""Configuration for ModelCalibration step.
+"""
+Model Calibration Step Configuration with Self-Contained Derivation Logic
 
-This module defines the configuration class for the ModelCalibration step,
-which calibrates model prediction scores to accurate probabilities.
-Supports both binary and multi-class classification scenarios.
+This module implements the configuration class for the ModelCalibration step
+using a self-contained design where derived fields are private with read-only properties.
+Fields are organized into three tiers:
+1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+3. Tier 3: Derived Fields - fields calculated from other fields (private with properties)
 """
 
-from typing import Optional, List, Union, Any
+from typing import Optional, List, Union, Any, Dict
 import json
 from pathlib import Path
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, PrivateAttr
 
 from .config_processing_step_base import ProcessingStepConfigBase
 from .hyperparameters_base import ModelHyperparameters
 
 
 class ModelCalibrationConfig(ProcessingStepConfigBase):
-    """Configuration for ModelCalibration step.
+    """
+    Configuration for ModelCalibration step with self-contained derivation logic.
     
     This class defines the configuration parameters for the ModelCalibration step,
     which calibrates model prediction scores to accurate probabilities. Calibration
     ensures that model scores reflect true probabilities, which is crucial for
     risk-based decision-making and threshold setting.
     
-    This config can be initialized either with individual parameters or using values
-    from ModelHyperparameters via the from_hyperparameters class method.
+    Fields are organized into three tiers:
+    1. Tier 1: Essential User Inputs - fields that users must explicitly provide
+    2. Tier 2: System Inputs with Defaults - fields with reasonable defaults that can be overridden
+    3. Tier 3: Derived Fields - fields calculated from other fields (private with properties)
     """
     
-    # Calibration parameters
+    # ===== Essential User Inputs (Tier 1) =====
+    # These are fields that users must explicitly provide
+    
+    label_field: str = Field(
+        description="Name of the label column"
+    )
+    
+    # ===== System Inputs with Defaults (Tier 2) =====
+    # These are fields with reasonable defaults that users can override
+    
+    # Calibration parameters with defaults
     calibration_method: str = Field(
-        default="gam", 
+        default="gam",
         description="Method to use for calibration (gam, isotonic, platt)"
     )
+    
     monotonic_constraint: bool = Field(
         default=True, 
         description="Whether to enforce monotonicity in GAM"
     )
+    
     gam_splines: int = Field(
         default=10,
         gt=0, 
         description="Number of splines for GAM calibration"
     )
+    
     error_threshold: float = Field(
         default=0.05,
         ge=0,
         le=1, 
         description="Acceptable calibration error threshold"
     )
-    label_field: str = Field(
-        default="label", 
-        description="Name of the label column"
-    )
-    score_field: str = Field(
-        default="prob_class_1", 
-        description="Name of the score column to calibrate (for binary classification)"
-    )
     
-    # Multi-class support parameters
+    # Multi-class support parameters with defaults
     is_binary: bool = Field(
         default=True, 
         description="Whether this is a binary classification task (True) or multi-class (False)"
     )
+    
     num_classes: int = Field(
         default=2,
         gt=0,
         description="Number of classes for classification"
     )
+    
+    score_field: str = Field(
+        default="prob_class_1", 
+        description="Name of the score column to calibrate (for binary classification)"
+    )
+    
     score_field_prefix: str = Field(
         default="prob_class_", 
         description="Prefix for probability columns in multi-class scenario"
     )
+    
     multiclass_categories: List[Union[str, int]] = Field(
         default_factory=lambda: [0, 1], 
         description="List of class names/values for multi-class calibration"
@@ -80,11 +99,33 @@ class ModelCalibrationConfig(ProcessingStepConfigBase):
         default="model_calibration.py",
         description="Script entry point filename"
     )
+    
     processing_source_dir: str = Field(
         default="dockers/xgboost_atoz/pipeline_scripts",
         description="Directory containing the processing script"
     )
     
+    # ===== Derived Fields (Tier 3) =====
+    # These are fields calculated from other fields, stored in private attributes
+    # with public read-only properties for access
+    
+    # For now, there are no derived fields specific to model calibration beyond 
+    # what's inherited from the ProcessingStepConfigBase class
+    
+    class Config(ProcessingStepConfigBase.Config):
+        pass
+    
+    # Initialize derived fields at creation time to avoid potential validation loops
+    @model_validator(mode='after')
+    def initialize_derived_fields(self) -> 'ModelCalibrationConfig':
+        """Initialize all derived fields once after validation."""
+        # Call parent validator first
+        super().initialize_derived_fields()
+        
+        # No additional derived fields to initialize for now
+        
+        return self
+        
     @model_validator(mode='after')
     def validate_config(self) -> 'ModelCalibrationConfig':
         """Validate configuration and ensure defaults are set.
@@ -232,16 +273,16 @@ class ModelCalibrationConfig(ProcessingStepConfigBase):
             error_threshold=error_threshold,
             # Values from hyperparameters
             label_field=hyperparameters.label_name,
-            score_field=f"{hyperparameters._alias_map.get('prob_class_1', 'prob_class_1')}",
+            score_field="prob_class_1",  # Default value directly
             is_binary=hyperparameters.is_binary,
             num_classes=hyperparameters.num_classes,
-            score_field_prefix=hyperparameters._alias_map.get('prob_class_', 'prob_class_'),
+            score_field_prefix="prob_class_",  # Default value directly
             multiclass_categories=hyperparameters.multiclass_categories,
             processing_entry_point=processing_entry_point,
             processing_source_dir=processing_source_dir
         )
     
-    def get_environment_variables(self):
+    def get_environment_variables(self) -> Dict[str, str]:
         """Get environment variables for the processing script.
         
         Returns:
@@ -267,3 +308,40 @@ class ModelCalibrationConfig(ProcessingStepConfigBase):
             env["MULTICLASS_CATEGORIES"] = json.dumps(self.multiclass_categories)
         
         return env
+
+    def get_public_init_fields(self) -> Dict[str, Any]:
+        """
+        Override get_public_init_fields to include calibration-specific fields.
+        Gets a dictionary of public fields suitable for initializing a child config.
+        Includes both base fields (from parent) and calibration-specific fields.
+        
+        Returns:
+            Dict[str, Any]: Dictionary of field names to values for child initialization
+        """
+        # Get fields from parent class (ProcessingStepConfigBase)
+        base_fields = super().get_public_init_fields()
+        
+        # Add calibration-specific fields
+        calibration_fields = {
+            # Tier 1 - Essential User Inputs
+            'label_field': self.label_field,
+            
+            # Tier 2 - System Inputs with Defaults
+            'calibration_method': self.calibration_method,
+            'monotonic_constraint': self.monotonic_constraint,
+            'gam_splines': self.gam_splines,
+            'error_threshold': self.error_threshold,
+            'is_binary': self.is_binary,
+            'num_classes': self.num_classes,
+            'score_field': self.score_field,
+            'score_field_prefix': self.score_field_prefix,
+        }
+        
+        # Add multiclass_categories if set to non-default value
+        if self.multiclass_categories != [0, 1]:
+            calibration_fields['multiclass_categories'] = self.multiclass_categories
+        
+        # Combine base fields and calibration fields (calibration fields take precedence if overlap)
+        init_fields = {**base_fields, **calibration_fields}
+        
+        return init_fields

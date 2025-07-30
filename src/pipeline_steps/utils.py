@@ -239,9 +239,35 @@ def load_configs(input_file: str, config_classes: Dict[str, Type[BaseModel]]) ->
                     # Combine data with specific overriding shared
                     combined_data = {**shared_data, **specific_data}
                     
-                    # Create the config instance
-                    config_class = config_classes[class_name]
-                    result_configs[step_name] = config_class(**combined_data)
+                    # Process the combined data through the TypeAwareConfigSerializer
+                    # to handle special formats like the '__type_info__': 'list' structure
+                    serializer = TypeAwareConfigSerializer()
+                    
+                    # Add type metadata to help the serializer correctly process the data
+                    processed_data = {
+                        "__model_type__": class_name,
+                        "__model_module__": f"src.pipeline_steps.config_{step_name.lower()}",
+                        **combined_data
+                    }
+                    
+                    # Deserialize to process special formats
+                    deserialized_data = serializer.deserialize(processed_data, expected_type=config_classes[class_name])
+                    
+                    # If the result is already a model instance, use it directly
+                    if isinstance(deserialized_data, config_classes[class_name]):
+                        result_configs[step_name] = deserialized_data
+                    else:
+                        # Otherwise, create the config instance from the processed data
+                        # Remove metadata fields if they're still present
+                        if isinstance(deserialized_data, dict):
+                            clean_data = {k: v for k, v in deserialized_data.items() 
+                                        if k not in (MODEL_TYPE_FIELD, MODEL_MODULE_FIELD)}
+                        else:
+                            clean_data = deserialized_data
+                            
+                        # Create the instance
+                        config_class = config_classes[class_name]
+                        result_configs[step_name] = config_class(**clean_data)
                 except Exception as e:
                     logger.warning(f"Failed to create config for {step_name}: {str(e)}")
     else:

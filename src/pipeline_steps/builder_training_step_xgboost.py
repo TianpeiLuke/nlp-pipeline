@@ -413,7 +413,20 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
         returns that full S3 URI. This eliminates the need for a separate
         HyperparameterPrepStep in the pipeline.
         """
+        # Start with model_dump() to get proper JSON types
         hyperparams_dict = self.config.hyperparameters.model_dump()
+        
+        # Add derived properties manually
+        hyperparams_dict["is_binary"] = self.config.hyperparameters.is_binary
+        hyperparams_dict["num_classes"] = self.config.hyperparameters.num_classes
+        hyperparams_dict["input_tab_dim"] = self.config.hyperparameters.input_tab_dim
+        hyperparams_dict["objective"] = self.config.hyperparameters.objective
+        hyperparams_dict["eval_metric"] = self.config.hyperparameters.eval_metric
+        
+        # Ensure class_weights matches num_classes
+        if "class_weights" not in hyperparams_dict or len(hyperparams_dict["class_weights"]) != hyperparams_dict["num_classes"]:
+            hyperparams_dict["class_weights"] = [1.0] * hyperparams_dict["num_classes"]
+        
         local_dir = Path(tempfile.mkdtemp())
         local_file = local_dir / "hyperparameters.json"
         

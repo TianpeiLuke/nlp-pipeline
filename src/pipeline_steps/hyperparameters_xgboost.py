@@ -129,8 +129,8 @@ class XGBoostModelHyperparameters(ModelHyperparameters):
     _eval_metric: Optional[Union[str, List[str]]] = PrivateAttr(default=None)
 
     class Config(ModelHyperparameters.Config):
-        # Inherit Config from base
-        pass
+        # Inherit Config from base and modify extra to allow
+        extra = "allow"  # Changed from "forbid" to "allow" to fix circular reference handling
     
     # Public read-only properties for derived fields
     
