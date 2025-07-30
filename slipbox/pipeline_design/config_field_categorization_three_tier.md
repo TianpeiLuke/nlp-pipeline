@@ -455,8 +455,8 @@ For detailed technical designs of the key components in this architecture, refer
 
 - [DefaultValuesProvider Design](./default_values_provider_design.md) - Complete design for the Tier 2 (System Inputs) component
 - [FieldDerivationEngine Design](./field_derivation_engine_design.md) - Complete design for the Tier 3 (Derived Inputs) component
-- [Essential Inputs Implementation Strategy](./essential_inputs_implementation_strategy.md) - Implementation strategy for the complete three-tier architecture
-- [Essential Inputs Notebook Design](./essential_inputs_notebook_design.md) - Design for the user interface layer of the three-tier architecture
+- [Essential Inputs Notebook Design](./essential_inputs_notebook_design_revised.md) - Revised design for the user interface layer of the three-tier architecture
+- [Essential Inputs Field Dependency Analysis](./essential_inputs_field_dependency_analysis.md) - Detailed field analysis and categorization for the three-tier architecture
 
 ## Conclusion
 

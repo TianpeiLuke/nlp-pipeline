@@ -43,11 +43,39 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: Single source of truth, declarative categorization rules, enhanced maintainability
 - **Strategic Value**: Robust foundation for configuration management with clear separation of concerns
 
+### 🎯 Essential User Input Architecture (Alternative Design)
+
+This alternative design approach focuses on minimizing user input by providing only essential configuration fields while automating everything else through intelligent components:
+
 #### **[Essential Inputs Notebook Design](essential_inputs_notebook_design_revised.md)** - User-Centric Configuration
 - **Purpose**: Streamlined approach focusing only on essential user inputs while automating everything else
 - **Key Innovation**: Three-tier architecture (Essential User Inputs → System Inputs → Derived Inputs)
 - **Benefits**: 70%+ reduction in required inputs, feature group management, smart defaults
 - **Strategic Value**: Dramatically improves user experience while maintaining full functionality
+
+#### **[Essential Inputs Field Dependency Analysis](essential_inputs_field_dependency_analysis.md)** - Detailed Field Analysis
+- **Purpose**: Comprehensive analysis of XGBoost pipeline configuration fields and their dependencies
+- **Key Features**: Three-tier field categorization, dependency mapping, derivation rules
+- **Benefits**: Clear understanding of which fields are essential vs. derivable, foundation for automation
+- **Strategic Value**: Enables informed decisions about configuration simplification and automation
+
+#### **[Feature Group Registry](feature_group_registry_revised.md)** - Organized Field Management
+- **Purpose**: Registry system for organizing configuration fields into logical business groups
+- **Key Features**: Business-meaningful field groupings, region-specific field naming, categorical field identification
+- **Benefits**: Simplified field selection, better user experience, maintainable field organization
+- **Strategic Value**: Enables feature group-based configuration instead of individual field selection
+
+#### **[Field Derivation Engine](field_derivation_engine_revised.md)** - Automated Field Generation
+- **Purpose**: Engine for automatically deriving configuration fields from essential inputs
+- **Key Features**: Rule-based field derivation, dependency resolution, validation integration
+- **Benefits**: Reduces user input requirements, ensures consistency, eliminates manual errors
+- **Strategic Value**: Core component enabling automated configuration generation
+
+#### **[Default Values Provider Design](default_values_provider_revised.md)** - Intelligent Defaults
+- **Purpose**: System for providing intelligent default values based on context and best practices
+- **Key Features**: Context-aware defaults, machine learning integration, best practice application
+- **Benefits**: Reduces user burden while maintaining quality
+- **Strategic Value**: Core component of essential user input architecture
 
 ### 🔗 Dependency Resolution & Registry Systems
 
@@ -94,6 +122,12 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Key Features**: Entry point validation, input/output path contracts, environment variable requirements
 - **Benefits**: Ensures implementation aligns with specification promises
 - **Strategic Value**: Bridge between declarative specifications and imperative implementations
+
+#### **[Environment Variable Contract Enforcement](environment_variable_contract_enforcement.md)** - Runtime Contract Validation
+- **Purpose**: System for enforcing environment variable contracts at runtime (extends Script Contract design)
+- **Key Features**: Contract validation, environment setup verification, error reporting
+- **Benefits**: Ensures proper environment configuration, prevents runtime failures
+- **Strategic Value**: Robust foundation for reliable pipeline execution with script contract integration
 
 ### 🎯 User Interface & Experience
 
@@ -143,12 +177,6 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: Eliminates redundant class lookups and references
 - **Strategic Value**: Foundation for configuration management systems
 
-#### **[Default Values Provider Design](default_values_provider_revised.md)** - Intelligent Defaults
-- **Purpose**: System for providing intelligent default values based on context and best practices
-- **Key Features**: Context-aware defaults, machine learning integration, best practice application
-- **Benefits**: Reduces user burden while maintaining quality
-- **Strategic Value**: Core component of adaptive configuration management
-
 #### **[Config Field Categorization](config_field_categorization.md)** - Streamlined Field Classification System
 - **Purpose**: Simplified approach to configuration field categorization with flattened architecture
 - **Key Features**: Two-tier structure (shared/specific), explicit 5-rule categorization, type-aware serialization
@@ -161,14 +189,23 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: Scalable configuration management, clear separation of concerns, flexible overrides
 - **Strategic Value**: Robust architecture for complex configuration scenarios
 
-### 🔧 Technical Infrastructure
-
 #### **[Type-Aware Serializer](type_aware_serializer.md)** - Robust Serialization
 - **Purpose**: Serialize and deserialize complex types with complete type information preservation
 - **Key Features**: Type metadata preservation, complex object handling, validation integration
 - **Benefits**: Configurations can be correctly reconstructed during loading
 - **Strategic Value**: Foundation for reliable configuration persistence
 
+#### **[Circular Reference Tracker](circular_reference_tracker.md)** - Advanced Cycle Detection
+- **Purpose**: Sophisticated tracking and resolution of circular references in configurations
+- **Key Features**: Advanced cycle detection, resolution strategies, diagnostic reporting
+- **Benefits**: Robust handling of complex configuration scenarios with circular dependencies
+- **Strategic Value**: Enables safe handling of complex configuration relationships
+
+#### **[Circular Reference Necessity Analysis](circular_reference_necessity_analysis.md)** - Architectural Decision Analysis
+- **Purpose**: Analysis of whether circular reference detection is needed in the 3-tiered configuration design
+- **Key Features**: Comprehensive analysis of circular reference scenarios, performance impact assessment, implementation recommendations
+- **Benefits**: Informed architectural decisions about safety mechanisms and system robustness
+- **Strategic Value**: Ensures optimal balance between performance and system reliability
 
 ### 📋 Governance & Quality
 
@@ -205,18 +242,6 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Key Features**: Advanced property resolution, cross-component references, validation
 - **Benefits**: Robust property management for complex pipeline scenarios
 - **Strategic Value**: Foundation for sophisticated pipeline property handling
-
-#### **[Circular Reference Tracker](circular_reference_tracker.md)** - Advanced Cycle Detection
-- **Purpose**: Sophisticated tracking and resolution of circular references in configurations
-- **Key Features**: Advanced cycle detection, resolution strategies, diagnostic reporting
-- **Benefits**: Robust handling of complex configuration scenarios with circular dependencies
-- **Strategic Value**: Enables safe handling of complex configuration relationships
-
-#### **[Circular Reference Necessity Analysis](circular_reference_necessity_analysis.md)** - Architectural Decision Analysis
-- **Purpose**: Analysis of whether circular reference detection is needed in the 3-tiered configuration design
-- **Key Features**: Comprehensive analysis of circular reference scenarios, performance impact assessment, implementation recommendations
-- **Benefits**: Informed architectural decisions about safety mechanisms and system robustness
-- **Strategic Value**: Ensures optimal balance between performance and system reliability
 
 ### 🏗️ Implementation & Integration
 
