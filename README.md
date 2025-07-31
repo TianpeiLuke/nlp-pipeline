@@ -169,7 +169,7 @@ The system follows a sophisticated layered architecture that transforms user-pro
 
 ### **🎯 User Interface Layer**
 - **[Fluent API](slipbox/pipeline_design/fluent_api.md)** - Natural language interface for intuitive pipeline construction with method chaining and progressive complexity disclosure
-- **[Pipeline DAG](slipbox/pipeline_dag/)** - Mathematical framework for pipeline topology, cycle detection, and execution optimization
+- **[Pipeline DAG](slipbox/pipeline_dag/)** - Mathematical framework for pipeline topology, cycle detection, and execution optimization (see [design doc](slipbox/pipeline_design/pipeline_dag.md))
 
 ### **🧠 Intelligent Abstraction Layer**
 - **[Smart Proxies](slipbox/pipeline_design/smart_proxy.md)** - Type-safe construction with automatic dependency resolution and dynamic configuration optimization
@@ -177,6 +177,7 @@ The system follows a sophisticated layered architecture that transforms user-pro
 ### **🏗️ Orchestration Layer**
 - **[Pipeline Template Base](slipbox/pipeline_design/pipeline_template_base.md)** - Foundation template system for declarative pipeline construction and lifecycle management
 - **[Pipeline Assembler](slipbox/pipeline_design/pipeline_assembler.md)** - Intelligent pipeline assembly engine that coordinates component integration and dependency resolution
+- **[Pipeline Compiler](slipbox/pipeline_design/pipeline_compiler.md)** - DAG to Template compilation system that transforms visual pipeline graphs into executable SageMaker pipelines
 
 ### **📚 Registry Management Layer**
 - **[Registry Manager](slipbox/pipeline_deps/registry_manager.md)** - Multi-context coordination with lifecycle management and backward compatibility
