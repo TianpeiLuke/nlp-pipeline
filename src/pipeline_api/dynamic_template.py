@@ -8,6 +8,9 @@ with any PipelineDAG structure without requiring custom template classes.
 from typing import Dict, Type, Any, Optional, List
 import logging
 
+from sagemaker.workflow.parameters import ParameterString
+from sagemaker.network import NetworkConfig
+
 from ..pipeline_dag.base_dag import PipelineDAG
 from ..pipeline_builder.pipeline_template_base import PipelineTemplateBase
 from ..pipeline_steps.builder_step_base import StepBuilderBase
@@ -19,6 +22,31 @@ from ..pipeline_registry.builder_registry import StepBuilderRegistry
 from .validation import ValidationEngine
 from .exceptions import ConfigurationError, ValidationError
 from ..pipeline_registry.exceptions import RegistryError
+
+# Import constants from core library (with fallback)
+try:
+    from mods_workflow_core.utils.constants import (
+        PIPELINE_EXECUTION_TEMP_DIR,
+        KMS_ENCRYPTION_KEY_PARAM,
+        PROCESSING_JOB_SHARED_NETWORK_CONFIG,
+        SECURITY_GROUP_ID,
+        VPC_SUBNET,
+    )
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("Could not import constants from mods_workflow_core, using local definitions")
+    # Define pipeline parameters locally if import fails
+    PIPELINE_EXECUTION_TEMP_DIR = ParameterString(name="EXECUTION_S3_PREFIX")
+    KMS_ENCRYPTION_KEY_PARAM = ParameterString(name="KMS_ENCRYPTION_KEY_PARAM")
+    SECURITY_GROUP_ID = ParameterString(name="SECURITY_GROUP_ID")
+    VPC_SUBNET = ParameterString(name="VPC_SUBNET")
+    # Also create the network config
+    PROCESSING_JOB_SHARED_NETWORK_CONFIG = NetworkConfig(
+        enable_network_isolation=False,
+        security_group_ids=[SECURITY_GROUP_ID],
+        subnets=[VPC_SUBNET],
+        encrypt_inter_container_traffic=True,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +502,24 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
         except Exception as e:
             self.logger.error(f"Failed to get execution order: {e}")
             return list(self._dag.nodes)
+    
+    def _get_pipeline_parameters(self) -> List[ParameterString]:
+        """
+        Get pipeline parameters.
+        
+        Returns standard parameters used by most pipelines:
+        - PIPELINE_EXECUTION_TEMP_DIR: S3 prefix for execution data
+        - KMS_ENCRYPTION_KEY_PARAM: KMS key for encryption
+        - SECURITY_GROUP_ID: Security group for network isolation
+        - VPC_SUBNET: VPC subnet for network isolation
+        
+        Returns:
+            List of pipeline parameters
+        """
+        return [
+            PIPELINE_EXECUTION_TEMP_DIR, KMS_ENCRYPTION_KEY_PARAM,
+            SECURITY_GROUP_ID, VPC_SUBNET,
+        ]
             
     def fill_execution_document(self, execution_document: Dict[str, Any]) -> Dict[str, Any]:
         """
