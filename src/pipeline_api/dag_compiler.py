@@ -19,7 +19,6 @@ from ..pipeline_registry.builder_registry import StepBuilderRegistry
 from .validation import ValidationResult, ResolutionPreview, ConversionReport, ValidationEngine
 from .exceptions import PipelineAPIError, ConfigurationError, ValidationError
 from ..pipeline_registry.exceptions import RegistryError
-from .name_generator import generate_pipeline_name
 
 logger = logging.getLogger(__name__)
 
@@ -365,12 +364,15 @@ class PipelineDAGCompiler:
             )
             
             # Build pipeline
-            pipeline = template.build_pipeline()
+            pipeline = template.generate_pipeline()
             
             # Override pipeline name if provided or generate a new one
             if pipeline_name:
                 pipeline.name = pipeline_name
             else:
+                # Import here to avoid circular import
+                from .name_generator import generate_pipeline_name
+                
                 # Get base_config from template
                 base_config = template.base_config
                 base_name = getattr(base_config, 'pipeline_name', 'mods')
