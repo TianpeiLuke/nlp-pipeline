@@ -38,7 +38,7 @@ from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBas
 from ..pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
 from ..pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig 
 from ..pipeline_steps.config_model_calibration_step import ModelCalibrationConfig
-from ..pipeline_steps.config_mims_packaging_step import PackageStepConfig
+from ..pipeline_steps.config_package_step import PackageConfig
 
 # Step builders
 from ..pipeline_steps.builder_step_base import StepBuilderBase
@@ -46,7 +46,7 @@ from ..pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStep
 from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from ..pipeline_steps.builder_model_calibration_step import ModelCalibrationStepBuilder
-from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
+from ..pipeline_steps.builder_package_step import PackageStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
 
 # Import constants from core library (these are the parameters that will be wrapped)
@@ -109,7 +109,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
         'TabularPreprocessingConfig': TabularPreprocessingConfig,
         'XGBoostTrainingConfig':      XGBoostTrainingConfig,
         'ModelCalibrationConfig':     ModelCalibrationConfig,
-        'PackageStepConfig':          PackageStepConfig
+        'PackageConfig':              PackageConfig
     }
 
     def __init__(
@@ -178,7 +178,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
             raise ValueError("Multiple model calibration configurations found, expected exactly one")
             
         # Check for required packaging config
-        packaging_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, PackageStepConfig)]
+        packaging_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, PackageConfig)]
         if not packaging_configs:
             raise ValueError("No packaging configuration found")
         if len(packaging_configs) > 1:
@@ -211,7 +211,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
             STEP_NAMES["TabularPreprocessing"]["spec_type"]: TabularPreprocessingStepBuilder,
             STEP_NAMES["XGBoostTraining"]["spec_type"]: XGBoostTrainingStepBuilder,
             STEP_NAMES["ModelCalibration"]["spec_type"]: ModelCalibrationStepBuilder,
-            STEP_NAMES["Package"]["spec_type"]: MIMSPackagingStepBuilder,
+            STEP_NAMES["Package"]["spec_type"]: PackageStepBuilder,
         }
 
     def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
@@ -251,7 +251,7 @@ class XGBoostTrainCalibrateTemplate(PipelineTemplateBase):
             config_map["model_calibration"] = calibration_configs[0]
             
         # Add packaging config
-        packaging_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, PackageStepConfig)]
+        packaging_configs = [cfg for _, cfg in self.configs.items() if isinstance(cfg, PackageConfig)]
         if packaging_configs:
             config_map["model_packaging"] = packaging_configs[0]
         

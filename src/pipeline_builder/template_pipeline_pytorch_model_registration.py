@@ -67,16 +67,16 @@ except ImportError:
 from ..pipeline_steps.config_base import BasePipelineConfig
 from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
 from ..pipeline_steps.config_dummy_training_step import DummyTrainingConfig
-from ..pipeline_steps.config_mims_packaging_step import PackageStepConfig
-from ..pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
-from ..pipeline_steps.config_mims_payload_step import PayloadConfig
+from ..pipeline_steps.config_package_step import PackageConfig
+from ..pipeline_steps.config_registration_step import RegistrationConfig
+from ..pipeline_steps.config_payload_step import PayloadConfig
 
 # Import step builders
 from ..pipeline_steps.builder_step_base import StepBuilderBase
 from ..pipeline_steps.builder_dummy_training_step import DummyTrainingStepBuilder
-from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
-from ..pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
+from ..pipeline_steps.builder_package_step import PackageStepBuilder
+from ..pipeline_steps.builder_payload_step import PayloadStepBuilder
+from ..pipeline_steps.builder_registration_step import RegistrationStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
 
 
@@ -110,8 +110,8 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         'BasePipelineConfig': BasePipelineConfig,
         'DummyTrainingConfig': DummyTrainingConfig,
         'ProcessingStepConfigBase': ProcessingStepConfigBase,
-        'PackageStepConfig': PackageStepConfig,
-        'ModelRegistrationConfig': ModelRegistrationConfig,
+        'PackageConfig': PackageConfig,
+        'RegistrationConfig': RegistrationConfig,
         'PayloadConfig': PayloadConfig
     }
     
@@ -181,9 +181,9 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         # Check for required single-instance configs
         for config_type, name in [
             (DummyTrainingConfig, "DummyTraining"),
-            (PackageStepConfig, "model packaging"),
+            (PackageConfig, "model packaging"),
             (PayloadConfig, "payload testing"),
-            (ModelRegistrationConfig, "model registration"),
+            (RegistrationConfig, "model registration"),
         ]:
             instances = [cfg for _, cfg in self.configs.items() if isinstance(cfg, config_type)]
             if not instances:
@@ -218,9 +218,9 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         # Use step names from centralized registry to ensure consistency
         return {
             STEP_NAMES["DummyTraining"]["spec_type"]: DummyTrainingStepBuilder,
-            STEP_NAMES["Package"]["spec_type"]: MIMSPackagingStepBuilder,
-            STEP_NAMES["Payload"]["spec_type"]: MIMSPayloadStepBuilder,
-            STEP_NAMES["Registration"]["spec_type"]: ModelRegistrationStepBuilder,
+            STEP_NAMES["Package"]["spec_type"]: PackageStepBuilder,
+            STEP_NAMES["Payload"]["spec_type"]: PayloadStepBuilder,
+            STEP_NAMES["Registration"]["spec_type"]: RegistrationStepBuilder,
         }
     
     def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
@@ -235,9 +235,9 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         # Find single instance configs
         for cfg_type, step_name in [
             (DummyTrainingConfig, "dummy_training"),
-            (PackageStepConfig, "model_packaging"),
+            (PackageConfig, "model_packaging"),
             (PayloadConfig, "payload_test"),
-            (ModelRegistrationConfig, "model_registration"),
+            (RegistrationConfig, "model_registration"),
         ]:
             # Find instances of each config type
             instances = [cfg for _, cfg in self.configs.items() if isinstance(cfg, cfg_type)]
@@ -271,11 +271,11 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         """
         # Find needed configs
         registration_cfg = next((cfg for _, cfg in self.configs.items() 
-                               if isinstance(cfg, ModelRegistrationConfig) and not isinstance(cfg, PayloadConfig)), None)
+                               if isinstance(cfg, RegistrationConfig) and not isinstance(cfg, PayloadConfig)), None)
         payload_cfg = next((cfg for _, cfg in self.configs.items() 
                            if isinstance(cfg, PayloadConfig)), None)
         package_cfg = next((cfg for _, cfg in self.configs.items() 
-                           if isinstance(cfg, PackageStepConfig)), None)
+                           if isinstance(cfg, PackageConfig)), None)
         
         if not registration_cfg or not payload_cfg or not package_cfg:
             raise ValueError("Missing required configs for execution document")
@@ -353,7 +353,7 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
             
             # Try to retrieve the image URI for registration configs
             registration_cfg = next((cfg for _, cfg in self.configs.items() 
-                                   if isinstance(cfg, ModelRegistrationConfig) and not isinstance(cfg, PayloadConfig)), None)
+                                   if isinstance(cfg, RegistrationConfig) and not isinstance(cfg, PayloadConfig)), None)
             if not registration_cfg:
                 logger.warning("No ModelRegistrationConfig found, skipping execution doc config")
                 return
@@ -438,7 +438,7 @@ class DummyTrainingModelRegistrationTemplate(PipelineTemplateBase):
         # Find registration config
         registration_cfg = next(
             (cfg for _, cfg in self.configs.items() 
-             if isinstance(cfg, ModelRegistrationConfig) and not isinstance(cfg, PayloadConfig)), 
+             if isinstance(cfg, RegistrationConfig) and not isinstance(cfg, PayloadConfig)), 
             None
         )
         

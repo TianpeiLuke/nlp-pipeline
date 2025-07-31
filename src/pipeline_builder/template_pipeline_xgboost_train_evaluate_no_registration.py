@@ -40,9 +40,9 @@ from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBas
 from ..pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
 from ..pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig 
 from ..pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
-from ..pipeline_steps.config_mims_packaging_step import PackageStepConfig
-from ..pipeline_steps.config_mims_payload_step import PayloadConfig
-from ..pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
+from ..pipeline_steps.config_package_step import PackageConfig
+from ..pipeline_steps.config_payload_step import PayloadConfig
+from ..pipeline_steps.config_registration_step import RegistrationConfig
 
 # Step builders
 from ..pipeline_steps.builder_step_base import StepBuilderBase
@@ -50,8 +50,8 @@ from ..pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStep
 from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
 from ..pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
-from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
+from ..pipeline_steps.builder_package_step import PackageStepBuilder
+from ..pipeline_steps.builder_payload_step import PayloadStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
 
 # Setup logging
@@ -114,9 +114,9 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         'TabularPreprocessingConfig': TabularPreprocessingConfig,
         'XGBoostTrainingConfig':      XGBoostTrainingConfig,
         'XGBoostModelEvalConfig':     XGBoostModelEvalConfig,
-        'PackageStepConfig':          PackageStepConfig,
+        'PackageConfig':              PackageConfig,
         'PayloadConfig':              PayloadConfig,
-        'ModelRegistrationConfig':    ModelRegistrationConfig  # Added to support configs that may include it
+        'RegistrationConfig':         RegistrationConfig  # Added to support configs that may include it
     }
 
     def __init__(
@@ -180,7 +180,7 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         # Check for required single-instance configs
         for config_type, name in [
             (XGBoostTrainingConfig, "XGBoost training"),
-            (PackageStepConfig, "model packaging"),
+            (PackageConfig, "model packaging"),
             (PayloadConfig, "payload testing"),
             (XGBoostModelEvalConfig, "model evaluation")
         ]:
@@ -216,8 +216,8 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
             STEP_NAMES["CradleDataLoading"]["spec_type"]: CradleDataLoadingStepBuilder,
             STEP_NAMES["TabularPreprocessing"]["spec_type"]: TabularPreprocessingStepBuilder,
             STEP_NAMES["XGBoostTraining"]["spec_type"]: XGBoostTrainingStepBuilder,
-            STEP_NAMES["Package"]["spec_type"]: MIMSPackagingStepBuilder,
-            STEP_NAMES["Payload"]["spec_type"]: MIMSPayloadStepBuilder,
+            STEP_NAMES["Package"]["spec_type"]: PackageStepBuilder,
+            STEP_NAMES["Payload"]["spec_type"]: PayloadStepBuilder,
             STEP_NAMES["XGBoostModelEval"]["spec_type"]: XGBoostModelEvalStepBuilder,
         }
 
@@ -250,7 +250,7 @@ class XGBoostTrainEvaluateNoRegistrationTemplate(PipelineTemplateBase):
         # Find single instance configs (removing hyperparameter_prep)
         for cfg_type, step_name in [
             (XGBoostTrainingConfig, "xgboost_train"),
-            (PackageStepConfig, "model_packaging"),
+            (PackageConfig, "model_packaging"),
             (PayloadConfig, "payload_test"),
             (XGBoostModelEvalConfig, "model_evaluation")
         ]:

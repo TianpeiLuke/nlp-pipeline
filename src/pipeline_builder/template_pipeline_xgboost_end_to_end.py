@@ -40,18 +40,18 @@ from ..pipeline_steps.config_data_load_step_cradle import CradleDataLoadConfig
 from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
 from ..pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
 from ..pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig 
-from ..pipeline_steps.config_mims_packaging_step import PackageStepConfig
-from ..pipeline_steps.config_mims_payload_step import PayloadConfig
-from ..pipeline_steps.config_mims_registration_step import ModelRegistrationConfig
+from ..pipeline_steps.config_package_step import PackageConfig
+from ..pipeline_steps.config_payload_step import PayloadConfig
+from ..pipeline_steps.config_registration_step import RegistrationConfig
 
 # Step builders
 from ..pipeline_steps.builder_step_base import StepBuilderBase
 from ..pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
 from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
 from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
-from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
-from ..pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
+from ..pipeline_steps.builder_package_step import PackageStepBuilder
+from ..pipeline_steps.builder_payload_step import PayloadStepBuilder
+from ..pipeline_steps.builder_registration_step import RegistrationStepBuilder
 from ..pipeline_registry.step_names import STEP_NAMES
 
 # Setup logging
@@ -114,9 +114,9 @@ class XGBoostEndToEndTemplate(PipelineTemplateBase):
         'ProcessingStepConfigBase':   ProcessingStepConfigBase,
         'TabularPreprocessingConfig': TabularPreprocessingConfig,
         'XGBoostTrainingConfig':      XGBoostTrainingConfig,
-        'PackageStepConfig':          PackageStepConfig,
+        'PackageConfig':              PackageConfig,
         'PayloadConfig':              PayloadConfig,
-        'ModelRegistrationConfig':    ModelRegistrationConfig
+        'RegistrationConfig':         RegistrationConfig
     }
 
     def __init__(
@@ -180,9 +180,9 @@ class XGBoostEndToEndTemplate(PipelineTemplateBase):
         # Check for required single-instance configs
         for config_type, name in [
             (XGBoostTrainingConfig, "XGBoost training"),
-            (PackageStepConfig, "model packaging"),
+            (PackageConfig, "model packaging"),
             (PayloadConfig, "payload testing"),
-            (ModelRegistrationConfig, "model registration")
+            (RegistrationConfig, "model registration")
         ]:
             instances = [cfg for _, cfg in self.configs.items() if type(cfg) is config_type]
             if not instances:
@@ -216,9 +216,9 @@ class XGBoostEndToEndTemplate(PipelineTemplateBase):
             STEP_NAMES["CradleDataLoading"]["spec_type"]: CradleDataLoadingStepBuilder,
             STEP_NAMES["TabularPreprocessing"]["spec_type"]: TabularPreprocessingStepBuilder,
             STEP_NAMES["XGBoostTraining"]["spec_type"]: XGBoostTrainingStepBuilder,
-            STEP_NAMES["Package"]["spec_type"]: MIMSPackagingStepBuilder,
-            STEP_NAMES["Payload"]["spec_type"]: MIMSPayloadStepBuilder,
-            STEP_NAMES["Registration"]["spec_type"]: ModelRegistrationStepBuilder,
+            STEP_NAMES["Package"]["spec_type"]: PackageStepBuilder,
+            STEP_NAMES["Payload"]["spec_type"]: PayloadStepBuilder,
+            STEP_NAMES["Registration"]["spec_type"]: RegistrationStepBuilder,
         }
 
     def _create_config_map(self) -> Dict[str, BasePipelineConfig]:
@@ -250,9 +250,9 @@ class XGBoostEndToEndTemplate(PipelineTemplateBase):
         # Find single instance configs
         for cfg_type, step_name in [
             (XGBoostTrainingConfig, "xgboost_train"),
-            (PackageStepConfig, "model_packaging"),
+            (PackageConfig, "model_packaging"),
             (PayloadConfig, "payload_test"),
-            (ModelRegistrationConfig, "model_registration")
+            (RegistrationConfig, "model_registration")
         ]:
             # Use exact type matching (type(cfg) is cfg_type) instead of isinstance()
             # This prevents subclasses (like PayloadConfig) from matching when looking for parent class
@@ -378,7 +378,7 @@ class XGBoostEndToEndTemplate(PipelineTemplateBase):
         # Find registration config
         registration_cfg = next(
             (cfg for _, cfg in self.configs.items() 
-             if isinstance(cfg, ModelRegistrationConfig)), 
+             if isinstance(cfg, RegistrationConfig)), 
             None
         )
         
