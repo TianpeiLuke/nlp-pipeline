@@ -100,11 +100,11 @@ class StepBuilderRegistry:
     
     # Legacy aliases for backward compatibility
     LEGACY_ALIASES = {
-        "MIMSPackaging": "Package", 
-        "MIMSPayload": "Payload",
-        "ModelRegistration": "Registration",
-        "PyTorchTraining": "PytorchTraining",
-        "PyTorchModel": "PytorchModel",
+        "MIMSPackaging": "Package",  # Legacy name from before standardization
+        "MIMSPayload": "Payload",    # Legacy name from before standardization
+        "ModelRegistration": "Registration",  # Legacy name from before standardization
+        "PyTorchTraining": "PytorchTraining",  # Case sensitivity difference
+        "PyTorchModel": "PytorchModel",  # Case sensitivity difference
     }
     
     @classmethod
@@ -471,7 +471,7 @@ class StepBuilderRegistry:
         # Use the central registry from step_names.py - already imported
         if config_class_name in CONFIG_STEP_REGISTRY:
             canonical_step_name = CONFIG_STEP_REGISTRY[config_class_name]
-            # Check if this is a new canonical name that has a legacy builder name
+            # Check if this is a canonical name that has a legacy alias
             for legacy_name, canonical_name in self.LEGACY_ALIASES.items():
                 if canonical_name == canonical_step_name:
                     base_step_type = legacy_name
@@ -480,6 +480,7 @@ class StepBuilderRegistry:
                         return f"{base_step_type}_{job_type}"
                     return base_step_type  # Return legacy name for backward compatibility
             
+            # Just use the canonical name from the registry
             base_step_type = canonical_step_name
             # Append job type if provided
             if job_type:
@@ -500,13 +501,9 @@ class StepBuilderRegistry:
         if step_type.endswith('Step'):
             step_type = step_type[:-4]
         
-        # Handle special cases for backward compatibility
+        # Handle common naming patterns
         if step_type == "CradleDataLoad":
             base_step_type = "CradleDataLoading"
-        elif step_type == "PackageStep" or step_type == "Package":
-            base_step_type = "Package"  # Use canonical name
-        elif step_type == "Payload":
-            base_step_type = "Payload"  # Use canonical name
         else:
             base_step_type = step_type
         

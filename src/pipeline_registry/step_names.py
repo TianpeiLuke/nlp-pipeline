@@ -7,94 +7,83 @@ from typing import Dict, List
 
 # Core step name registry - canonical names used throughout the system
 STEP_NAMES = {
-    # Base Steps (keep as-is)
     "Base": {
         "config_class": "BasePipelineConfig",
-        "builder_step_name": "BaseStep",
+        "builder_step_name": "StepBuilderBase",
         "spec_type": "Base",
         "description": "Base pipeline configuration"
     },
-    
+
     # Processing Steps (keep Processing as-is)
     "Processing": {
-        "config_class": "ProcessingStepConfigBase", 
-        "builder_step_name": "ProcessingStep",
+        "config_class": "ProcessingStepConfigBase",
+        "builder_step_name": "ProcessingStepBuilder",
         "spec_type": "Processing",
         "description": "Base processing step"
     },
+
+    # Data Loading Steps
+    "CradleDataLoading": {
+        "config_class": "CradleDataLoadConfig",
+        "builder_step_name": "CradleDataLoadingStepBuilder",
+        "spec_type": "CradleDataLoading",
+        "description": "Cradle data loading step"
+    },
+
+    # Processing Steps
     "TabularPreprocessing": {
         "config_class": "TabularPreprocessingConfig",
-        "builder_step_name": "TabularPreprocessingStep",
+        "builder_step_name": "TabularPreprocessingStepBuilder",
         "spec_type": "TabularPreprocessing",
         "description": "Tabular data preprocessing step"
     },
     "RiskTableMapping": {
         "config_class": "RiskTableMappingConfig",
-        "builder_step_name": "RiskTableMappingStep",  # FIXED: was RiskTableMappingStepBuilder
+        "builder_step_name": "RiskTableMappingStepBuilder",
         "spec_type": "RiskTableMapping",
         "description": "Risk table mapping step for categorical features"
     },
     "CurrencyConversion": {
         "config_class": "CurrencyConversionConfig",
-        "builder_step_name": "CurrencyConversionStep",
+        "builder_step_name": "CurrencyConversionStepBuilder",
         "spec_type": "CurrencyConversion",
         "description": "Currency conversion processing step"
     },
     
-    # Data Loading Steps
-    "CradleDataLoading": {
-        "config_class": "CradleDataLoadConfig",
-        "builder_step_name": "CradleDataLoadingStep",
-        "spec_type": "CradleDataLoading",
-        "description": "Cradle data loading step"
-    },
-    
     # Training Steps
-    "PytorchTraining": {  # Canonical: PytorchTraining (not PyTorchTraining)
-        "config_class": "PytorchTrainingConfig",
-        "builder_step_name": "PytorchTrainingStep",
-        "spec_type": "PytorchTraining",
+    "PyTorchTraining": {
+        "config_class": "PyTorchTrainingConfig",
+        "builder_step_name": "PyTorchTrainingStepBuilder",
+        "spec_type": "PyTorchTraining",
         "description": "PyTorch model training step"
     },
     "XGBoostTraining": {
-        "config_class": "XGBoostTrainingConfig", 
-        "builder_step_name": "XGBoostTrainingStep",
+        "config_class": "XGBoostTrainingConfig",
+        "builder_step_name": "XGBoostTrainingStepBuilder",
         "spec_type": "XGBoostTraining",
         "description": "XGBoost model training step"
     },
     "DummyTraining": {
         "config_class": "DummyTrainingConfig",
-        "builder_step_name": "DummyTrainingStep",  # FIXED: was DummyTrainingStepBuilder
+        "builder_step_name": "DummyTrainingStepBuilder",
         "spec_type": "DummyTraining",
         "description": "Training step that uses a pretrained model"
-    },
-    
-    # Model Creation Steps
-    "PytorchModel": {  # Canonical: PytorchModel (not PyTorchModel)
-        "config_class": "PytorchModelCreationConfig",
-        "builder_step_name": "PytorchModelStep",  # FIXED: was CreatePytorchModelStep
-        "spec_type": "PytorchModel",
-        "description": "PyTorch model creation step"
-    },
-    "XGBoostModel": {
-        "config_class": "XGBoostModelCreationConfig",
-        "builder_step_name": "XGBoostModelStep",  # FIXED: was CreateXGBoostModelStep
-        "spec_type": "XGBoostModel",
-        "description": "XGBoost model creation step"
     },
     
     # Evaluation Steps
     "XGBoostModelEval": {
         "config_class": "XGBoostModelEvalConfig",
-        "builder_step_name": "XGBoostModelEvalStep",  # FIXED: was XGBoostModelEvaluationStep
+        "builder_step_name": "XGBoostModelEvalStepBuilder",
         "spec_type": "XGBoostModelEval",
         "description": "XGBoost model evaluation step"
     },
-    "PytorchModelEval": {
-        "config_class": "PytorchModelEvalConfig", 
-        "builder_step_name": "PytorchModelEvalStep",  # FIXED: was PytorchModelEvaluationStep
-        "spec_type": "PytorchModelEval",
-        "description": "PyTorch model evaluation step"
+    
+    # Model Processing Steps
+    "ModelCalibration": {
+        "config_class": "ModelCalibrationConfig",
+        "builder_step_name": "ModelCalibrationStepBuilder",
+        "spec_type": "ModelCalibration",
+        "description": "Calibrates model prediction scores to accurate probabilities"
     },
     
     # Deployment Steps
@@ -117,28 +106,20 @@ STEP_NAMES = {
         "description": "Payload testing step"
     },
     
-    # Transform Steps
-    "BatchTransform": {
-        "config_class": "BatchTransformStepConfig",
-        "builder_step_name": "BatchTransformStep",
-        "spec_type": "BatchTransform",
-        "description": "Batch transform step"
-    },
-    
     # Utility Steps
     "HyperparameterPrep": {
         "config_class": "HyperparameterPrepConfig",
-        "builder_step_name": "HyperparameterPrepStep",
+        "builder_step_name": "HyperparameterPrepStepBuilder",
         "spec_type": "HyperparameterPrep",
         "description": "Hyperparameter preparation step"
     },
     
-    # Model Calibration Steps
-    "ModelCalibration": {
-        "config_class": "ModelCalibrationConfig",
-        "builder_step_name": "ModelCalibrationStepBuilder",
-        "spec_type": "ModelCalibration",
-        "description": "Calibrates model prediction scores to accurate probabilities"
+    # Transform Steps
+    "BatchTransform": {
+        "config_class": "BatchTransformStepConfig",
+        "builder_step_name": "BatchTransformStepBuilder",
+        "spec_type": "BatchTransform",
+        "description": "Batch transform step"
     }
 }
 
