@@ -39,6 +39,11 @@ def validate_pipeline_name(name: str) -> bool:
     Returns:
         True if the name is valid, False otherwise
     """
+    # Check length constraint (SageMaker has a limit of 255 characters)
+    if len(name) > 255 or len(name) == 0:
+        return False
+        
+    # Check pattern constraint
     return bool(re.match(PIPELINE_NAME_PATTERN, name))
 
 
