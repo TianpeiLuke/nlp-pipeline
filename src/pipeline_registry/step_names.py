@@ -99,20 +99,20 @@ STEP_NAMES = {
     
     # Deployment Steps
     "Package": {
-        "config_class": "PackageStepConfig",
-        "builder_step_name": "PackageStep",  # FIXED: was PackagingStep
+        "config_class": "PackageConfig",
+        "builder_step_name": "PackageStepBuilder",
         "spec_type": "Package",
         "description": "Model packaging step"
     },
     "Registration": {
-        "config_class": "ModelRegistrationConfig",
-        "builder_step_name": "RegistrationStep",
+        "config_class": "RegistrationConfig",
+        "builder_step_name": "RegistrationStepBuilder",
         "spec_type": "Registration",
         "description": "Model registration step"
     },
     "Payload": {
         "config_class": "PayloadConfig",
-        "builder_step_name": "PayloadStep",  # FIXED: was PayloadTestStep
+        "builder_step_name": "PayloadStepBuilder",
         "spec_type": "Payload",
         "description": "Payload testing step"
     },

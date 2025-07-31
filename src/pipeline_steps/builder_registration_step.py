@@ -11,7 +11,7 @@ from secure_ai_sandbox_workflow_python_sdk.mims_model_registration.mims_model_re
     MimsModelRegistrationProcessingStep,
 )
 
-from .config_mims_registration_step import ModelRegistrationConfig
+from .config_registration_step import RegistrationConfig
 from .builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
 from ..pipeline_deps.dependency_resolver import UnifiedDependencyResolver
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_builder()
-class ModelRegistrationStepBuilder(StepBuilderBase):
+class RegistrationStepBuilder(StepBuilderBase):
     """
     Builder for a Model Registration ProcessingStep.
     This class is responsible for configuring and creating a SageMaker ProcessingStep
@@ -46,7 +46,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
 
     def __init__(
         self,
-        config: ModelRegistrationConfig,
+        config: RegistrationConfig,
         sagemaker_session=None,
         role: Optional[str] = None,
         notebook_root: Optional[Path] = None,
@@ -57,7 +57,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Initializes the builder with a specific configuration for the model registration step.
 
         Args:
-            config: A ModelRegistrationConfig instance containing all necessary settings.
+            config: A RegistrationConfig instance containing all necessary settings.
             sagemaker_session: The SageMaker session object to manage interactions with AWS.
             role: The IAM role ARN to be used by the SageMaker Processing Job.
             notebook_root: The root directory of the notebook environment, used for resolving
@@ -65,9 +65,9 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             registry_manager: Optional registry manager for dependency injection
             dependency_resolver: Optional dependency resolver for dependency injection
         """
-        if not isinstance(config, ModelRegistrationConfig):
+        if not isinstance(config, RegistrationConfig):
             raise ValueError(
-                "ModelRegistrationStepBuilder requires a ModelRegistrationConfig instance."
+                "RegistrationStepBuilder requires a RegistrationConfig instance."
             )
             
         # Use the registration specification if available
@@ -82,7 +82,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
             registry_manager=registry_manager,
             dependency_resolver=dependency_resolver
         )
-        self.config: ModelRegistrationConfig = config
+        self.config: RegistrationConfig = config
         
         # Store contract reference
         self.contract = MIMS_REGISTRATION_CONTRACT if CONTRACT_AVAILABLE else None
@@ -98,7 +98,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         Raises:
             ValueError: If any required configuration is missing or invalid.
         """
-        self.log_info("Validating ModelRegistrationConfig...")
+        self.log_info("Validating RegistrationConfig...")
         
         # Validate required attributes that are actually defined in the config
         required_attrs = [
@@ -116,7 +116,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
         
         for attr in required_attrs:
             if not hasattr(self.config, attr) or getattr(self.config, attr) in [None, ""]:
-                raise ValueError(f"ModelRegistrationConfig missing required attribute: {attr}")
+                raise ValueError(f"RegistrationConfig missing required attribute: {attr}")
         
         # Validate spec-contract alignment if both are available
         if self.spec and self.contract:
@@ -126,7 +126,7 @@ class ModelRegistrationStepBuilder(StepBuilderBase):
                 if dependency.required and logical_name not in self.contract.expected_input_paths:
                     raise ValueError(f"Required dependency '{logical_name}' in spec not found in contract expected_input_paths")
         
-        self.log_info("ModelRegistrationConfig validation succeeded.")
+        self.log_info("RegistrationConfig validation succeeded.")
 
 
     # No special handling needed since upstream steps now provide paths with .tar.gz suffix

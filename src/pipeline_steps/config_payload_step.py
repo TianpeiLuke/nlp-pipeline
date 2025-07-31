@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .config_processing_step_base import ProcessingStepConfigBase
-from .config_mims_registration_step import VariableType
+from .config_registration_step import VariableType
 
 # Import the script contract
 from ..pipeline_script_contracts.mims_payload_contract import MIMS_PAYLOAD_CONTRACT

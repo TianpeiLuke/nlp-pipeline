@@ -34,7 +34,7 @@ def create_inference_variable_list(
 ) -> Union[Dict[str, Union[VariableType, str]], List[List[str]]]:
     """
     Create an inference variable list for model input variables using separate lists for numeric and text fields.
-    This is a helper function that can be used standalone or within ModelRegistrationConfig.
+    This is a helper function that can be used standalone or within RegistrationConfig.
     
     Args:
         numeric_fields: List of field names that should be treated as NUMERIC
@@ -95,7 +95,7 @@ def create_inference_variable_list(
     return result
 
 
-class ModelRegistrationConfig(BasePipelineConfig):
+class RegistrationConfig(BasePipelineConfig):
     """
     Configuration for model registration step, following the three-tier categorization:
     
@@ -166,13 +166,15 @@ class ModelRegistrationConfig(BasePipelineConfig):
     # Removed _source_model_inference_input_variable_list as it's now a field
     _variable_schema: Optional[Dict[str, Dict[str, List[Dict[str, str]]]]] = PrivateAttr(default=None)
     
-    class Config(BasePipelineConfig.Config):
-        arbitrary_types_allowed = True
-        validate_assignment = True
-        extra = 'allow'  # Accept metadata fields during deserialization
-        json_encoders = {
+    # Update to Pydantic V2 style model_config
+    model_config = {
+        'arbitrary_types_allowed': True,
+        'validate_assignment': True,
+        'extra': 'allow',  # Accept metadata fields during deserialization
+        'json_encoders': {
             VariableType: lambda v: v.value
         }
+    }
     
     # ===== Property Accessors for Derived Fields =====
     # (No property accessor needed for source_model_inference_input_variable_list since it's now a field)
@@ -199,14 +201,14 @@ class ModelRegistrationConfig(BasePipelineConfig):
     # ===== Model Validation =====
     
     @model_validator(mode='after')
-    def initialize_derived_fields(self) -> 'ModelRegistrationConfig':
+    def initialize_derived_fields(self) -> 'RegistrationConfig':
         """Initialize all derived fields once after validation."""
         # Call parent validator first
         super().initialize_derived_fields()
         return self
         
     @model_validator(mode='after')
-    def validate_registration_configs(self) -> 'ModelRegistrationConfig':
+    def validate_registration_configs(self) -> 'RegistrationConfig':
         """Validate registration-specific configurations"""
         # Validate inference entry point
         if self.source_dir and not self.source_dir.startswith('s3://'):

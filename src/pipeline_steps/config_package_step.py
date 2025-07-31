@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..pipeline_script_contracts.base_script_contract import ScriptContract
 
 
-class PackageStepConfig(ProcessingStepConfigBase):
+class PackageConfig(ProcessingStepConfigBase):
     """
     Configuration for a model packaging step.
     
@@ -38,7 +38,7 @@ class PackageStepConfig(ProcessingStepConfigBase):
     }
 
     @model_validator(mode='after')
-    def validate_config(self) -> 'PackageStepConfig':
+    def validate_config(self) -> 'PackageConfig':
         """
         Validate configuration and ensure defaults are set.
         

@@ -188,9 +188,9 @@ class StepBuilderRegistry:
         from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
         from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
         from ..pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
-        from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
-        from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
-        from ..pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
+        from ..pipeline_steps.builder_package_step import PackageStepBuilder
+        from ..pipeline_steps.builder_payload_step import PayloadStepBuilder
+        from ..pipeline_steps.builder_registration_step import RegistrationStepBuilder
         from ..pipeline_steps.builder_training_step_pytorch import PyTorchTrainingStepBuilder
         from ..pipeline_steps.builder_model_step_pytorch import PyTorchModelStepBuilder
         from ..pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
@@ -207,9 +207,9 @@ class StepBuilderRegistry:
             "TabularPreprocessing": TabularPreprocessingStepBuilder,
             "XGBoostTraining": XGBoostTrainingStepBuilder,
             "XGBoostModelEval": XGBoostModelEvalStepBuilder, 
-            "Package": MIMSPackagingStepBuilder,  # Canonical: Package (not MIMSPackaging)
-            "Payload": MIMSPayloadStepBuilder,    # Canonical: Payload (not MIMSPayload)
-            "Registration": ModelRegistrationStepBuilder,  # Canonical: Registration (not ModelRegistration)
+            "Package": PackageStepBuilder,  # Using standardized name
+            "Payload": PayloadStepBuilder,   # Using standardized name 
+            "Registration": RegistrationStepBuilder,  # Using standardized name
             "PytorchTraining": PyTorchTrainingStepBuilder,  # Canonical: PytorchTraining (not PyTorchTraining)
             "PytorchModel": PyTorchModelStepBuilder,  # Canonical: PytorchModel (not PyTorchModel)
             "XGBoostModel": XGBoostModelStepBuilder,
