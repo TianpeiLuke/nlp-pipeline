@@ -16,6 +16,8 @@ from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline_context import PipelineSession
 
+from ..pipeline_api.name_generator import generate_pipeline_name
+
 from ..pipeline_steps.config_base import BasePipelineConfig
 from ..pipeline_steps.builder_step_base import StepBuilderBase
 from ..pipeline_deps.registry_manager import RegistryManager
@@ -293,12 +295,24 @@ class PipelineTemplateBase(ABC):
         
     def _get_pipeline_name(self) -> str:
         """
-        Get pipeline name.
+        Get pipeline name using the rule-based generator.
         
         Returns:
             Pipeline name
         """
-        return getattr(self.base_config, 'pipeline_name', 'default-pipeline')
+        # Check if explicit override is provided in the base config
+        explicit_name = getattr(self.base_config, 'explicit_pipeline_name', None)
+        if explicit_name:
+            return explicit_name
+            
+        # Get pipeline_name from base_config, with fallback
+        pipeline_name = getattr(self.base_config, 'pipeline_name', 'mods')
+        
+        # Get pipeline_version from base_config, with fallback
+        pipeline_version = getattr(self.base_config, 'pipeline_version', '1.0')
+        
+        # Use the rule-based generator
+        return generate_pipeline_name(pipeline_name, pipeline_version)
         
     def _store_pipeline_metadata(self, template: PipelineAssembler) -> None:
         """
