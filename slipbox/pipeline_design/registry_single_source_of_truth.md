@@ -44,11 +44,17 @@ The registry is implemented in `src/pipeline_registry/step_names.py` and has the
 
 ```python
 STEP_NAMES = {
-    "StepName": {
-        "config_class": "ConfigClassName",
-        "builder_step_name": "BuilderClassName",
-        "spec_type": "SpecificationType",
-        "description": "Description of the step"
+    "PyTorchTraining": {
+        "config_class": "PyTorchTrainingConfig",           # For config registry
+        "builder_step_name": "PyTorchTrainingStepBuilder", # For builder registry
+        "spec_type": "PyTorchTraining",                    # For StepSpecification.step_type
+        "description": "PyTorch model training step"
+    },
+    "XGBoostTraining": {
+        "config_class": "XGBoostTrainingConfig", 
+        "builder_step_name": "XGBoostTrainingStepBuilder",
+        "spec_type": "XGBoostTraining",
+        "description": "XGBoost model training step"
     },
     # ... other steps
 }
@@ -61,7 +67,7 @@ Each step has a canonical name as its key, with a dictionary of related componen
 From the core `STEP_NAMES` dictionary, several specialized mappings are derived:
 
 - `CONFIG_STEP_REGISTRY`: Maps config class names to step names
-- `BUILDER_STEP_NAMES`: Maps step names to builder class names
+- `BUILDER_STEP_NAMES`: Maps builder class names to step names
 - `SPEC_STEP_TYPES`: Maps step names to specification types
 
 #### Helper Functions
@@ -87,6 +93,7 @@ The Step Names Registry integrates with other components in the following ways:
 5. **Configuration Merging**: Ensures configuration fields are correctly associated with steps
 6. **Pipeline Templates**: Provides consistent step naming for pipeline DAG construction
 7. **Script Contracts**: Ensures consistency between script contracts and step specifications
+8. **Job Type Handling**: Properly handles job type variants (like training/calibration) with consistent naming
 
 For comprehensive details on this integration across all components, refer to the [Registry-Based Step Name Generation](registry_based_step_name_generation.md) document.
 
@@ -100,6 +107,10 @@ step_name = CONFIG_STEP_REGISTRY.get(config.__class__.__name__)
 
 # In builder creation - map step name to builder class
 builder_class_name = get_builder_step_name(step_name)
+
+# Job type handling
+# Gets "CradleDataLoading_training" step type for specifications
+step_type = get_spec_step_type_with_job_type("CradleDataLoading", "training")
 ```
 
 ## Hyperparameter Registry
@@ -175,6 +186,7 @@ hyperparam_class = getattr(module, hyperparam_class_name)
 3. **Validate references**: Use validation functions to check step names and hyperparameter classes
 4. **Use canonical names**: Reference the canonical step names defined in the registry
 5. **Keep metadata complete**: Ensure all registry entries have complete metadata
+6. **Follow naming conventions**: Use consistent PascalCase for step types, XxxConfig for config classes, and XxxStepBuilder for builder classes
 
 ### Don'ts
 
@@ -203,6 +215,7 @@ Implementing the registry pattern for step names and hyperparameters provides se
 4. **Clearer Dependencies**: Explicit relationships between components
 5. **Self-Documenting**: The registry serves as documentation of available components
 6. **Stronger Type Safety**: Validation against a defined set of options
+7. **Consistent Naming**: Enforces standardized naming conventions across all components
 
 ## Conclusion
 

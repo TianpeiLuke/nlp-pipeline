@@ -16,14 +16,14 @@ Standardization Rules provide the enhanced constraint enforcement layer that:
 
 ### 1. Naming Conventions
 
-All components must follow consistent naming conventions:
+All components must follow consistent naming conventions. These conventions are now centrally defined and enforced through the `step_names.py` registry, which serves as a single source of truth for step naming across the system.
 
 | Component | Pattern | Examples | Counter-Examples |
 |-----------|---------|----------|-----------------|
-| Step Types | PascalCase | `DataLoading`, `XGBoostTraining` | `dataLoading`, `xgboost_training` |
+| Step Types | PascalCase | `CradleDataLoading`, `XGBoostTraining`, `PyTorchTraining` | `cradle_data_loading`, `xgboost_training`, `PytorchTraining` |
 | Logical Names | snake_case | `input_data`, `model_artifacts` | `InputData`, `model-artifacts` |
-| Config Classes | PascalCase + `Config` suffix | `DataLoadingConfig`, `XGBoostTrainingConfig` | `DataLoadingConfiguration`, `XGBoostConfig` |
-| Builder Classes | PascalCase + `StepBuilder` suffix | `DataLoadingStepBuilder`, `XGBoostTrainingStepBuilder` | `DataLoadingBuilder`, `XGBoostTrainer` |
+| Config Classes | PascalCase + `Config` suffix | `CradleDataLoadConfig`, `XGBoostTrainingConfig` | `CradleDataLoadingConfiguration`, `XGBoostConfig` |
+| Builder Classes | PascalCase + `StepBuilder` suffix | `CradleDataLoadingStepBuilder`, `XGBoostTrainingStepBuilder` | `DataLoadingBuilder`, `XGBoostStepBuilder` |
 
 Additionally, all files must follow consistent naming patterns:
 
@@ -48,7 +48,8 @@ All components must implement standardized interfaces:
 
 All step builders must:
 - Inherit from `StepBuilderBase`
-- Use the `@register_builder` decorator to register with the registry
+- Use the `@register_builder` decorator to register with the registry (or have their naming follow the standard pattern to be auto-discovered)
+- Follow the strict naming convention `XXXStepBuilder` where XXX is the step type
 - Implement the required methods:
   - `validate_configuration()`
   - `_get_inputs()`
@@ -60,7 +61,7 @@ Example:
 ```python
 from ..pipeline_registry.builder_registry import register_builder
 
-@register_builder("YourStep")
+@register_builder() # Step type will be auto-derived from class name (YourStepBuilder -> YourStep)
 class YourStepBuilder(StepBuilderBase):
     """Builder for your processing step."""
     
@@ -394,6 +395,29 @@ if validation['missing']:
     for entry in validation['missing']:
         print(f"  - {entry}")
 ```
+
+### Job Type Handling
+
+When working with step types that need to handle different job types (e.g., training, calibration), follow these patterns:
+
+1. **Node Naming**: Use underscore suffix for job type variants:
+   ```
+   CradleDataLoading_training
+   CradleDataLoading_calibration
+   TabularPreprocessing_training
+   ```
+
+2. **Configuration Classes**: Job type should be a field in the config:
+   ```python
+   class CradleDataLoadConfig(BasePipelineConfig):
+       job_type: str = Field(default="training", description="Job type (training, calibration)")
+   ```
+
+3. **Builder Resolution**: The builder registry will automatically resolve job types:
+   ```python
+   # This will resolve to CradleDataLoadingStepBuilder even though node name has _training suffix
+   builder = registry.get_builder_for_config(config, node_name="CradleDataLoading_training") 
+   ```
 
 ## Integration with Development Process
 

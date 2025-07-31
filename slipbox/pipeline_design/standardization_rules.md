@@ -67,21 +67,55 @@ class NamingStandardValidator:
                 f"Builder class '{class_name}' must follow pattern: PascalCaseStepBuilder"
             )
 
+# Centralized Registry
+All naming standards are now enforced through the centralized `step_names.py` registry:
+
+```python
+# src/pipeline_registry/step_names.py
+STEP_NAMES = {
+    "PyTorchTraining": {
+        "config_class": "PyTorchTrainingConfig",           # For config registry
+        "builder_step_name": "PyTorchTrainingStepBuilder", # For builder registry
+        "spec_type": "PyTorchTraining",                    # For StepSpecification.step_type
+        "description": "PyTorch model training step"
+    },
+    "XGBoostTraining": {
+        "config_class": "XGBoostTrainingConfig", 
+        "builder_step_name": "XGBoostTrainingStepBuilder",
+        "spec_type": "XGBoostTraining",
+        "description": "XGBoost model training step"
+    },
+    # ... other steps
+}
+```
+
 # Standard naming examples
+```python
 GOOD_NAMES = {
-    "step_types": ["DataLoading", "XGBoostTraining", "ModelPackaging"],
+    "step_types": ["CradleDataLoading", "XGBoostTraining", "PyTorchTraining"],
     "logical_names": ["input_data", "model_artifacts", "processed_features"],
-    "config_classes": ["DataLoadingStepConfig", "XGBoostTrainingStepConfig"],
-    "builder_classes": ["DataLoadingStepBuilder", "XGBoostTrainingStepBuilder"]
+    "config_classes": ["CradleDataLoadConfig", "XGBoostTrainingConfig"],
+    "builder_classes": ["CradleDataLoadingStepBuilder", "XGBoostTrainingStepBuilder"]
 }
 
 BAD_NAMES = {
-    "step_types": ["dataLoading", "xgboost_training", "model-packaging"],
+    "step_types": ["cradle_data_loading", "xgboost_training", "PytorchTraining"],
     "logical_names": ["InputData", "model-artifacts", "processedFeatures"],
-    "config_classes": ["DataLoadingConfig", "XGBoostTrainingConfiguration"],
-    "builder_classes": ["DataLoadingBuilder", "XGBoostTrainingStep"]
+    "config_classes": ["CradleDataLoadingConfig", "XGBoostTrainingConfiguration"],
+    "builder_classes": ["DataLoadingBuilder", "XGBoostTrainer"]
 }
 ```
+
+# Job Type Variants
+Job type variants follow a consistent naming pattern:
+```
+{base_step_name}_{job_type}
+```
+
+Examples:
+- `CradleDataLoading_training`
+- `CradleDataLoading_calibration`
+- `TabularPreprocessing_training`
 
 ### 2. Interface Standardization
 

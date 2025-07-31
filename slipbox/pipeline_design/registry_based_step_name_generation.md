@@ -23,15 +23,15 @@ The core of the system is the central registry defined in `src/pipeline_registry
 ```python
 # src/pipeline_registry/step_names.py
 STEP_NAMES = {
-    "PytorchTraining": {
-        "config_class": "PytorchTrainingConfig",      # For config registry
-        "builder_step_name": "PytorchTrainingStep",   # For builder registry
-        "spec_type": "PytorchTraining",               # For StepSpecification.step_type
+    "PyTorchTraining": {
+        "config_class": "PyTorchTrainingConfig",           # For config registry
+        "builder_step_name": "PyTorchTrainingStepBuilder", # For builder registry
+        "spec_type": "PyTorchTraining",                    # For StepSpecification.step_type
         "description": "PyTorch model training step"
     },
     "XGBoostTraining": {
         "config_class": "XGBoostTrainingConfig", 
-        "builder_step_name": "XGBoostTrainingStep",
+        "builder_step_name": "XGBoostTrainingStepBuilder",
         "spec_type": "XGBoostTraining",
         "description": "XGBoost model training step"
     },
