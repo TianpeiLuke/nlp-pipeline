@@ -458,8 +458,15 @@ class PipelineDAGCompiler:
         try:
             self.logger.info(f"Creating template for DAG with {len(dag.nodes)} nodes")
             
-            # Merge kwargs
-            template_kwargs = {**self.template_kwargs, **kwargs}
+            # Merge kwargs with default values
+            template_kwargs = {**self.template_kwargs}
+            
+            # Set default skip_validation if not provided
+            if 'skip_validation' not in kwargs:
+                template_kwargs['skip_validation'] = False  # Enable validation by default
+            
+            # Update with any other kwargs provided
+            template_kwargs.update(kwargs)
             
             # Create dynamic template
             template = DynamicPipelineTemplate(
@@ -469,7 +476,6 @@ class PipelineDAGCompiler:
                 builder_registry=self.builder_registry,
                 sagemaker_session=self.sagemaker_session,
                 role=self.role,
-                skip_validation=False,  # Enable validation by default
                 **template_kwargs
             )
             
