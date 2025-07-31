@@ -36,6 +36,18 @@ from src.config_field_manager import (
     register_config_class
 )
 
+# Import the config class detector for efficient class detection
+try:
+    from src.config_field_manager.config_class_detector import detect_config_classes_from_json
+except ImportError:
+    # Fallback implementation if the module is not available
+    def detect_config_classes_from_json(config_path: str) -> Dict[str, Type[BaseModel]]:
+        """
+        Fallback implementation that simply calls build_complete_config_classes.
+        """
+        logger.warning("Could not import config_class_detector, using fallback implementation")
+        return build_complete_config_classes()
+
 # Constants for the simplified categorization model
 from enum import Enum, auto
 class CategoryType(Enum):
