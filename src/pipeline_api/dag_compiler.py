@@ -81,7 +81,7 @@ def compile_dag_to_pipeline(
         if not config_path_obj.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
         
-        # Create compiler and compile
+        # Create compiler
         compiler = PipelineDAGCompiler(
             config_path=config_path,
             sagemaker_session=sagemaker_session,
@@ -89,6 +89,7 @@ def compile_dag_to_pipeline(
             **kwargs
         )
         
+        # Use compile method which uses our create_template method
         pipeline = compiler.compile(dag, pipeline_name=pipeline_name)
         
         logger.info(f"Successfully compiled DAG to pipeline: {pipeline.name}")
@@ -163,16 +164,8 @@ class PipelineDAGCompiler:
         try:
             self.logger.info(f"Validating DAG compatibility for {len(dag.nodes)} nodes")
             
-            # Create a temporary template to load configurations
-            temp_template = DynamicPipelineTemplate(
-                dag=dag,
-                config_path=self.config_path,
-                config_resolver=self.config_resolver,
-                builder_registry=self.builder_registry,
-                sagemaker_session=self.sagemaker_session,
-                role=self.role,
-                **self.template_kwargs
-            )
+            # Create a template using our create_template method
+            temp_template = self.create_template(dag)
             
             # Get resolved mappings
             dag_nodes = list(dag.nodes)
@@ -245,16 +238,8 @@ class PipelineDAGCompiler:
         try:
             self.logger.info(f"Previewing resolution for {len(dag.nodes)} DAG nodes")
             
-            # Create a temporary template to load configurations
-            temp_template = DynamicPipelineTemplate(
-                dag=dag,
-                config_path=self.config_path,
-                config_resolver=self.config_resolver,
-                builder_registry=self.builder_registry,
-                sagemaker_session=self.sagemaker_session,
-                role=self.role,
-                **self.template_kwargs
-            )
+            # Create a template using our create_template method
+            temp_template = self.create_template(dag)
             
             # Get preview data
             dag_nodes = list(dag.nodes)
@@ -348,20 +333,12 @@ class PipelineDAGCompiler:
         try:
             self.logger.info(f"Compiling DAG with {len(dag.nodes)} nodes to pipeline")
             
-            # Merge kwargs
+            # Reuse our create_template method but enforce skip_validation=True for performance
+            # as the validation is typically done separately before compilation
             template_kwargs = {**self.template_kwargs, **kwargs}
+            template_kwargs['skip_validation'] = True  # Skip validation for performance during direct compilation
             
-            # Create dynamic template with skip_validation=True
-            template = DynamicPipelineTemplate(
-                dag=dag,
-                config_path=self.config_path,
-                config_resolver=self.config_resolver,
-                builder_registry=self.builder_registry,
-                sagemaker_session=self.sagemaker_session,
-                role=self.role,
-                skip_validation=True,
-                **template_kwargs
-            )
+            template = self.create_template(dag, **template_kwargs)
             
             # Build pipeline
             pipeline = template.generate_pipeline()
@@ -462,6 +439,47 @@ class PipelineDAGCompiler:
             self.logger.error(f"Failed to compile DAG with report: {e}")
             raise PipelineAPIError(f"DAG compilation with report failed: {e}") from e
     
+    def create_template(self, dag: PipelineDAG, **kwargs) -> "DynamicPipelineTemplate":
+        """
+        Create a pipeline template from the DAG without generating the pipeline.
+        
+        This allows inspecting or modifying the template before pipeline generation.
+        
+        Args:
+            dag: PipelineDAG instance to create a template for
+            **kwargs: Additional arguments for template
+            
+        Returns:
+            DynamicPipelineTemplate instance ready for pipeline generation
+            
+        Raises:
+            PipelineAPIError: If template creation fails
+        """
+        try:
+            self.logger.info(f"Creating template for DAG with {len(dag.nodes)} nodes")
+            
+            # Merge kwargs
+            template_kwargs = {**self.template_kwargs, **kwargs}
+            
+            # Create dynamic template
+            template = DynamicPipelineTemplate(
+                dag=dag,
+                config_path=self.config_path,
+                config_resolver=self.config_resolver,
+                builder_registry=self.builder_registry,
+                sagemaker_session=self.sagemaker_session,
+                role=self.role,
+                skip_validation=False,  # Enable validation by default
+                **template_kwargs
+            )
+            
+            self.logger.info(f"Successfully created template")
+            return template
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create template: {e}")
+            raise PipelineAPIError(f"Template creation failed: {e}") from e
+    
     def get_supported_step_types(self) -> list:
         """
         Get list of supported step types.
@@ -483,16 +501,8 @@ class PipelineDAGCompiler:
             test_dag = PipelineDAG()
             test_dag.add_node("test_node")
             
-            temp_template = DynamicPipelineTemplate(
-                dag=test_dag,
-                config_path=self.config_path,
-                config_resolver=self.config_resolver,
-                builder_registry=self.builder_registry,
-                sagemaker_session=self.sagemaker_session,
-                role=self.role,
-                skip_validation=True,
-                **self.template_kwargs
-            )
+            # Use create_template with skip_validation=True to just test config loading
+            temp_template = self.create_template(dag=test_dag, skip_validation=True)
             
             configs = temp_template.configs
             
