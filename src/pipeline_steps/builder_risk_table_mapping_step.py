@@ -33,7 +33,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("RiskTableMapping")
+@register_builder()
 class RiskTableMappingStepBuilder(StepBuilderBase):
     """
     Builder for a Risk Table Mapping ProcessingStep.

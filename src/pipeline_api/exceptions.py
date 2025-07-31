@@ -7,6 +7,9 @@ to provide clear, actionable error messages for users.
 
 from typing import List, Dict, Any, Optional
 
+# Import RegistryError from pipeline_registry
+from ..pipeline_registry.exceptions import RegistryError
+
 
 class PipelineAPIError(Exception):
     """Base exception for all Pipeline API errors."""
@@ -30,30 +33,14 @@ class ConfigurationError(PipelineAPIError):
             msg += f"\nAvailable configurations: {self.available_configs}"
         return msg
 
-
-class RegistryError(PipelineAPIError):
-    """Raised when step builder registry errors occur."""
-    
-    def __init__(self, message: str, unresolvable_types: Optional[List[str]] = None,
-                 available_builders: Optional[List[str]] = None):
-        super().__init__(message)
-        self.unresolvable_types = unresolvable_types or []
-        self.available_builders = available_builders or []
-        
-    def __str__(self) -> str:
-        msg = super().__str__()
-        if self.unresolvable_types:
-            msg += f"\nUnresolvable step types: {self.unresolvable_types}"
-        if self.available_builders:
-            msg += f"\nAvailable builders: {self.available_builders}"
-        return msg
+# RegistryError moved to pipeline_registry.exceptions
 
 
 class AmbiguityError(PipelineAPIError):
     """Raised when multiple configurations could match a DAG node."""
     
-    def __init__(self, message: str, node_name: str, 
-                 candidates: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, message: str, node_name: Optional[str] = None, 
+                 candidates: Optional[List[Any]] = None):
         super().__init__(message)
         self.node_name = node_name
         self.candidates = candidates or []
@@ -63,10 +50,19 @@ class AmbiguityError(PipelineAPIError):
         if self.candidates:
             msg += f"\nCandidates for node '{self.node_name}':"
             for candidate in self.candidates:
-                config_type = candidate.get('config_type', 'Unknown')
-                confidence = candidate.get('confidence', 0.0)
-                job_type = candidate.get('job_type', 'N/A')
-                msg += f"\n  - {config_type} (job_type='{job_type}', confidence={confidence:.2f})"
+                if isinstance(candidate, tuple) and len(candidate) >= 2:
+                    # Handle tuple format (config, confidence, method)
+                    config = candidate[0]
+                    confidence = candidate[1]
+                    config_type = type(config).__name__
+                    job_type = getattr(config, 'job_type', 'N/A')
+                    msg += f"\n  - {config_type} (job_type='{job_type}', confidence={confidence:.2f})"
+                elif isinstance(candidate, dict):
+                    # Handle dictionary format
+                    config_type = candidate.get('config_type', 'Unknown')
+                    confidence = candidate.get('confidence', 0.0)
+                    job_type = candidate.get('job_type', 'N/A')
+                    msg += f"\n  - {config_type} (job_type='{job_type}', confidence={confidence:.2f})"
         return msg
 
 

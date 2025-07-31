@@ -23,7 +23,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("MIMSPayload")
+@register_builder()
 class MIMSPayloadStepBuilder(StepBuilderBase):
     """
     Builder for a MIMS Payload Generation ProcessingStep.

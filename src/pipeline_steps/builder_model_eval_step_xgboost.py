@@ -23,7 +23,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("XGBoostModelEval")
+@register_builder()
 class XGBoostModelEvalStepBuilder(StepBuilderBase):
     """
     Builder for an XGBoost Model Evaluation ProcessingStep.

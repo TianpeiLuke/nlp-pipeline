@@ -1,25 +1,25 @@
 """
 Pipeline API - High-level interface for pipeline construction.
 
-This module provides user-friendly APIs for converting PipelineDAG structures
+This module provides user-friendly APIs for compiling PipelineDAG structures
 directly into executable SageMaker pipelines without requiring custom template classes.
 """
 
-from .dag_converter import dag_to_pipeline_template, PipelineDAGConverter
+from .dag_compiler import compile_dag_to_pipeline, PipelineDAGCompiler
 from .validation import ValidationResult, ResolutionPreview, ConversionReport
 from .exceptions import (
     PipelineAPIError,
     ConfigurationError,
-    RegistryError,
     AmbiguityError,
     ValidationError,
     ResolutionError
 )
+from ..pipeline_registry.exceptions import RegistryError
 
 __all__ = [
     # Main API functions
-    'dag_to_pipeline_template',
-    'PipelineDAGConverter',
+    'compile_dag_to_pipeline',
+    'PipelineDAGCompiler',
     
     # Validation and preview
     'ValidationResult',
@@ -28,9 +28,10 @@ __all__ = [
     # Exceptions
     'PipelineAPIError',
     'ConfigurationError',
-    'RegistryError',
+    'RegistryError',  # Re-exported from pipeline_registry
     'AmbiguityError',
     'ValidationError',
+    'ResolutionError',
 ]
 
 __version__ = "1.0.0"

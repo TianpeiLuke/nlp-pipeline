@@ -28,7 +28,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-@register_builder("BatchTransform")
+@register_builder()
 class BatchTransformStepBuilder(StepBuilderBase):
     """
     Builder for creating a SageMaker Batch Transform step in a workflow.

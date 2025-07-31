@@ -27,7 +27,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("CurrencyConversion")
+@register_builder()
 class CurrencyConversionStepBuilder(StepBuilderBase):
     """
     Builder for a Currency Conversion ProcessingStep.

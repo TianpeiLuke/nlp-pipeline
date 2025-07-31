@@ -37,7 +37,7 @@ class _DummyLambdaRef:
         self.zipped_code_dir = None
 
 
-@register_builder("HyperparameterPrep")
+@register_builder()
 class HyperparameterPrepStepBuilder(StepBuilderBase):
     """
     Builder for a Hyperparameter Preparation LambdaStep.

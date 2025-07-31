@@ -24,7 +24,7 @@ from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
-@register_builder("ModelCalibration")
+@register_builder()
 class ModelCalibrationStepBuilder(StepBuilderBase):
     """Builder for ModelCalibration processing step.
     

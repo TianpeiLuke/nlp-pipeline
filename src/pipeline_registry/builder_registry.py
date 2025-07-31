@@ -7,7 +7,7 @@ This implementation uses the step_names registry as the single source of truth
 for step naming and supports auto-discovery of step builders.
 """
 
-from typing import Dict, Type, List, Optional, Any, Callable
+from typing import Dict, Type, List, Optional, Any, Callable, TYPE_CHECKING
 import logging
 import importlib
 import inspect
@@ -15,31 +15,26 @@ import pkgutil
 import sys
 
 from ..pipeline_steps.builder_step_base import StepBuilderBase
-from ..pipeline_steps.config_base import BasePipelineConfig
+# Use TYPE_CHECKING to break circular import
+if TYPE_CHECKING:
+    from ..pipeline_steps.config_base import BasePipelineConfig
+else:
+    # Placeholder for runtime
+    BasePipelineConfig = Any
+
 from .step_names import STEP_NAMES, get_all_step_names, CONFIG_STEP_REGISTRY, BUILDER_STEP_NAMES
+from .exceptions import RegistryError
 
-# Import all step builders
-from ..pipeline_steps.builder_data_load_step_cradle import CradleDataLoadingStepBuilder
-from ..pipeline_steps.builder_tabular_preprocessing_step import TabularPreprocessingStepBuilder
-from ..pipeline_steps.builder_training_step_xgboost import XGBoostTrainingStepBuilder
-from ..pipeline_steps.builder_model_eval_step_xgboost import XGBoostModelEvalStepBuilder
-from ..pipeline_steps.builder_mims_packaging_step import MIMSPackagingStepBuilder
-from ..pipeline_steps.builder_mims_payload_step import MIMSPayloadStepBuilder
-from ..pipeline_steps.builder_mims_registration_step import ModelRegistrationStepBuilder
-from ..pipeline_steps.builder_training_step_pytorch import PyTorchTrainingStepBuilder
-from ..pipeline_steps.builder_model_step_pytorch import PyTorchModelStepBuilder
-from ..pipeline_steps.builder_model_step_xgboost import XGBoostModelStepBuilder
-from ..pipeline_steps.builder_batch_transform_step import BatchTransformStepBuilder
-from ..pipeline_steps.builder_model_calibration_step import ModelCalibrationStepBuilder
-from ..pipeline_steps.builder_currency_conversion_step import CurrencyConversionStepBuilder
-from ..pipeline_steps.builder_risk_table_mapping_step import RiskTableMappingStepBuilder
-from ..pipeline_steps.builder_dummy_training_step import DummyTrainingStepBuilder
-from ..pipeline_steps.builder_hyperparameter_prep_step import HyperparameterPrepStepBuilder
+# Create an explicit logger for the builder registry
+registry_logger = logging.getLogger("pipeline_registry.builder_registry")
 
-# Import the RegistryError from pipeline_api
-from ..pipeline_api.exceptions import RegistryError
-
-logger = logging.getLogger(__name__)
+# Configure the logger with a default handler if none exists
+if not registry_logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    registry_logger.addHandler(handler)
+    registry_logger.setLevel(logging.INFO)
 
 
 # Create reverse mapping from builder step names to canonical step names for efficient lookup
@@ -69,15 +64,15 @@ def register_builder(step_type: str = None):
             # First, try to find in STEP_NAMES registry (single source of truth)
             if class_name in REVERSE_BUILDER_MAPPING:
                 step_type = REVERSE_BUILDER_MAPPING[class_name]
-                logger.debug(f"Found step type '{step_type}' for class '{class_name}' in STEP_NAMES registry")
+                registry_logger.debug(f"Found step type '{step_type}' for class '{class_name}' in STEP_NAMES registry")
             else:
                 # Fallback to current logic for backward compatibility
-                logger.debug(f"Class '{class_name}' not found in STEP_NAMES registry, using fallback logic")
+                registry_logger.debug(f"Class '{class_name}' not found in STEP_NAMES registry, using fallback logic")
                 if class_name.endswith('StepBuilder'):
                     step_type = class_name[:-11]  # Remove 'StepBuilder'
                 else:
                     step_type = class_name
-                logger.warning(f"Using fallback step type '{step_type}' for class '{class_name}'. Consider adding to STEP_NAMES registry.")
+                registry_logger.warning(f"Using fallback step type '{step_type}' for class '{class_name}'. Consider adding to STEP_NAMES registry.")
         
         # Register the class
         StepBuilderRegistry.register_builder_class(step_type, cls)
@@ -94,6 +89,10 @@ class StepBuilderRegistry:
     corresponding step builder classes, enabling automatic resolution
     during pipeline construction. It uses the step_names registry as 
     the single source of truth for step naming.
+    
+    The registry has been enhanced to handle job type variants, so that
+    configurations with the same class but different job types can be
+    properly mapped to their step builders.
     """
     
     # Core registry mapping step types to builders - auto-populated during initialization
@@ -121,7 +120,7 @@ class StepBuilderRegistry:
             raise ValueError(f"Builder class must extend StepBuilderBase: {builder_class}")
         
         cls.BUILDER_REGISTRY[step_type] = builder_class
-        logging.getLogger(__name__).info(f"Registered builder: {step_type} -> {builder_class.__name__}")
+        registry_logger.info(f"Registered builder: {step_type} -> {builder_class.__name__}")
     
     @classmethod
     def discover_builders(cls):
@@ -158,23 +157,23 @@ class StepBuilderRegistry:
                                 # First, try to find in STEP_NAMES registry (single source of truth)
                                 if name in REVERSE_BUILDER_MAPPING:
                                     step_type = REVERSE_BUILDER_MAPPING[name]
-                                    logging.getLogger(__name__).debug(f"Found step type '{step_type}' for class '{name}' in STEP_NAMES registry")
+                                    registry_logger.debug(f"Found step type '{step_type}' for class '{name}' in STEP_NAMES registry")
                                 else:
                                     # Fallback to current logic for backward compatibility
                                     if name.endswith('StepBuilder'):
                                         step_type = name[:-11]  # Remove 'StepBuilder'
                                     else:
                                         step_type = name
-                                    logging.getLogger(__name__).debug(f"Class '{name}' not found in STEP_NAMES registry, using fallback step type '{step_type}'")
+                                    registry_logger.debug(f"Class '{name}' not found in STEP_NAMES registry, using fallback step type '{step_type}'")
                                 
                                 discovered_builders[step_type] = obj
-                                logging.getLogger(__name__).debug(f"Discovered builder: {step_type} -> {name}")
+                                registry_logger.debug(f"Discovered builder: {step_type} -> {name}")
                     
                     except (ImportError, AttributeError) as e:
-                        logging.getLogger(__name__).warning(f"Error discovering builders in {module_name}: {e}")
+                        registry_logger.warning(f"Error discovering builders in {module_name}: {e}")
         
         except ImportError:
-            logging.getLogger(__name__).warning("Could not import src.pipeline_steps for builder discovery")
+            registry_logger.warning("Could not import src.pipeline_steps for builder discovery")
         
         # Manual import and registration of known step builders to ensure backward compatibility
         cls._register_known_builders(discovered_builders)
@@ -226,12 +225,12 @@ class StepBuilderRegistry:
         for step_type, builder_class in known_builders.items():
             if step_type not in builder_map:
                 builder_map[step_type] = builder_class
-                logging.getLogger(__name__).debug(f"Added known builder: {step_type} -> {builder_class.__name__}")
+                registry_logger.debug(f"Added known builder: {step_type} -> {builder_class.__name__}")
     
     def __init__(self):
         """Initialize the registry."""
         self._custom_builders = {}
-        self.logger = logging.getLogger(__name__)
+        self.logger = registry_logger
         
         # Populate the registry if empty (first initialization)
         if not self.__class__.BUILDER_REGISTRY:
@@ -254,12 +253,13 @@ class StepBuilderRegistry:
         builder_map.update(self._custom_builders)
         return builder_map
     
-    def get_builder_for_config(self, config: BasePipelineConfig) -> Type[StepBuilderBase]:
+    def get_builder_for_config(self, config: BasePipelineConfig, node_name: str = None) -> Type[StepBuilderBase]:
         """
         Get step builder class for a specific configuration.
         
         Args:
             config: Configuration instance
+            node_name: Original DAG node name (optional)
             
         Returns:
             Step builder class
@@ -268,20 +268,57 @@ class StepBuilderRegistry:
             RegistryError: If no builder found for config type
         """
         config_class_name = type(config).__name__
+        job_type = getattr(config, 'job_type', None)
         
-        # Convert config class name to step type
-        step_type = self._config_class_to_step_type(config_class_name)
+        # First try with node name if provided
+        if node_name:
+            try:
+                # Try to find a step builder using the node name directly
+                if self.is_step_type_supported(node_name):
+                    self.logger.info(f"Found builder for exact node name: {node_name}")
+                    return self.get_builder_for_step_type(node_name)
+            except Exception as e:
+                # If it fails, continue with standard approach
+                self.logger.debug(f"Could not find builder using exact node name '{node_name}': {e}")
         
+        # Convert config class name to step type, considering job type
+        step_type = self._config_class_to_step_type(config_class_name, node_name=node_name, job_type=job_type)
+        
+        # Try with the full step type (including job type if present)
         builder_map = self.get_builder_map()
-        if step_type not in builder_map:
-            available_types = list(builder_map.keys())
-            raise RegistryError(
-                f"No step builder found for config type '{config_class_name}' (step type: '{step_type}')",
-                unresolvable_types=[step_type],
-                available_builders=available_types
-            )
+        if step_type in builder_map:
+            self.logger.info(f"Found builder for step type: {step_type}")
+            return builder_map[step_type]
         
-        return builder_map[step_type]
+        # If step type includes job type but no builder found, try without job type
+        if '_' in step_type:
+            base_step_type = step_type.rsplit('_', 1)[0]
+            if base_step_type in builder_map:
+                self.logger.info(f"Found builder using base step type: {base_step_type}")
+                return builder_map[base_step_type]
+        
+        # If still no match, try registering CradleDataLoading_training as an alias for CradleDataLoading
+        if step_type.startswith("CradleDataLoading_") and "CradleDataLoading" in builder_map:
+            self.logger.info(f"Using CradleDataLoading builder for {step_type}")
+            return builder_map["CradleDataLoading"]
+        
+        # Similarly for TabularPreprocessing
+        if step_type.startswith("TabularPreprocessing_") and "TabularPreprocessing" in builder_map:
+            self.logger.info(f"Using TabularPreprocessing builder for {step_type}")
+            return builder_map["TabularPreprocessing"]
+            
+        # Similarly for XGBoostModelEval
+        if step_type.startswith("XGBoostModelEval_") and "XGBoostModelEval" in builder_map:
+            self.logger.info(f"Using XGBoostModelEval builder for {step_type}")
+            return builder_map["XGBoostModelEval"]
+        
+        # If still not found, raise error
+        available_types = list(builder_map.keys())
+        raise RegistryError(
+            f"No step builder found for config type '{config_class_name}' (step type: '{step_type}')",
+            unresolvable_types=[step_type],
+            available_builders=available_types
+        )
     
     def get_builder_for_step_type(self, step_type: str) -> Type[StepBuilderBase]:
         """
@@ -393,24 +430,61 @@ class StepBuilderRegistry:
         
         return possible_configs
     
-    def _config_class_to_step_type(self, config_class_name: str) -> str:
+    def _extract_job_type(self, node_name: str):
+        """
+        Extract job type information from a node name.
+        
+        Args:
+            node_name: Node name from DAG
+            
+        Returns:
+            Tuple of (base_name, job_type)
+        """
+        # Pattern 1: BaseType_JobType (e.g., CradleDataLoading_training)
+        import re
+        match = re.match(r'^([A-Za-z]+[A-Za-z0-9]*)_([a-z]+)$', node_name)
+        if match:
+            base_name, job_type = match.groups()
+            return base_name, job_type
+        
+        # If no pattern match, return the original name with no job type
+        return node_name, None
+    
+    def _config_class_to_step_type(self, config_class_name: str, node_name: str = None, job_type: str = None) -> str:
         """
         Convert configuration class name to step type.
         
         Args:
             config_class_name: Configuration class name
+            node_name: Original DAG node name (optional)
+            job_type: Job type to append to step type (optional)
             
         Returns:
             Step type name
         """
+        # Extract job type from node name if provided and job_type not explicitly provided
+        extracted_job_type = None
+        if node_name and not job_type:
+            _, extracted_job_type = self._extract_job_type(node_name)
+            job_type = extracted_job_type
+        
         # Use the central registry from step_names.py - already imported
         if config_class_name in CONFIG_STEP_REGISTRY:
             canonical_step_name = CONFIG_STEP_REGISTRY[config_class_name]
             # Check if this is a new canonical name that has a legacy builder name
             for legacy_name, canonical_name in self.LEGACY_ALIASES.items():
                 if canonical_name == canonical_step_name:
-                    return legacy_name  # Return legacy name for backward compatibility
-            return canonical_step_name
+                    base_step_type = legacy_name
+                    # Append job type if provided
+                    if job_type:
+                        return f"{base_step_type}_{job_type}"
+                    return base_step_type  # Return legacy name for backward compatibility
+            
+            base_step_type = canonical_step_name
+            # Append job type if provided
+            if job_type:
+                return f"{base_step_type}_{job_type}"
+            return base_step_type
             
         # Fallback to the old conversion logic for compatibility
         self.logger.warning(f"Config class '{config_class_name}' not found in CONFIG_STEP_REGISTRY, using fallback logic")
@@ -428,13 +502,19 @@ class StepBuilderRegistry:
         
         # Handle special cases for backward compatibility
         if step_type == "CradleDataLoad":
-            return "CradleDataLoading"
+            base_step_type = "CradleDataLoading"
         elif step_type == "PackageStep" or step_type == "Package":
-            return "Package"  # Use canonical name
+            base_step_type = "Package"  # Use canonical name
         elif step_type == "Payload":
-            return "Payload"  # Use canonical name
+            base_step_type = "Payload"  # Use canonical name
+        else:
+            base_step_type = step_type
         
-        return step_type
+        # Append job type if provided
+        if job_type:
+            return f"{base_step_type}_{job_type}"
+        
+        return base_step_type
     
     def validate_registry(self) -> Dict[str, List[str]]:
         """

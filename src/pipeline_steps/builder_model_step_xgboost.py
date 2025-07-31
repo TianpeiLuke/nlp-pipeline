@@ -15,7 +15,7 @@ from ..pipeline_registry.builder_registry import register_builder
 logger = logging.getLogger(__name__)
 
 
-@register_builder("XGBoostModel")
+@register_builder()
 class XGBoostModelStepBuilder(StepBuilderBase):
     """
     Builder for an XGBoost Model Step.

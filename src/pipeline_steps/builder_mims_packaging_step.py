@@ -23,7 +23,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("MIMSPackaging")
+@register_builder()
 class MIMSPackagingStepBuilder(StepBuilderBase):
     """
     Builder for a MIMS Model Packaging ProcessingStep.

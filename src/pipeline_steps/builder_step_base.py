@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any, Union, Callable, Tuple, Set
+from typing import Dict, List, Optional, Any, Union, Callable, Tuple, Set, TYPE_CHECKING
 from pathlib import Path
 import logging
 from inspect import signature
@@ -29,7 +29,12 @@ except ImportError:
     # Just for type hints, won't be used at runtime if not available
     StepSpecification = Any
 
-from .config_base import BasePipelineConfig
+# Import BasePipelineConfig for type hints only to break circular dependency
+if TYPE_CHECKING:
+    from .config_base import BasePipelineConfig
+else:
+    # Just for runtime use, won't affect type checking
+    BasePipelineConfig = Any
 
 logger = logging.getLogger(__name__)
 

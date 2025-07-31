@@ -6,6 +6,8 @@ hyperparameters, and other metadata used in the pipeline system. It helps ensure
 consistency in step naming and configuration.
 """
 
+from .exceptions import RegistryError
+
 from .builder_registry import (
     StepBuilderRegistry,
     get_global_registry,

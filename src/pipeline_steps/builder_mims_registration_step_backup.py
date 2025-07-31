@@ -21,7 +21,7 @@ from ..pipeline_registry.builder_registry import register_builder
 logger = logging.getLogger(__name__)
 
 
-@register_builder("ModelRegistration")
+@register_builder()
 class ModelRegistrationStepBuilder(StepBuilderBase):
     """Builder for model registration steps"""
 

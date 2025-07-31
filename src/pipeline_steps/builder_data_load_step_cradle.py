@@ -74,7 +74,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("CradleDataLoading")
+@register_builder()
 class CradleDataLoadingStepBuilder(StepBuilderBase):
     """
     Builder for a Cradle Data Loading ProcessingStep.

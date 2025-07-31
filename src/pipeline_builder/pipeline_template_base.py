@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Type, Set, Tuple
 from pathlib import Path
 import logging
+import json
 
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
@@ -24,7 +25,7 @@ from ..pipeline_deps.factory import create_pipeline_components, dependency_resol
 
 from .pipeline_assembler import PipelineAssembler
 from ..pipeline_dag.base_dag import PipelineDAG
-from ..pipeline_steps.utils import load_configs
+from ..pipeline_steps.utils import load_configs, build_complete_config_classes
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,15 @@ class PipelineTemplateBase(ABC):
         self.configs = self._load_configs(config_path)
         self.base_config = self._get_base_config()
         
+        # Store loaded configuration data including metadata
+        try:
+            with open(config_path, 'r') as f:
+                self.loaded_config_data = json.load(f)
+            logger.info(f"Loaded raw configuration data from {config_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load raw configuration data: {e}")
+            self.loaded_config_data = None
+        
         # Store dependency components
         self._registry_manager = registry_manager
         self._dependency_resolver = dependency_resolver
@@ -109,8 +119,16 @@ class PipelineTemplateBase(ABC):
         """
         if not self.CONFIG_CLASSES:
             raise ValueError("CONFIG_CLASSES must be defined by subclass")
+        
+        # Build a complete config classes dictionary with hyperparameter classes
+        complete_classes = build_complete_config_classes()
+        
+        # Merge with template-defined CONFIG_CLASSES, giving preference to template classes
+        # This ensures that template-specific classes override any defaults
+        for class_name, class_type in self.CONFIG_CLASSES.items():
+            complete_classes[class_name] = class_type
             
-        return load_configs(config_path, self.CONFIG_CLASSES)
+        return load_configs(config_path, complete_classes)
         
     def _get_base_config(self) -> BasePipelineConfig:
         """

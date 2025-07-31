@@ -15,9 +15,10 @@ from ..pipeline_steps.config_base import BasePipelineConfig
 from ..pipeline_steps.utils import build_complete_config_classes
 
 from .config_resolver import StepConfigResolver
-from .builder_registry import StepBuilderRegistry
+from ..pipeline_registry.builder_registry import StepBuilderRegistry
 from .validation import ValidationEngine
-from .exceptions import ConfigurationError, RegistryError, ValidationError
+from .exceptions import ConfigurationError, ValidationError
+from ..pipeline_registry.exceptions import RegistryError
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
         config_path: str,
         config_resolver: Optional[StepConfigResolver] = None,
         builder_registry: Optional[StepBuilderRegistry] = None,
+        skip_validation: bool = False,
         **kwargs
     ):
         """
@@ -49,43 +51,55 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
             builder_registry: Custom builder registry (optional)
             **kwargs: Additional arguments for base template
         """
+        # Initialize logger first so it's available in all methods
+        self.logger = logging.getLogger(__name__)
+        
         self._dag = dag
         self._config_resolver = config_resolver or StepConfigResolver()
         self._builder_registry = builder_registry or StepBuilderRegistry()
         self._validation_engine = ValidationEngine()
         
+        # Store config_path as an instance attribute so it's available to _detect_config_classes
+        self.config_path = config_path
+        
+        # Store if validation should be skipped (for testing purposes)
+        self._skip_validation = skip_validation
+        
         # Auto-detect required config classes based on DAG nodes
-        self.CONFIG_CLASSES = self._detect_config_classes()
+        # Don't set instance attribute - set class attribute before calling parent constructor
+        cls = self.__class__
+        if not cls.CONFIG_CLASSES:  # Only set if not already set (to avoid overwriting in instance reuse)
+            cls.CONFIG_CLASSES = self._detect_config_classes()
         
         # Store resolved mappings for later use
         self._resolved_config_map = None
         self._resolved_builder_map = None
+        self._loaded_metadata = None  # Store metadata from loaded configs
         
-        self.logger = logging.getLogger(__name__)
-        
+        # Call parent constructor AFTER setting CONFIG_CLASSES
         super().__init__(config_path, **kwargs)
     
     def _detect_config_classes(self) -> Dict[str, Type[BasePipelineConfig]]:
         """
-        Automatically detect required config classes from DAG nodes.
+        Automatically detect required config classes from configuration file.
         
-        This method analyzes the DAG structure and determines which
+        This method analyzes the configuration file to determine which
         configuration classes are needed based on:
-        1. Node naming patterns
-        2. Available configurations in the config file
-        3. Step builder registry mappings
+        1. Config type metadata in the configuration file
+        2. Model type information in configuration entries
+        3. Essential base classes needed for all pipelines
         
         Returns:
             Dictionary mapping config class names to config classes
         """
-        # Get all available config classes
-        all_config_classes = build_complete_config_classes()
+        # Import here to avoid circular imports
+        from ..pipeline_steps.utils import detect_config_classes_from_json
         
-        # For dynamic templates, we include all available config classes
-        # since we don't know in advance which ones will be needed
-        self.logger.debug(f"Detected {len(all_config_classes)} available config classes")
+        # Use the helper function to detect classes from the JSON file
+        detected_classes = detect_config_classes_from_json(self.config_path)
+        self.logger.debug(f"Detected {len(detected_classes)} required config classes from configuration file")
         
-        return all_config_classes
+        return detected_classes
     
     def _create_pipeline_dag(self) -> PipelineDAG:
         """
@@ -116,10 +130,17 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
             dag_nodes = list(self._dag.nodes)
             self.logger.info(f"Resolving {len(dag_nodes)} DAG nodes to configurations")
             
+            # Extract metadata from loaded configurations if available
+            if self._loaded_metadata is None and hasattr(self, 'loaded_config_data'):
+                if isinstance(self.loaded_config_data, dict) and 'metadata' in self.loaded_config_data:
+                    self._loaded_metadata = self.loaded_config_data['metadata']
+                    self.logger.info(f"Using metadata from loaded configuration")
+            
             # Use the config resolver to map nodes to configs
             self._resolved_config_map = self._config_resolver.resolve_config_map(
                 dag_nodes=dag_nodes,
-                available_configs=self.configs
+                available_configs=self.configs,
+                metadata=self._loaded_metadata
             )
             
             self.logger.info(f"Successfully resolved all {len(self._resolved_config_map)} nodes")
@@ -164,8 +185,10 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
             
             for node, config in config_map.items():
                 try:
-                    builder_class = self._builder_registry.get_builder_for_config(config)
-                    step_type = self._builder_registry._config_class_to_step_type(type(config).__name__)
+                    # Pass the node name to the registry for better resolution
+                    builder_class = self._builder_registry.get_builder_for_config(config, node_name=node)
+                    step_type = self._builder_registry._config_class_to_step_type(
+                        type(config).__name__, node_name=node, job_type=getattr(config, 'job_type', None))
                     self.logger.debug(f"  {step_type} → {builder_class.__name__}")
                 except RegistryError as e:
                     missing_builders.append(f"{node} ({type(config).__name__})")
@@ -197,6 +220,10 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
         Raises:
             ValidationError: If validation fails
         """
+        # Skip validation if requested (for testing purposes)
+        if self._skip_validation:
+            self.logger.info("Skipping configuration validation (requested)")
+            return
         try:
             self.logger.info("Validating dynamic pipeline configuration")
             
@@ -248,7 +275,8 @@ class DynamicPipelineTemplate(PipelineTemplateBase):
             dag_nodes = list(self._dag.nodes)
             preview_data = self._config_resolver.preview_resolution(
                 dag_nodes=dag_nodes,
-                available_configs=self.configs
+                available_configs=self.configs,
+                metadata=self._loaded_metadata
             )
             
             # Convert to display format

@@ -17,7 +17,7 @@ from ..pipeline_registry.builder_registry import register_builder
 logger = logging.getLogger(__name__)
 
 
-@register_builder("PyTorchModel")
+@register_builder()
 class PyTorchModelStepBuilder(StepBuilderBase):
     """
     Builder for a PyTorch Model Step.

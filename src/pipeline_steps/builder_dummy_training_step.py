@@ -29,7 +29,7 @@ from ..pipeline_registry.builder_registry import register_builder
 
 logger = logging.getLogger(__name__)
 
-@register_builder("DummyTraining")
+@register_builder()
 class DummyTrainingStepBuilder(StepBuilderBase):
     """Builder for DummyTraining processing step."""
     

@@ -25,7 +25,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("PyTorchTraining")
+@register_builder()
 class PyTorchTrainingStepBuilder(StepBuilderBase):
     """
     Builder for a PyTorch Training Step.

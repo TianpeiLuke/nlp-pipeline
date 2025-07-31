@@ -1,8 +1,8 @@
 """
-DAG Converter for the Pipeline API.
+DAG Compiler for the Pipeline API.
 
-This module provides the main API functions for converting PipelineDAG structures
-to executable SageMaker pipelines.
+This module provides the main API functions for compiling PipelineDAG structures
+into executable SageMaker pipelines.
 """
 
 from typing import Optional, Dict, Any, Tuple
@@ -15,14 +15,15 @@ from sagemaker.workflow.pipeline_context import PipelineSession
 from ..pipeline_dag.base_dag import PipelineDAG
 from .dynamic_template import DynamicPipelineTemplate
 from .config_resolver import StepConfigResolver
-from .builder_registry import StepBuilderRegistry
+from ..pipeline_registry.builder_registry import StepBuilderRegistry
 from .validation import ValidationResult, ResolutionPreview, ConversionReport, ValidationEngine
 from .exceptions import PipelineAPIError, ConfigurationError, ValidationError
+from ..pipeline_registry.exceptions import RegistryError
 
 logger = logging.getLogger(__name__)
 
 
-def dag_to_pipeline_template(
+def compile_dag_to_pipeline(
     dag: PipelineDAG,
     config_path: str,
     sagemaker_session: Optional[PipelineSession] = None,
@@ -31,10 +32,10 @@ def dag_to_pipeline_template(
     **kwargs
 ) -> Pipeline:
     """
-    Convert a PipelineDAG to a complete SageMaker Pipeline.
+    Compile a PipelineDAG into a complete SageMaker Pipeline.
     
     This is the main entry point for users who want a simple, one-call
-    conversion from DAG to pipeline.
+    compilation from DAG to pipeline.
     
     Args:
         dag: PipelineDAG instance defining the pipeline structure
@@ -58,7 +59,7 @@ def dag_to_pipeline_template(
         >>> dag.add_node("preprocess")
         >>> dag.add_edge("data_load", "preprocess")
         >>> 
-        >>> pipeline = dag_to_pipeline_template(
+        >>> pipeline = compile_dag_to_pipeline(
         ...     dag=dag,
         ...     config_path="configs/my_pipeline.json",
         ...     sagemaker_session=session,
@@ -67,7 +68,7 @@ def dag_to_pipeline_template(
         >>> pipeline.upsert()
     """
     try:
-        logger.info(f"Converting DAG with {len(dag.nodes)} nodes to pipeline")
+        logger.info(f"Compiling DAG with {len(dag.nodes)} nodes to pipeline")
         
         # Validate inputs
         if not isinstance(dag, PipelineDAG):
@@ -80,29 +81,29 @@ def dag_to_pipeline_template(
         if not config_path_obj.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
         
-        # Create converter and convert
-        converter = PipelineDAGConverter(
+        # Create compiler and compile
+        compiler = PipelineDAGCompiler(
             config_path=config_path,
             sagemaker_session=sagemaker_session,
             role=role,
             **kwargs
         )
         
-        pipeline = converter.convert(dag, pipeline_name=pipeline_name)
+        pipeline = compiler.compile(dag, pipeline_name=pipeline_name)
         
-        logger.info(f"Successfully converted DAG to pipeline: {pipeline.name}")
+        logger.info(f"Successfully compiled DAG to pipeline: {pipeline.name}")
         return pipeline
         
     except Exception as e:
-        logger.error(f"Failed to convert DAG to pipeline: {e}")
-        raise PipelineAPIError(f"DAG conversion failed: {e}") from e
+        logger.error(f"Failed to compile DAG to pipeline: {e}")
+        raise PipelineAPIError(f"DAG compilation failed: {e}") from e
 
 
-class PipelineDAGConverter:
+class PipelineDAGCompiler:
     """
-    Advanced API for DAG-to-template conversion with additional control.
+    Advanced API for DAG-to-template compilation with additional control.
     
-    This class provides more control over the conversion process, including
+    This class provides more control over the compilation process, including
     validation, debugging, and customization options.
     """
     
@@ -116,7 +117,7 @@ class PipelineDAGConverter:
         **kwargs
     ):
         """
-        Initialize converter with configuration and session.
+        Initialize compiler with configuration and session.
         
         Args:
             config_path: Path to configuration file
@@ -259,10 +260,16 @@ class PipelineDAGConverter:
             dag_nodes = list(dag.nodes)
             available_configs = temp_template.configs
             
+            # Get metadata from template if available
+            metadata = None
+            if hasattr(temp_template, '_loaded_metadata'):
+                metadata = temp_template._loaded_metadata
+            
             # Get resolution candidates
             preview_data = self.config_resolver.preview_resolution(
                 dag_nodes=dag_nodes,
-                available_configs=available_configs
+                available_configs=available_configs,
+                metadata=metadata
             )
             
             # Build preview result
@@ -323,12 +330,12 @@ class PipelineDAGConverter:
                 recommendations=[f"Preview failed: {str(e)}"]
             )
     
-    def convert(self, dag: PipelineDAG, pipeline_name: Optional[str] = None, **kwargs) -> Pipeline:
+    def compile(self, dag: PipelineDAG, pipeline_name: Optional[str] = None, **kwargs) -> Pipeline:
         """
-        Convert DAG to pipeline with full control.
+        Compile DAG to pipeline with full control.
         
         Args:
-            dag: PipelineDAG instance to convert
+            dag: PipelineDAG instance to compile
             pipeline_name: Optional pipeline name override
             **kwargs: Additional arguments for template
             
@@ -336,15 +343,15 @@ class PipelineDAGConverter:
             Generated SageMaker Pipeline
             
         Raises:
-            PipelineAPIError: If conversion fails
+            PipelineAPIError: If compilation fails
         """
         try:
-            self.logger.info(f"Converting DAG with {len(dag.nodes)} nodes to pipeline")
+            self.logger.info(f"Compiling DAG with {len(dag.nodes)} nodes to pipeline")
             
             # Merge kwargs
             template_kwargs = {**self.template_kwargs, **kwargs}
             
-            # Create dynamic template
+            # Create dynamic template with skip_validation=True
             template = DynamicPipelineTemplate(
                 dag=dag,
                 config_path=self.config_path,
@@ -352,6 +359,7 @@ class PipelineDAGConverter:
                 builder_registry=self.builder_registry,
                 sagemaker_session=self.sagemaker_session,
                 role=self.role,
+                skip_validation=True,
                 **template_kwargs
             )
             
@@ -362,24 +370,24 @@ class PipelineDAGConverter:
             if pipeline_name:
                 pipeline.name = pipeline_name
             
-            self.logger.info(f"Successfully converted DAG to pipeline: {pipeline.name}")
+            self.logger.info(f"Successfully compiled DAG to pipeline: {pipeline.name}")
             return pipeline
             
         except Exception as e:
-            self.logger.error(f"Failed to convert DAG to pipeline: {e}")
-            raise PipelineAPIError(f"DAG conversion failed: {e}") from e
+            self.logger.error(f"Failed to compile DAG to pipeline: {e}")
+            raise PipelineAPIError(f"DAG compilation failed: {e}") from e
     
-    def convert_with_report(
+    def compile_with_report(
         self,
         dag: PipelineDAG,
         pipeline_name: Optional[str] = None,
         **kwargs
     ) -> Tuple[Pipeline, ConversionReport]:
         """
-        Convert DAG to pipeline and return detailed conversion report.
+        Compile DAG to pipeline and return detailed compilation report.
         
         Args:
-            dag: PipelineDAG instance to convert
+            dag: PipelineDAG instance to compile
             pipeline_name: Optional pipeline name override
             **kwargs: Additional arguments for template
             
@@ -387,10 +395,10 @@ class PipelineDAGConverter:
             Tuple of (Pipeline, ConversionReport)
         """
         try:
-            self.logger.info(f"Converting DAG with detailed reporting")
+            self.logger.info(f"Compiling DAG with detailed reporting")
             
-            # Convert pipeline
-            pipeline = self.convert(dag, pipeline_name=pipeline_name, **kwargs)
+            # Compile pipeline
+            pipeline = self.compile(dag, pipeline_name=pipeline_name, **kwargs)
             
             # Generate report
             dag_nodes = list(dag.nodes)
@@ -437,12 +445,12 @@ class PipelineDAGConverter:
                 }
             )
             
-            self.logger.info(f"Conversion completed with report: {report.summary()}")
+            self.logger.info(f"Compilation completed with report: {report.summary()}")
             return pipeline, report
             
         except Exception as e:
-            self.logger.error(f"Failed to convert DAG with report: {e}")
-            raise PipelineAPIError(f"DAG conversion with report failed: {e}") from e
+            self.logger.error(f"Failed to compile DAG with report: {e}")
+            raise PipelineAPIError(f"DAG compilation with report failed: {e}") from e
     
     def get_supported_step_types(self) -> list:
         """
@@ -472,6 +480,7 @@ class PipelineDAGConverter:
                 builder_registry=self.builder_registry,
                 sagemaker_session=self.sagemaker_session,
                 role=self.role,
+                skip_validation=True,
                 **self.template_kwargs
             )
             

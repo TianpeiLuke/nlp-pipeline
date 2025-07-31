@@ -143,7 +143,25 @@ This alternative design approach focuses on minimizing user input by providing o
 - **Benefits**: Eliminates entire classes of errors while enabling rapid prototyping
 - **Strategic Value**: Provides intelligent automation without sacrificing control
 
+#### **[DAG to Template](dag_to_template.md)** - Visual & Programmatic Pipeline Creation
+- **Purpose**: Convert DAG representations into executable pipeline templates
+- **Key Features**: Visual DAG editing, programmatic API, template auto-generation, configuration inference
+- **Benefits**: Intuitive graphical interface and developer API for pipeline creation
+- **Strategic Value**: Makes pipeline creation accessible to both non-programmers and developers
+
 ### 🏗️ Pipeline Assembly & Orchestration
+
+#### **[Dynamic Template](dynamic_template.md)** - Flexible, Configuration-Driven Template
+- **Purpose**: Enable flexible pipeline creation without requiring custom template classes
+- **Key Features**: Automatic config resolution, step builder mapping, comprehensive validation
+- **Benefits**: Code reuse, simplified maintenance, dynamic configuration support
+- **Strategic Value**: Universal adapter between specifications and execution environment
+
+#### **[Dynamic Template Resolution](dynamic_template_resolution.md)** - Intelligent Node-to-Config-to-Builder Mapping
+- **Purpose**: Automatically match DAG nodes to configurations and step builders
+- **Key Features**: Multi-strategy resolution, semantic matching, central registry integration
+- **Benefits**: Elimination of custom template classes, intelligent name resolution
+- **Strategic Value**: Core mechanism that enables the dynamic template to adapt to any DAG structure
 
 #### **[Pipeline Template Builder V2](pipeline_template_builder_v2.md)** - Modern Orchestration
 - **Purpose**: Transform declarative specifications into executable SageMaker pipelines

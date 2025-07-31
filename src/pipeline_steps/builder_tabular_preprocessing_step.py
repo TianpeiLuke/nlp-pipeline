@@ -25,7 +25,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("TabularPreprocessing")
+@register_builder()
 class TabularPreprocessingStepBuilder(StepBuilderBase):
     """
     Builder for a Tabular Preprocessing ProcessingStep.

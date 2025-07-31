@@ -36,7 +36,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("ModelRegistration")
+@register_builder()
 class ModelRegistrationStepBuilder(StepBuilderBase):
     """
     Builder for a Model Registration ProcessingStep.

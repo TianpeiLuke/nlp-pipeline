@@ -8,6 +8,11 @@ and previewing resolution results before pipeline generation.
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 import logging
+import re
+
+# Import registry components needed for step type resolution
+from ..pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+from ..pipeline_registry.builder_registry import StepBuilderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -244,10 +249,61 @@ class ValidationEngine:
         # Check for unresolvable builders
         for node, config in config_map.items():
             config_type = type(config).__name__
-            # Convert config class name to step type
-            step_type = config_type.replace('Config', '').replace('Step', '')
-            if step_type not in builder_registry:
-                unresolvable_builders.append(f"{node} ({step_type})")
+            
+            # First try to get canonical step name from registry
+            if config_type in CONFIG_STEP_REGISTRY:
+                step_type = CONFIG_STEP_REGISTRY[config_type]
+            else:
+                # Fall back to simplified transformation only if not in registry
+                self.logger.warning(f"Config class '{config_type}' not found in CONFIG_STEP_REGISTRY, using fallback logic")
+                step_type = config_type.replace('Config', '').replace('Step', '')
+                
+                # Handle special cases for backward compatibility
+                if step_type == "CradleDataLoad":
+                    step_type = "CradleDataLoading"
+                elif step_type == "PackageStep" or step_type == "Package":
+                    step_type = "Package"  # Use canonical name
+                elif step_type == "Payload":
+                    step_type = "Payload"  # Use canonical name
+            
+            # Check for job type variants
+            job_type = getattr(config, 'job_type', None)
+            node_job_type = None
+            
+            # Extract job type from node name if present
+            match = re.match(r'^([A-Za-z]+[A-Za-z0-9]*)_([a-z]+)$', node)
+            if match:
+                _, node_job_type = match.groups()
+            
+            # Try with job type first if available
+            if job_type or node_job_type:
+                effective_job_type = job_type or node_job_type
+                job_type_step = f"{step_type}_{effective_job_type}"
+                
+                # Check if the builder registry contains the step type with job type
+                if job_type_step in builder_registry:
+                    continue
+            
+            # Check if step type is in builder registry or legacy aliases
+            legacy_aliases = StepBuilderRegistry.LEGACY_ALIASES
+            
+            if step_type in builder_registry:
+                continue
+            elif step_type in legacy_aliases:
+                canonical_step_type = legacy_aliases[step_type]
+                if canonical_step_type in builder_registry:
+                    continue
+            
+            # Special handling for known steps with legacy naming
+            if step_type == "Package" and "MIMSPackaging" in builder_registry:
+                continue
+            elif step_type == "Payload" and "MIMSPayload" in builder_registry:
+                continue
+            elif step_type == "Registration" and "ModelRegistration" in builder_registry:
+                continue
+            
+            # If we get here, builder not found
+            unresolvable_builders.append(f"{node} ({step_type})")
         
         # Validate individual configurations
         for node, config in config_map.items():

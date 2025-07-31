@@ -31,7 +31,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register_builder("XGBoostTraining")
+@register_builder()
 class XGBoostTrainingStepBuilder(StepBuilderBase):
     """
     Builder for an XGBoost Training Step.
