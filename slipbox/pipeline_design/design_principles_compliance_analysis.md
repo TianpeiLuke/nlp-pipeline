@@ -132,7 +132,7 @@ The Dynamic Pipeline Template and Config Resolver integrate seamlessly with the 
 1. The [Registry Manager](registry_manager.md) for step type registration and discovery
 2. The [Dependency Resolver](dependency_resolver.md) for intelligent connection of pipeline steps
 3. The [Pipeline DAG](pipeline_dag.md) for structural representation of the pipeline
-4. The [DAG to Template](dag_to_template.md) system for visual and programmatic pipeline creation
+4. The [DAG to Template](pipeline_compiler.md) system for visual and programmatic pipeline creation
 
 ## Strategic Benefits Alignment
 
@@ -163,5 +163,5 @@ The implementation successfully balances flexibility with convention, providing 
 - [Dynamic Template](dynamic_template.md) - Core design of the Dynamic Pipeline Template
 - [Dynamic Template Resolution](dynamic_template_resolution.md) - Resolution mechanism details
 - [Design Principles](design_principles.md) - Architectural philosophy and guidelines
-- [DAG to Template](dag_to_template.md) - Visual and programmatic pipeline creation
+- [DAG to Template](pipeline_compiler.md) - Visual and programmatic pipeline creation
 - [Config Field Categorization](../config_field_manager/config_class_detector.md) - Supporting configuration system

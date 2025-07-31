@@ -143,7 +143,7 @@ This alternative design approach focuses on minimizing user input by providing o
 - **Benefits**: Eliminates entire classes of errors while enabling rapid prototyping
 - **Strategic Value**: Provides intelligent automation without sacrificing control
 
-#### **[DAG to Template](dag_to_template.md)** - Visual & Programmatic Pipeline Creation
+#### **[DAG to Template](pipeline_compiler.md)** - Visual & Programmatic Pipeline Creation
 - **Purpose**: Convert DAG representations into executable pipeline templates
 - **Key Features**: Visual DAG editing, programmatic API, template auto-generation, configuration inference
 - **Benefits**: Intuitive graphical interface and developer API for pipeline creation
