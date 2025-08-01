@@ -136,14 +136,14 @@ class StepBuilderRegistry:
         
         # Get the package containing step builders
         try:
-            import src.pipeline_steps as steps_package
+            from .. import pipeline_steps as steps_package
             
             # Walk through all modules in the package
             for _, module_name, _ in pkgutil.iter_modules(steps_package.__path__):
                 if module_name.startswith('builder_'):
                     try:
                         # Import the module
-                        module = importlib.import_module(f"src.pipeline_steps.{module_name}")
+                        module = importlib.import_module(f"..pipeline_steps.{module_name}", __name__)
                         
                         # Find builder classes in the module
                         for name, obj in inspect.getmembers(module):

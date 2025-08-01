@@ -4,8 +4,7 @@ Configuration utility functions for merging, saving, and loading multiple Pydant
 IMPORTANT: This module is maintained for backward compatibility.
 For new code, please import directly from src.config_field_manager:
 
-    from src.config_field_manager import merge_and_save_configs, load_configs
-
+    from ..config_field_manager import merge_and_save_configs, load_configs
 This module provides a high-level API for configuration management, leveraging
 the optimized implementation in src.config_field_manager while maintaining
 backward compatibility with existing code.
@@ -27,8 +26,7 @@ from .config_processing_step_base import ProcessingStepConfigBase
 # Import from the advanced implementation
 # RECOMMENDED: Use these imports directly in your code:
 #     from src.config_field_manager import merge_and_save_configs, load_configs
-from src.config_field_manager import (
-    merge_and_save_configs as new_merge_and_save_configs,
+from ..config_field_manager import (    merge_and_save_configs as new_merge_and_save_configs,
     load_configs as new_load_configs,
     serialize_config as new_serialize_config,
     deserialize_config as new_deserialize_config,
@@ -38,8 +36,7 @@ from src.config_field_manager import (
 
 # Import the config class detector for efficient class detection
 try:
-    from src.config_field_manager.config_class_detector import detect_config_classes_from_json
-except ImportError:
+    from ..config_field_manager.config_class_detector import detect_config_classes_from_jsonexcept ImportError:
     # Fallback implementation if the module is not available
     def detect_config_classes_from_json(config_path: str) -> Dict[str, Type[BaseModel]]:
         """
@@ -53,8 +50,7 @@ from enum import Enum, auto
 class CategoryType(Enum):
     SHARED = auto()
     SPECIFIC = auto()
-from src.config_field_manager.type_aware_config_serializer import (
-    serialize_config as new_serialize_config,
+from ..config_field_manager.type_aware_config_serializer import (    serialize_config as new_serialize_config,
     deserialize_config,
     TypeAwareConfigSerializer
 )
@@ -377,8 +373,7 @@ def build_complete_config_classes() -> Dict[str, Type[BaseModel]]:
     
     IMPORTANT: Consider using ConfigClassStore to register your config classes instead:
     
-        from src.config_field_manager import ConfigClassStore, register_config_class
-        
+        from ..config_field_manager import ConfigClassStore, register_config_class        
         # Register a class
         @ConfigClassStore.register
         class MyConfig:
@@ -392,8 +387,7 @@ def build_complete_config_classes() -> Dict[str, Type[BaseModel]]:
     Returns:
         Dictionary mapping class names to class types
     """
-    from src.pipeline_registry import STEP_NAMES, HYPERPARAMETER_REGISTRY
-    
+    from ..pipeline_registry import STEP_NAMES, HYPERPARAMETER_REGISTRY    
     # Initialize an empty dictionary to store the classes
     config_classes = {}
     

@@ -15,10 +15,7 @@ from typing import Any, Dict, Optional, Type, List, Set, Union, Tuple
 
 from pydantic import BaseModel
 
-from src.config_field_manager.config_class_store import build_complete_config_classes
-from src.config_field_manager.constants import SerializationMode, TYPE_MAPPING
-from src.config_field_manager.circular_reference_tracker import CircularReferenceTracker
-
+from ..config_field_manager.config_class_store import build_complete_config_classesfrom ..config_field_manager.constants import SerializationMode, TYPE_MAPPINGfrom ..config_field_manager.circular_reference_tracker import CircularReferenceTracker
 
 class TypeAwareConfigSerializer:
     """
@@ -574,19 +571,16 @@ class TypeAwareConfigSerializer:
         
         # Look up the step name from the registry (primary source of truth)
         try:
-            from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
-            if class_name in CONFIG_STEP_REGISTRY:
+            from ..pipeline_registry.step_names import CONFIG_STEP_REGISTRY            if class_name in CONFIG_STEP_REGISTRY:
                 base_step = CONFIG_STEP_REGISTRY[class_name]
             else:
                 # Fall back to the old behavior if not in registry
                 # Import here to avoid circular imports
-                from src.pipeline_steps.config_base import BasePipelineConfig
-                base_step = BasePipelineConfig.get_step_name(class_name)
+                from ..pipeline_steps.config_base import BasePipelineConfig                base_step = BasePipelineConfig.get_step_name(class_name)
         except (ImportError, AttributeError):
             # If registry not available, fall back to the old behavior
             # Import here to avoid circular imports
-            from src.pipeline_steps.config_base import BasePipelineConfig
-            base_step = BasePipelineConfig.get_step_name(class_name)
+            from ..pipeline_steps.config_base import BasePipelineConfig            base_step = BasePipelineConfig.get_step_name(class_name)
         
         step_name = base_step
         

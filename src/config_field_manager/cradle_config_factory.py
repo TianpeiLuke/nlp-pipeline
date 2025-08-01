@@ -13,9 +13,7 @@ import uuid
 import os
 from pathlib import Path
 
-from src.pipeline_steps.config_base import BasePipelineConfig
-from src.pipeline_steps.config_data_load_step_cradle import (
-    CradleDataLoadConfig,
+from ..pipeline_steps.config_base import BasePipelineConfigfrom ..pipeline_steps.config_data_load_step_cradle import (    CradleDataLoadConfig,
     MdsDataSourceConfig,
     EdxDataSourceConfig,
     DataSourceConfig,

@@ -22,8 +22,7 @@ New Three-Tier Architecture Components:
 
 Usage:
     ```python
-    from src.config_field_manager import merge_and_save_configs, load_configs, ConfigClassStore
-    
+    from ..config_field_manager import merge_and_save_configs, load_configs, ConfigClassStore    
     # Register config classes for type-aware serialization
     @ConfigClassStore.register
     class MyConfig:
@@ -37,8 +36,7 @@ Usage:
     loaded_configs = load_configs("output.json")
     
     # Using the three-tier architecture
-    from src.config_field_manager import (
-        ConfigFieldTierRegistry, DefaultValuesProvider, 
+    from ..config_field_manager import (        ConfigFieldTierRegistry, DefaultValuesProvider, 
         FieldDerivationEngine, DataConfig, ModelConfig, RegistrationConfig
     )
     
@@ -55,22 +53,13 @@ import logging
 from typing import Dict, List, Any, Optional, Type, Union, Tuple, Set
 from pathlib import Path
 
-from src.config_field_manager.config_merger import ConfigMerger
-from src.config_field_manager.config_class_store import ConfigClassStore
-from src.config_field_manager.type_aware_config_serializer import (
-    TypeAwareConfigSerializer, 
+from ..config_field_manager.config_merger import ConfigMergerfrom ..config_field_manager.config_class_store import ConfigClassStorefrom ..config_field_manager.type_aware_config_serializer import (    TypeAwareConfigSerializer, 
     serialize_config as _serialize_config,
     deserialize_config as _deserialize_config
 )
-from src.config_field_manager.config_field_categorizer import ConfigFieldCategorizer
-from src.config_field_manager.circular_reference_tracker import CircularReferenceTracker
-
+from ..config_field_manager.config_field_categorizer import ConfigFieldCategorizerfrom ..config_field_manager.circular_reference_tracker import CircularReferenceTracker
 # Three-tier architecture components
-from src.config_field_manager.tier_registry import ConfigFieldTierRegistry
-from src.config_field_manager.default_values_provider import DefaultValuesProvider
-from src.config_field_manager.field_derivation_engine import FieldDerivationEngine
-from src.config_field_manager.essential_input_models import (
-    DataConfig,
+from ..config_field_manager.tier_registry import ConfigFieldTierRegistryfrom ..config_field_manager.default_values_provider import DefaultValuesProviderfrom ..config_field_manager.field_derivation_engine import FieldDerivationEnginefrom ..config_field_manager.essential_input_models import (    DataConfig,
     ModelConfig,
     RegistrationConfig,
     EssentialInputs

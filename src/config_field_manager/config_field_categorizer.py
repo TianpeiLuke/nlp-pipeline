@@ -13,14 +13,12 @@ from typing import Any, Dict, List, Set, Optional, Tuple
 
 from pydantic import BaseModel
 
-from src.config_field_manager.constants import (
-    SPECIAL_FIELDS_TO_KEEP_SPECIFIC,
+from ..config_field_manager.constants import (    SPECIAL_FIELDS_TO_KEEP_SPECIFIC,
     NON_STATIC_FIELD_PATTERNS,
     NON_STATIC_FIELD_EXCEPTIONS,
     CategoryType
 )
-from src.config_field_manager.type_aware_config_serializer import serialize_config
-
+from ..config_field_manager.type_aware_config_serializer import serialize_config
 
 class ConfigFieldCategorizer:
     """
@@ -49,8 +47,7 @@ class ConfigFieldCategorizer:
         if self.processing_base_class is None:
             # Try to infer the base class from imports
             try:
-                from src.pipeline_steps.base import ProcessingStepConfigBase
-                self.processing_base_class = ProcessingStepConfigBase
+                from ..pipeline_steps.base import ProcessingStepConfigBase                self.processing_base_class = ProcessingStepConfigBase
             except ImportError:
                 self.logger.warning("Could not import ProcessingStepConfigBase. "
                                     "Processing steps will not be properly identified.")
