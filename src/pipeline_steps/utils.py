@@ -26,7 +26,8 @@ from .config_processing_step_base import ProcessingStepConfigBase
 # Import from the advanced implementation
 # RECOMMENDED: Use these imports directly in your code:
 #     from src.config_field_manager import merge_and_save_configs, load_configs
-from ..config_field_manager import (    merge_and_save_configs as new_merge_and_save_configs,
+from ..config_field_manager import (
+    merge_and_save_configs as new_merge_and_save_configs,
     load_configs as new_load_configs,
     serialize_config as new_serialize_config,
     deserialize_config as new_deserialize_config,
@@ -36,7 +37,8 @@ from ..config_field_manager import (    merge_and_save_configs as new_merge_and_
 
 # Import the config class detector for efficient class detection
 try:
-    from ..config_field_manager.config_class_detector import detect_config_classes_from_jsonexcept ImportError:
+    from ..config_field_manager.config_class_detector import detect_config_classes_from_json
+except ImportError:
     # Fallback implementation if the module is not available
     def detect_config_classes_from_json(config_path: str) -> Dict[str, Type[BaseModel]]:
         """
@@ -50,7 +52,9 @@ from enum import Enum, auto
 class CategoryType(Enum):
     SHARED = auto()
     SPECIFIC = auto()
-from ..config_field_manager.type_aware_config_serializer import (    serialize_config as new_serialize_config,
+
+from ..config_field_manager.type_aware_config_serializer import (
+    serialize_config as new_serialize_config,
     deserialize_config,
     TypeAwareConfigSerializer
 )

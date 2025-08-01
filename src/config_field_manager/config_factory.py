@@ -14,13 +14,19 @@ from typing import List, Dict, Any, Optional, Type
 from datetime import datetime
 from pathlib import Path
 
-from ..config_field_manager.essential_input_models import (    EssentialInputs,
+from .essential_input_models import (
+    EssentialInputs,
     DataConfig,
     ModelConfig,
     RegistrationConfig,
     DateRangePeriod,
 )
-from ..config_field_manager.default_values_provider import DefaultValuesProviderfrom ..config_field_manager.field_derivation_engine import FieldDerivationEnginefrom ..pipeline_steps.config_base import BasePipelineConfigfrom ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBasefrom ..pipeline_steps.config_data_load_step_cradle import (    CradleDataLoadConfig,
+from .default_values_provider import DefaultValuesProvider
+from .field_derivation_engine import FieldDerivationEngine
+from ..pipeline_steps.config_base import BasePipelineConfig
+from ..pipeline_steps.config_processing_step_base import ProcessingStepConfigBase
+from ..pipeline_steps.config_data_load_step_cradle import (
+    CradleDataLoadConfig,
     MdsDataSourceConfig,
     EdxDataSourceConfig,
     DataSourceConfig,
@@ -30,7 +36,13 @@ from ..config_field_manager.default_values_provider import DefaultValuesProvider
     OutputSpecificationConfig,
     CradleJobSpecificationConfig,
 )
-from ..pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfigfrom ..pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfigfrom ..pipeline_steps.config_model_calibration_step import ModelCalibrationConfigfrom ..pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfigfrom ..pipeline_steps.config_mims_packaging_step import PackageStepConfigfrom ..pipeline_steps.config_mims_registration_step import ModelRegistrationConfigfrom ..pipeline_steps.config_mims_payload_step import PayloadConfig
+from ..pipeline_steps.config_tabular_preprocessing_step import TabularPreprocessingConfig
+from ..pipeline_steps.config_training_step_xgboost import XGBoostTrainingConfig
+from ..pipeline_steps.config_model_calibration_step import ModelCalibrationConfig
+from ..pipeline_steps.config_model_eval_step_xgboost import XGBoostModelEvalConfig
+from ..pipeline_steps.config_package_step import PackageConfig
+from ..pipeline_steps.config_registration_step import RegistrationConfig
+from ..pipeline_steps.config_payload_step import PayloadConfig
 logger = logging.getLogger(__name__)
 
 
@@ -613,7 +625,8 @@ class XGBoostConfigFactory(ConfigFactory):
         """
         model = self.inputs.model
         
-        from ..pipeline_steps.hyperparameters_xgboost import XGBoostModelHyperparameters        from ..pipeline_steps.hyperparameters_base import ModelHyperparameters        
+        from ..pipeline_steps.hyperparameters_xgboost import XGBoostModelHyperparameters
+        from ..pipeline_steps.hyperparameters_base import ModelHyperparameters
         base_hyperparameter = ModelHyperparameters(
             full_field_list=model.full_field_list,
             cat_field_list=model.cat_field_list,
@@ -711,7 +724,8 @@ class XGBoostConfigFactory(ConfigFactory):
         """
         model = self.inputs.model
         
-        from ..pipeline_steps.hyperparameters_xgboost import XGBoostModelHyperparameters        from ..pipeline_steps.hyperparameters_base import ModelHyperparameters        
+        from ..pipeline_steps.hyperparameters_xgboost import XGBoostModelHyperparameters
+        from ..pipeline_steps.hyperparameters_base import ModelHyperparameters
         base_hyperparameter = ModelHyperparameters(
             full_field_list=model.full_field_list,
             cat_field_list=model.cat_field_list,
@@ -765,7 +779,7 @@ class XGBoostConfigFactory(ConfigFactory):
             xgboost_framework_version=processing_base_config.framework_version
         )
     
-    def _create_packaging_config(self, processing_base_config: ProcessingStepConfigBase) -> PackageStepConfig:
+    def _create_packaging_config(self, processing_base_config: ProcessingStepConfigBase) -> PackageConfig:
         """
         Create the packaging configuration.
         
@@ -779,11 +793,11 @@ class XGBoostConfigFactory(ConfigFactory):
         processing_base_dict['processing_entry_point'] = 'mims_package.py'
         processing_base_dict['use_large_processing_instance'] = True
         
-        return PackageStepConfig(
+        return PackageConfig(
             **processing_base_dict
         )
     
-    def _create_registration_config(self, base_config: BasePipelineConfig) -> ModelRegistrationConfig:
+    def _create_registration_config(self, base_config: BasePipelineConfig) -> RegistrationConfig:
         """
         Create the model registration configuration.
         
@@ -841,7 +855,7 @@ class XGBoostConfigFactory(ConfigFactory):
         source_model_inference_content_types = ["text/csv"]
         source_model_inference_response_types = ["application/json"]
         
-        return ModelRegistrationConfig(
+        return RegistrationConfig(
             **base_config.model_dump(),
             framework='xgboost',
             inference_entry_point='inference_xgb.py',

@@ -14,7 +14,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel
 
-from ..config_field_manager.config_field_categorizer import ConfigFieldCategorizerfrom ..config_field_manager.constants import CategoryType, MergeDirection, SPECIAL_FIELDS_TO_KEEP_SPECIFICfrom ..config_field_manager.type_aware_config_serializer import serialize_config, TypeAwareConfigSerializer
+from .config_field_categorizer import ConfigFieldCategorizer
+from .constants import CategoryType, MergeDirection, SPECIAL_FIELDS_TO_KEEP_SPECIFIC
+from .type_aware_config_serializer import serialize_config, TypeAwareConfigSerializer
 
 class ConfigMerger:
     """
@@ -178,7 +180,8 @@ class ConfigMerger:
             common_fields = set()
             
         # Remove special fields that should stay in specific sections
-        from ..config_field_manager.constants import SPECIAL_FIELDS_TO_KEEP_SPECIFIC        common_fields -= set(SPECIAL_FIELDS_TO_KEEP_SPECIFIC)
+        from .constants import SPECIAL_FIELDS_TO_KEEP_SPECIFIC        
+        common_fields -= set(SPECIAL_FIELDS_TO_KEEP_SPECIFIC)
         
         # Fields that should be common (appear in multiple configs)
         potential_shared_fields = set()

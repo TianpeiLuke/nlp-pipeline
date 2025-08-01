@@ -53,13 +53,21 @@ import logging
 from typing import Dict, List, Any, Optional, Type, Union, Tuple, Set
 from pathlib import Path
 
-from ..config_field_manager.config_merger import ConfigMergerfrom ..config_field_manager.config_class_store import ConfigClassStorefrom ..config_field_manager.type_aware_config_serializer import (    TypeAwareConfigSerializer, 
+from .config_merger import ConfigMerger
+from .config_class_store import ConfigClassStore
+from .type_aware_config_serializer import (
+    TypeAwareConfigSerializer, 
     serialize_config as _serialize_config,
     deserialize_config as _deserialize_config
 )
-from ..config_field_manager.config_field_categorizer import ConfigFieldCategorizerfrom ..config_field_manager.circular_reference_tracker import CircularReferenceTracker
+from .config_field_categorizer import ConfigFieldCategorizer
+from .circular_reference_tracker import CircularReferenceTracker
 # Three-tier architecture components
-from ..config_field_manager.tier_registry import ConfigFieldTierRegistryfrom ..config_field_manager.default_values_provider import DefaultValuesProviderfrom ..config_field_manager.field_derivation_engine import FieldDerivationEnginefrom ..config_field_manager.essential_input_models import (    DataConfig,
+from .tier_registry import ConfigFieldTierRegistry
+from .default_values_provider import DefaultValuesProvider
+from .field_derivation_engine import FieldDerivationEngine
+from .essential_input_models import (
+    DataConfig,
     ModelConfig,
     RegistrationConfig,
     EssentialInputs
