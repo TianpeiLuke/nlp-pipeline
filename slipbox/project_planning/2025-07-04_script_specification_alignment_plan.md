@@ -1,3 +1,24 @@
+---
+tags:
+  - project
+  - planning
+  - script_contracts
+  - alignment
+keywords:
+  - script contracts
+  - specification alignment
+  - validation framework
+  - path handling
+  - MIMS payload
+topics:
+  - script contract system
+  - validation framework
+  - path handling
+  - implementation plan
+language: python
+date of note: 2025-07-04
+---
+
 # Script-Specification Alignment Implementation Plan
 *Date: July 4, 2025*
 *Updated: July 12, 2025*

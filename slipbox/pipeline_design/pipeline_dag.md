@@ -1,3 +1,23 @@
+---
+tags:
+  - design
+  - structure
+  - dag
+  - pipeline_design
+keywords:
+  - directed acyclic graph
+  - dependency resolution
+  - pipeline topology
+  - execution flow
+  - graph analysis
+topics:
+  - pipeline architecture
+  - structural foundation
+  - computational graph
+language: python
+date of note: 2025-07-31
+---
+
 # Pipeline DAG
 
 ## What is the Purpose of Pipeline DAG?
@@ -472,3 +492,10 @@ print(f"Suggested optimizations: {optimizations}")
 ```
 
 Pipeline DAG serves as the **mathematical and computational backbone** of the pipeline architecture, providing the structural foundation that enables all higher-level abstractions to work correctly and efficiently while ensuring pipeline validity and enabling advanced optimization capabilities.
+
+## Related Documents
+
+- [Dynamic Pipeline Template](dynamic_template.md) - Template system that leverages Pipeline DAG for structure
+- [Step Config Resolver](step_config_resolver.md) - Maps DAG nodes to configurations
+- [Pipeline Template Base](pipeline_template_base.md) - Base class for templates using DAGs
+- [Step Builder](step_builder.md) - Builds pipeline steps based on DAG structure

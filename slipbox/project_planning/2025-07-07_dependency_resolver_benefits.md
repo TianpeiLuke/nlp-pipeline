@@ -1,3 +1,23 @@
+---
+tags:
+  - project
+  - architecture
+  - dependency_resolution
+  - step_builders
+keywords: 
+  - dependency resolver
+  - step builder
+  - pipeline template
+  - property reference
+  - code simplification
+topics: 
+  - pipeline architecture
+  - dependency resolution
+  - step builder simplification
+language: python
+date of note: 2025-07-07
+---
+
 # Dependency Resolver Benefits for Step Builder Simplification
 
 **Date:** July 11, 2025  

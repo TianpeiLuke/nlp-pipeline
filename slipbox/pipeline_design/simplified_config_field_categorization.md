@@ -278,6 +278,6 @@ for k, v in specific.get(step_name, {}).items():
 
 ## References
 
-- [Config Field Categorization Refactored](./config_field_categorization_refactored.md)
+- [Config Field Categorization](./config_field_categorization.md)
 - [Registry-Based Step Name Generation](./registry_based_step_name_generation.md)
 - [Config Types Format](./config_types_format.md)

@@ -1,3 +1,23 @@
+---
+tags:
+  - design
+  - configuration
+  - tiered_system
+  - field_classification
+keywords:
+  - three-tier design
+  - configuration management
+  - field classification
+  - encapsulation
+  - derived fields
+topics:
+  - configuration system
+  - field categorization
+  - self-contained design
+language: python
+date of note: 2025-07-31
+---
+
 # Three-Tier Field Classification Design for Configs and Hyperparameters
 
 ## Overview
@@ -772,94 +792,4 @@ This approach ensures:
 
 5. **Flexibility**: Easy to extend and customize without breaking other parts of the system.
 
-6. **Type Safety**: Full type checking support through Pydantic's validation system.
-
-7. **Simplified User Experience**: Users only need to provide essential inputs, with derivation handled transparently.
-
-8. **Preventing Misuse**: Users cannot accidentally override derived values since they're only accessible through read-only properties.
-
-9. **Self-Documentation**: Property methods have docstrings explaining the derivation process.
-
-10. **Single Source of Truth**: Each derived value has exactly one calculation pathway, defined in its property getter.
-
-## Important Implementation Considerations
-
-### Avoiding Infinite Validation Loops
-
-Pydantic models can enter infinite validation loops if validators modify fields that trigger additional validation rounds. In our design, this is avoided by:
-
-1. **Using `PrivateAttr` for Internal State**: For values that should never be serialized or involved in validation, we use `PrivateAttr`:
-
-```python
-class BasePipelineConfig(BaseModel):
-    # Internal cache that avoids validation cycles
-    _cache: Dict[str, Any] = PrivateAttr(default_factory=dict)
-    
-    @property
-    def some_derived_value(self) -> str:
-        """Get derived value with caching."""
-        if "some_derived_value" not in self._cache:
-            self._cache["some_derived_value"] = self._calculate_value()
-        return self._cache["some_derived_value"]
-```
-
-2. **Using Private Fields with `exclude=True`**: For values that need to be included in serialization but should avoid validation cycles:
-
-```python
-class BasePipelineConfig(BaseModel):
-    # Private field excluded from validation
-    _aws_region: Optional[str] = Field(default=None, exclude=True)
-    
-    # Property to access and calculate the value
-    @property
-    def aws_region(self) -> str:
-        if self._aws_region is None:
-            self._aws_region = self._region_mapping.get(self.region, "us-east-1")
-        return self._aws_region
-```
-
-3. **One-Time Initialization via `model_validator`**: Instead of initializing all derived values in property getters (which could be called multiple times), we can use a model validator for one-time initialization:
-
-```python
-class BasePipelineConfig(BaseModel):
-    # Fields defined as before...
-    
-    @model_validator(mode='after')
-    def initialize_derived_fields(self) -> 'BasePipelineConfig':
-        """Initialize all derived fields once after validation."""
-        # Direct assignment to private fields avoids triggering validation
-        self._aws_region = self._region_mapping.get(self.region, "us-east-1")
-        self._pipeline_name = f"{self.author}-{self.service_name}-XGBoostModel-{self.region}"
-        self._pipeline_description = f"{self.service_name} XGBoost Model {self.region}"
-        return self
-```
-
-This approach ensures that:
-- Property getters only retrieve values, not calculate them (preventing validation cycles)
-- Field initialization happens once during model creation
-- Private fields with `exclude=True` remain outside the validation cycle
-- `PrivateAttr` values are completely separate from validation
-
-It's important to choose the right approach based on whether the value needs to be serialized:
-- Use `PrivateAttr` for purely internal state
-- Use private fields with `exclude=True` for values that need to be included in serialized output
-
-## Migration Strategy
-
-1. **Incremental Refactoring**: Start with the base configuration class, then move on to step-specific classes.
-
-2. **Backward Compatibility**: Maintain compatibility with existing config serialization formats.
-
-3. **Parallel Implementation**: Develop the new system alongside the old one before switching over.
-
-4. **Testing**: Verify that the new configurations produce identical outputs to the old system.
-
-5. **Documentation**: Update documentation to reflect the simplified user experience.
-
-## Conclusion
-
-The self-contained configuration design addresses the scalability issues of the current approach by encapsulating derivation logic within each configuration class. By making derived fields private with read-only property access, we enhance encapsulation and prevent users from accidentally overriding calculated values, while maintaining a clean interface for accessing these values.
-
-This approach reduces complexity, improves maintainability, and provides a clearer user experience by focusing on essential inputs while handling derivation transparently. The clear separation between essential user inputs, system defaults, and derived values enforces proper design principles and creates a more robust configuration system.
-
-By leveraging Pydantic's powerful validation features and property methods, we can create a type-safe, self-documenting configuration system that scales well as the pipeline grows in complexity, while providing strong guarantees about the integrity of derived values.
+6. **Type Safety**: Full type checking

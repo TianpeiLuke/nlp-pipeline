@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - pipeline_deps
+  - registry_management
+keywords:
+  - registry manager
+  - multi-registry coordination
+  - context isolation
+  - specification management
+  - registry lifecycle
+  - thread-safety
+  - registry orchestration
+topics:
+  - registry management
+  - context coordination
+  - pipeline isolation
+  - multi-registry architecture
+language: python
+date of note: 2025-07-31
+---
+
 # Registry Manager
 
 ## What is the Purpose of Registry Manager?

@@ -305,6 +305,5 @@ The combination of the improved 3-tiered architecture and robust circular refere
 ## Related Documentation
 
 - [Circular Reference Tracker](./circular_reference_tracker.md) - Implementation details of the circular reference detection system
-- [Three-Tier Configuration Field Management](./config_field_categorization_three_tier.md) - Details of the 3-tiered design
+- [Config Field Categorization](./config_field_categorization.md) - Details of the 3-tiered design
 - [Type-Aware Serializer](./type_aware_serializer.md) - Serialization system that uses circular reference detection
-- [Config Field Categorization Refactored](./config_field_categorization_refactored.md) - Overall configuration management architecture

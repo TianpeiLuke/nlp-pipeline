@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - configuration
+  - three-tier
+keywords:
+  - three-tier configuration
+  - field categorization
+  - essential inputs
+  - system inputs
+  - derived fields
+  - configuration hierarchy
+  - pydantic models
+topics:
+  - configuration management
+  - field organization
+  - property design
+  - serialization
+language: python
+date of note: 2025-07-31
+---
+
 # Three-Tier Configuration Management Implementation Design
 
 ## Overview

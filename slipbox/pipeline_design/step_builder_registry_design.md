@@ -1,12 +1,37 @@
+---
+tags:
+  - design
+  - implementation
+  - pipeline_registry
+  - builder_registry
+keywords:
+  - step builder registry
+  - step name mapping
+  - job type variants
+  - single source of truth
+  - builder resolution
+  - configuration mapping
+  - step type resolution
+topics:
+  - registry design
+  - builder resolution
+  - naming conventions
+  - validation systems
+language: python
+date of note: 2025-07-31
+---
+
 # Step Builder Registry Design
 
 ## Overview
 
-The Step Builder Registry is a central component of the Pipeline API that maps configuration types to their corresponding step builder classes. This design document outlines its architecture, key principles, and recent enhancements to support job type variants.
+The Step Builder Registry is a central component of the Pipeline API that maps [configuration](config.md) types to their corresponding [step builder](step_builder.md) classes. This design document outlines its architecture, key principles, and recent enhancements to support job type variants.
+
+This design works in conjunction with the [registry-based step name generation](registry_based_step_name_generation.md) system to provide a centralized naming convention across all pipeline components.
 
 ## Architecture
 
-The Step Builder Registry follows a single source of truth approach, using centralized step naming conventions defined in `step_names.py`. This ensures consistency across the entire pipeline system.
+The Step Builder Registry follows a single source of truth approach, using centralized step naming conventions defined in `step_names.py`. This ensures consistency across the entire pipeline system and integrates with the [registry manager](registry_manager.md) for broader registry coordination.
 
 ```mermaid
 graph TD
@@ -22,9 +47,9 @@ graph TD
 
 ## Key Components
 
-1. **STEP_NAMES Registry**: The central dictionary defining all step types, their config classes, and builder classes.
+1. **STEP_NAMES Registry**: The central dictionary defining all step types, their [config](config.md) classes, and [builder](step_builder.md) classes.
 2. **StepBuilderRegistry**: Maps step types to builder classes, using the registry information.
-3. **ConfigClassToStepType**: Transformation logic that converts config class names to step types.
+3. **ConfigClassToStepType**: Transformation logic that converts config class names to step types, as detailed in [registry-based step name generation](registry_based_step_name_generation.md).
 4. **ValidationEngine**: Validates that all nodes in a DAG have corresponding builders.
 
 ## Job Type Variants
@@ -104,7 +129,11 @@ if job_type:
 
 ## Related Components
 
-- **StepConfigResolver**: Resolves configurations based on job type variants
+- **[Step Builder](step_builder.md)**: The builder classes that implement the steps
+- **[Registry-Based Step Name Generation](registry_based_step_name_generation.md)**: Central system for consistent step naming
+- **[Configuration System](config.md)**: Configuration objects that are mapped to builders
+- **[Registry Manager](registry_manager.md)**: Coordinates multiple registries in the system
+- **[Step Config Resolver](step_config_resolver.md)**: Resolves configurations based on job type variants
 - **DynamicPipelineTemplate**: Integrates job type information into pipeline generation
 - **ValidationEngine**: Validates job type variant resolution
 
@@ -113,3 +142,14 @@ if job_type:
 1. **Registration of Job Type Variants**: Allow direct registration of job type variant builders
 2. **Automatic Job Type Detection**: Further improve job type extraction from node names
 3. **Job Type-Specific Builder Logic**: Enable builders to customize behavior based on job type
+4. **Enhanced Integration**: Tighter integration with [specification registry](specification_registry.md) for validation
+5. **Automated Documentation**: Generate documentation from registry metadata
+
+## References
+
+- [Step Builder](step_builder.md): Details how step builders use the registry
+- [Registry-Based Step Name Generation](registry_based_step_name_generation.md): The step naming system
+- [Configuration System](config.md): Configuration objects used by step builders
+- [Registry Manager](registry_manager.md): Coordinating multiple registries
+- [Specification Registry](specification_registry.md): Related registry for step specifications
+- [Step Config Resolver](step_config_resolver.md): Configuration resolution for job type variants

@@ -1,3 +1,25 @@
+---
+tags:
+  - design
+  - implementation
+  - registry
+  - architecture
+keywords:
+  - single source of truth
+  - registry pattern
+  - step names registry
+  - hyperparameter registry
+  - centralized definition
+  - validation
+topics:
+  - architectural design
+  - registry pattern
+  - component relationships
+  - system consistency
+language: python
+date of note: 2025-07-31
+---
+
 # Registry as Single Source of Truth
 
 ## Overview
@@ -86,7 +108,23 @@ The registry provides functions to access and validate information:
 
 The Step Names Registry integrates with other components in the following ways:
 
-1. **Type-Aware Configuration Serialization**: Uses the registry to find the correct class for deserialization
+1. **[Type-Aware Configuration Serialization](type_aware_serializer.md)**: Uses the registry to:
+   - Find the correct class for deserialization
+   - Generate consistent step names for configuration objects
+   - Support the three-tier configuration hierarchy
+   - Handle job type variants during serialization
+
+   ```python
+   # In TypeAwareConfigSerializer
+   def generate_step_name(self, config: Any) -> str:
+       """Generate a step name for a config, including job type and other attributes."""
+       # Look up the step name from the registry (primary source of truth)
+       from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+       if class_name in CONFIG_STEP_REGISTRY:
+           base_step = CONFIG_STEP_REGISTRY[class_name]
+       # ...
+   ```
+
 2. **Step Builder Creation**: Maps step names to the appropriate builder classes
 3. **Step Specification**: References the registry to validate step types and maintain consistent naming
 4. **Dependency Resolution**: Validates step names during dependency resolution
@@ -94,6 +132,30 @@ The Step Names Registry integrates with other components in the following ways:
 6. **Pipeline Templates**: Provides consistent step naming for pipeline DAG construction
 7. **Script Contracts**: Ensures consistency between script contracts and step specifications
 8. **Job Type Handling**: Properly handles job type variants (like training/calibration) with consistent naming
+9. **[Step Config Resolver](step_config_resolver.md)**: Uses the registry for:
+   - Mapping DAG node names to configuration types
+   - Implementing the `_config_class_to_step_type` conversion
+   - Handling job type variants in node names
+   - Pattern-matching between step types and node names
+   - Resolving ambiguities by using canonical step names
+
+   ```python
+   # In StepConfigResolver
+   def _config_class_to_step_type(self, config_class_name: str) -> str:
+       """Convert configuration class name to step type using registry."""
+       # Use the same logic as in registry
+       from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+       if config_class_name in CONFIG_STEP_REGISTRY:
+           return CONFIG_STEP_REGISTRY[config_class_name]
+       
+       # Fall back to simplified transformation
+       step_type = config_class_name.replace('Config', '')
+       # Handle special cases defined in registry
+       if step_type == "CradleDataLoad":
+           return "CradleDataLoading"
+       # ...
+       return step_type
+   ```
 
 For comprehensive details on this integration across all components, refer to the [Registry-Based Step Name Generation](registry_based_step_name_generation.md) document.
 
@@ -177,7 +239,150 @@ module = importlib.import_module(module_path)
 hyperparam_class = getattr(module, hyperparam_class_name)
 ```
 
+## Step Builder Registry
+
+### Purpose
+
+The [Step Builder Registry](step_builder_registry_design.md) serves as the single source of truth for mapping between configurations and their corresponding step builder classes. It ensures:
+
+1. Consistent builder selection for each configuration type
+2. Support for job type variants with appropriate builder selection
+3. Centralized validation of builder availability
+4. Seamless integration between configuration objects and pipeline steps
+5. Clear mapping between related components in the pipeline system
+
+> **See Also**: [Step Builder Registry Design](step_builder_registry_design.md) for detailed information on how the registry maps configurations to step builders.
+
+### Structure
+
+The registry is implemented in `src/pipeline_registry/builder_registry.py` and has the following key components:
+
+#### Core Registry Definition
+
+```python
+class StepBuilderRegistry:
+    """Registry mapping step types to their builder classes."""
+
+    def __init__(self):
+        """Initialize the registry with builder mappings."""
+        self._builders = {}
+        self._config_to_step_type = ConfigClassToStepType()
+        
+        # Register core builders
+        self._register_core_builders()
+    
+    def _register_core_builders(self):
+        """Register all core step builder classes."""
+        # Registration mappings from step_names.py
+        from src.pipeline_registry.step_names import STEP_NAMES
+        
+        for step_name, info in STEP_NAMES.items():
+            # Find and register the appropriate builder
+            builder_class_name = info["builder_step_name"]
+            self._register_builder(step_name, builder_class_name)
+```
+
+The registry uses the Step Names Registry as the authoritative source for builder information.
+
+#### Builder Resolution
+
+The registry provides sophisticated builder resolution capabilities:
+
+```python
+def get_builder_for_config(self, config: BasePipelineConfig) -> Type[StepBuilderBase]:
+    """Get the builder class for a given configuration object."""
+    config_class = type(config).__name__
+    step_type = self._config_to_step_type.convert(config_class)
+    
+    # First try with job type if available
+    if hasattr(config, 'job_type') and config.job_type:
+        job_type_step = f"{step_type}_{config.job_type.lower()}"
+        if job_type_step in self._builders:
+            return self._builders[job_type_step]
+    
+    # Fall back to base step type
+    if step_type in self._builders:
+        return self._builders[step_type]
+    
+    raise ValueError(f"No builder registered for step type '{step_type}'")
+```
+
+This enables automatic resolution of the correct builder class, including handling job type variants.
+
+#### Validation Functions
+
+The registry includes validation capabilities:
+
+```python
+def validate_builders_for_step_types(self, step_types: List[str]) -> Dict[str, bool]:
+    """Validate that builders exist for all specified step types."""
+    results = {}
+    for step_type in step_types:
+        results[step_type] = step_type in self._builders
+    return results
+
+def check_builder_availability(self, step_type: str) -> bool:
+    """Check if a builder is available for a step type."""
+    return step_type in self._builders
+```
+
+### Integration with Other Components
+
+The Step Builder Registry integrates with other components in the following ways:
+
+1. **Pipeline DAG Compilation**: Resolves builders for each node in the pipeline DAG
+2. **Step Configuration Resolution**: Works with [Step Config Resolver](step_config_resolver.md) to map configurations to builders
+3. **Pipeline Template**: Uses the registry to create step instances during pipeline assembly
+4. **Step Names Registry**: References the Step Names Registry for authoritative builder information
+5. **Job Type Handling**: Supports job type variants through specialized builder selection
+
+### Usage Example
+
+```python
+from src.pipeline_registry import builder_registry
+
+# Get builder for a configuration object
+builder_class = builder_registry.get_builder_for_config(config)
+builder = builder_class(config)
+step = builder.build()
+
+# Check builder availability
+is_available = builder_registry.check_builder_availability("PyTorchTraining")
+
+# Validate multiple step types
+validation_results = builder_registry.validate_builders_for_step_types([
+    "CradleDataLoading", "TabularPreprocessing", "XGBoostTraining"
+])
+```
+
 ## Best Practices for Registry Usage
+
+### Registry Access Patterns
+
+When working with the registries, follow these access patterns for best results:
+
+```python
+# Step Names Registry - Use helper functions when possible
+from src.pipeline_registry.step_names import (
+    get_builder_step_name, get_spec_step_type, 
+    get_spec_step_type_with_job_type
+)
+
+# For direct dictionary access
+from src.pipeline_registry.step_names import (
+    STEP_NAMES, CONFIG_STEP_REGISTRY, BUILDER_STEP_NAMES
+)
+
+# Hyperparameter Registry - Use helper functions
+from src.pipeline_registry.hyperparameter_registry import (
+    get_hyperparameter_class_by_model_type, 
+    get_module_path
+)
+
+# Step Builder Registry - Use registry instance
+from src.pipeline_registry import builder_registry
+builder_class = builder_registry.get_builder_for_config(config)
+```
 
 ### Do's
 
@@ -233,6 +438,9 @@ By using these registries consistently throughout the system, we create a more m
 ## Related Documents
 
 - [Registry-Based Step Name Generation](registry_based_step_name_generation.md): Details the implementation of consistent step naming using the registry
+- [Type-Aware Serializer](type_aware_serializer.md): Serializer that uses the registry for type-aware configuration serialization
+- [Step Config Resolver](step_config_resolver.md): Resolves DAG nodes to configurations using the registry
+- [Step Builder Registry](step_builder_registry_design.md): Registry for mapping configurations to step builders
 - [Pipeline Registry](pipeline_registry.md): Describes the broader registry pattern used across the pipeline system
 - [Config Types Format](config_types_format.md): Explains the format used for configuration type definitions in the registry
 - [Job Type Variant Handling](job_type_variant_handling.md): Covers how job type variants are handled consistently using the registry

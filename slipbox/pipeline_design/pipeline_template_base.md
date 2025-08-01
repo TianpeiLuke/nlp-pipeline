@@ -1,3 +1,24 @@
+---
+tags:
+  - design
+  - foundation
+  - pipeline_design
+  - template_architecture
+keywords:
+  - pipeline template
+  - abstract base class
+  - component management
+  - thread safety
+  - execution document
+  - factory methods
+topics:
+  - pipeline architecture
+  - template patterns
+  - component lifecycle
+language: python
+date of note: 2025-07-31
+---
+
 # Pipeline Template Base
 
 The `PipelineTemplateBase` provides a standardized foundation for all pipeline templates in the system. It defines a consistent structure, manages dependency components properly, and enforces best practices across different pipeline implementations.
@@ -337,3 +358,11 @@ Each template implementation should override this method to provide its specific
    - Include parameters for things like encryption, security, etc.
 
 By following these best practices, you can create pipeline templates that are consistent, maintainable, and thread-safe.
+
+## References
+
+- [Dynamic Pipeline Template](dynamic_template.md) - Advanced template implementation built on this base class
+- [Step Config Resolver](step_config_resolver.md) - Resolver for mapping DAG nodes to configurations
+- [Pipeline DAG](pipeline_dag.md) - DAG structure used by pipeline templates
+- [Step Builder](step_builder.md) - Builder pattern used for step instantiation
+- [Registry Manager](registry_manager.md) - Registry manager for component registration

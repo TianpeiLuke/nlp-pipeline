@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - pipeline
+  - architecture
+keywords:
+  - config-driven design
+  - pipeline template
+  - step builder
+  - configuration objects
+  - dependency resolution
+  - DAG definition
+  - field categorization
+topics:
+  - pipeline architecture
+  - configuration management
+  - template-based orchestration
+  - builder pattern
+language: python
+date of note: 2025-07-31
+---
+
 # Config-Driven Pipeline Design (Current Implementation)
 
 ## Overview

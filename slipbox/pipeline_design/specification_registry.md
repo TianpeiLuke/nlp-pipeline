@@ -1,3 +1,25 @@
+---
+tags:
+  - design
+  - implementation
+  - pipeline_deps
+  - specification_registry
+keywords:
+  - specification registry
+  - context isolation
+  - compatibility analysis
+  - step specifications
+  - dependency resolution
+  - registry pattern
+  - specification storage
+topics:
+  - specification management
+  - context-aware registries
+  - dependency analysis
+language: python
+date of note: 2025-07-31
+---
+
 # Specification Registry
 
 ## What is the Purpose of Specification Registry?

@@ -106,7 +106,7 @@ def generate_pipeline_name(base_name: str, version: str = "1.0") -> str:
     random_word = generate_random_word(4)
     
     # Combine all parts
-    name = f"{base_name}-{random_word}-{version}-pipeline"
+    name = f"{base_name}-{version}-pipeline" #f"{base_name}-{random_word}-{version}-pipeline"
     
     # Sanitize the name to ensure it conforms to SageMaker constraints
     return sanitize_pipeline_name(name)

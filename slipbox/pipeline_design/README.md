@@ -1,3 +1,22 @@
+---
+tags:
+  - entry_point
+  - design
+  - architecture
+  - documentation
+keywords:
+  - pipeline design
+  - architecture documentation
+  - design components
+  - system architecture
+topics:
+  - design documentation
+  - pipeline architecture
+  - component design
+language: markdown
+date of note: 2025-07-31
+---
+
 # Pipeline Design Documentation
 
 This directory contains comprehensive documentation for the ML pipeline architecture design components that emerged from our extensive dialogue on pipeline system evolution.
@@ -37,7 +56,7 @@ The pipeline design represents a sophisticated, multi-layered architecture that 
 - **Benefits**: 80%+ reduction in user inputs, intelligent defaults, progressive disclosure
 - **Strategic Value**: Transforms configuration from burden to enabler
 
-#### **[Config Field Categorization Refactored](config_field_categorization_refactored.md)** - Sophisticated Field Management
+#### **[Config Field Categorization](config_field_categorization.md)** - Sophisticated Field Management
 - **Purpose**: Streamlined architecture for managing configuration fields across multiple configurations
 - **Key Features**: Three-tier field classification, type-safe serialization, circular reference handling
 - **Benefits**: Single source of truth, declarative categorization rules, enhanced maintainability

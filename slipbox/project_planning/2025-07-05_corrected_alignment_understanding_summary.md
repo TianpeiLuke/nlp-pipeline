@@ -1,3 +1,24 @@
+---
+tags:
+  - project
+  - analysis
+  - alignment
+  - architecture
+keywords:
+  - corrected alignment
+  - four-layer architecture
+  - logical names
+  - property paths
+  - script contracts
+topics:
+  - pipeline architecture
+  - alignment validation
+  - contract integration
+  - step specifications
+language: python
+date of note: 2025-07-05
+---
+
 # Corrected Alignment Understanding Summary
 
 **Date**: July 5, 2025  
@@ -289,4 +310,7 @@ class StepBuilderBase:
 
 ## 🔍 Key Insights
 
-1. **Architecture Matters**: The four-layer
+1. **Architecture Matters**: The four-layer architecture ensures separation of concerns
+2. **Logical Names Are Critical**: They serve as the semantic glue across layers
+3. **Property Paths Must Match**: Runtime property access depends on consistent naming
+4. **Contract-Driven Builders**: Dynamic path resolution enables consistent changes

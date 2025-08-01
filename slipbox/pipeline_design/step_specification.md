@@ -1,3 +1,24 @@
+---
+tags:
+  - design
+  - specification
+  - pipeline_design
+  - metadata
+keywords:
+  - step specification
+  - declarative metadata
+  - dependency resolution
+  - node types
+  - pipeline topology
+  - script contracts
+topics:
+  - pipeline architecture
+  - dependency management
+  - specification patterns
+language: python
+date of note: 2025-07-31
+---
+
 # Step Specification
 
 ## What is the Purpose of Step Specification?

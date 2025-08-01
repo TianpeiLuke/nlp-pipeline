@@ -1,3 +1,24 @@
+---
+tags:
+  - design
+  - compiler
+  - pipeline_design
+  - transformation
+keywords:
+  - DAG compilation
+  - visual interface
+  - programmatic API
+  - config resolution
+  - template generation
+  - pipeline visualization
+topics:
+  - compiler architecture
+  - transformation system
+  - visual programming
+language: python
+date of note: 2025-07-31
+---
+
 # DAG to Template Compilation System
 
 ## Overview

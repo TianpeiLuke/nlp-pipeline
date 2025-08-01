@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - configuration
+  - registry
+keywords:
+  - config registry
+  - configuration classes
+  - centralized registration
+  - class discovery
+  - type resolution
+  - single source of truth
+  - decorator registration
+topics:
+  - configuration management
+  - registry pattern
+  - class resolution
+  - dynamic imports
+language: python
+date of note: 2025-07-31
+---
+
 # Config Registry
 
 ## Overview

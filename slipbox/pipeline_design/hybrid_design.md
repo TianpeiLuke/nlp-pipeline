@@ -1,3 +1,23 @@
+---
+tags:
+  - design
+  - architecture
+  - hybrid_approach
+  - pipeline_design
+keywords:
+  - hybrid architecture
+  - specification-driven
+  - config-driven
+  - dependency resolution
+  - progressive enhancement
+topics:
+  - pipeline architecture
+  - integration patterns
+  - user experience design
+language: python
+date of note: 2025-07-31
+---
+
 # Hybrid Specification + Config Architecture: The Best of Both Worlds
 
 ## Overview

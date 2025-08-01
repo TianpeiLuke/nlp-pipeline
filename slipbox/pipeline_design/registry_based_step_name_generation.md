@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - pipeline_registry
+  - naming_conventions
+keywords:
+  - step name registry
+  - centralized naming
+  - job type variants
+  - single source of truth
+  - name generation
+  - consistent naming
+  - registry integration
+topics:
+  - registry design
+  - naming consistency
+  - pipeline integration
+  - system-wide standardization
+language: python
+date of note: 2025-07-31
+---
+
 # Registry-Based Step Name Generation
 
 ## Overview
@@ -13,6 +36,8 @@ The purpose of registry-based step name generation is to:
 3. **Support job type variants** with a reliable naming scheme
 4. **Ensure consistency** between saving and loading configurations
 5. **Simplify maintenance** by centralizing step name definitions
+
+This design complements the [step builder registry design](step_builder_registry_design.md) and provides a foundation for consistent naming across [configurations](config.md), [step builders](step_builder.md), [step specifications](step_specification.md), and the [step config resolver](step_config_resolver.md).
 
 ## Central Registry Architecture
 
@@ -69,10 +94,10 @@ def get_spec_step_type_with_job_type(step_name: str, job_type: str = None) -> st
 
 This central registry is integrated across all pipeline components:
 
-1. **Configuration System**: For serialization, deserialization, and loading
-2. **Builder System**: For step builder creation and registry
-3. **Step Specification System**: For defining step types and dependencies
-4. **Pipeline Template System**: For building pipelines with consistent names
+1. **Configuration System**: For serialization, deserialization, and loading through [config resolution](config_resolution_enhancements.md) and the [step config resolver](step_config_resolver.md)
+2. **Builder System**: For step builder creation and registry through the [step builder registry](step_builder_registry_design.md)
+3. **Step Specification System**: For defining step types and dependencies in [step specifications](step_specification.md)
+4. **Pipeline Template System**: For building pipelines with consistent names via [step builders](step_builder.md)
 
 ## Core Components Integration
 
@@ -118,7 +143,7 @@ def generate_step_name(self, config: Any) -> str:
 
 #### 1.2. Config Base
 
-The base configuration class directly imports from the central registry:
+The base [configuration](config.md) class directly imports from the central registry:
 
 ```python
 # src/pipeline_steps/config_base.py
@@ -154,7 +179,7 @@ def _generate_step_name(self, config: Any) -> str:
 
 #### 2.1. Builder Step Base
 
-The builder step base imports step names from the central registry:
+The [step builder](step_builder.md) base imports step names from the central registry, as described in the [step builder registry design](step_builder_registry_design.md):
 
 ```python
 # src/pipeline_steps/builder_step_base.py
@@ -221,7 +246,7 @@ class StepBuilderFactory:
 
 #### 3.1. Step Specification Base
 
-The step specification base uses the central registry:
+The [step specification](step_specification.md) base uses the central registry:
 
 ```python
 # src/pipeline_step_specs/step_specification.py
@@ -287,7 +312,7 @@ TABULAR_PREPROCESSING_TRAINING_SPEC = StepSpecification(
 
 ### 4. Pipeline Template Integration
 
-Pipeline templates reference step names consistently through the central registry:
+Pipeline templates reference step names consistently through the central registry, leveraging the [configuration resolution](config_resolution_enhancements.md) system:
 
 ```python
 # src/pipeline_builder/template_pipeline_xgboost_end_to_end.py
@@ -434,6 +459,8 @@ def validate_step_name_consistency():
 4. **Single Source of Truth**: One definitive place for step name definitions
 5. **Systematic Job Type Support**: Standardized approach to job type variants
 
+This design works in harmony with the [step builder registry](step_builder_registry_design.md) system to ensure consistent naming throughout the [configuration](config.md), [step building](step_builder.md), and [specification](step_specification.md) subsystems.
+
 ## Error Handling
 
 1. **Registry Not Found**: Falls back to legacy naming scheme (remove "Config" suffix)
@@ -460,7 +487,13 @@ The implementation maintains backward compatibility through:
 
 ## References
 
+- [Step Builder Registry Design](step_builder_registry_design.md) - Complementary registry design for step builders
+- [Step Builder](step_builder.md) - Details on how step builders use the registry for naming
+- [Configuration System](config.md) - Overview of the configuration system that uses these names
+- [Step Specification](step_specification.md) - Specification system that relies on consistent step naming
+- [Configuration Resolution](config_resolution_enhancements.md) - How configurations are resolved using the registry
+- [Step Config Resolver](step_config_resolver.md) - Resolution of node names to configuration objects
+- [Config Types Format](config_types_format.md) - Format standards for configuration types
+- [Simplified Config Field Categorization](simplified_config_field_categorization.md) - Field organization in configs
 - [Step Name Consistency Implementation Plan](../slipbox/project_planning/2025-07-07_step_name_consistency_implementation_plan.md)
 - [Job Type Variant Solution](../slipbox/project_planning/2025-07-04_job_type_variant_solution.md)
-- [Config Types Format](./config_types_format.md)
-- [Simplified Config Field Categorization](./simplified_config_field_categorization.md)

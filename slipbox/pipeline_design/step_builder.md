@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - step_builder
+  - pipeline_design
+keywords:
+  - step builder
+  - SageMaker integration
+  - implementation bridge
+  - script contract
+  - property references
+  - specification implementation
+  - step builder registry
+topics:
+  - implementation patterns
+  - SageMaker integration
+  - specification-driven design
+  - centralized registry
+language: python
+date of note: 2025-07-31
+---
+
 # Step Builder
 
 ## What is the Purpose of Step Builder?
@@ -9,11 +32,12 @@ Step Builders serve as the **implementation bridge** that translates abstract [s
 Step Builders provide the **concrete implementation layer** that:
 
 1. **Implementation Bridge** - Convert [specifications](step_specification.md) into SageMaker steps
-2. **Input/Output Transformation** - Map logical names to SageMaker properties
+2. **Input/Output Transformation** - Map logical names to SageMaker [properties](enhanced_property_reference.md)
 3. **Configuration Integration** - Apply step-specific settings from [configs](config.md)
 4. **Validation and Error Handling** - Runtime validation with meaningful errors
 5. **SageMaker Integration** - Handle SageMaker-specific complexities
-6. **Script Contract Alignment** - Ensure alignment between specs, contracts, and implementations
+6. **Script Contract Alignment** - Ensure alignment between specs, [script contracts](script_contract.md), and implementations
+7. **Registration and Discovery** - Register with the Step Builder Registry for centralized management
 
 ## Key Features
 
@@ -96,7 +120,7 @@ def _get_inputs(self, inputs: Dict[str, Any]) -> Dict[str, TrainingInput]:
     return training_inputs
 
 def get_output_reference(self, logical_name: str):
-    """Convert logical output name to SageMaker property reference using specification"""
+    """Convert logical output name to SageMaker [property reference](enhanced_property_reference.md) using specification"""
     # Find the OutputSpec in the specification
     if not self.spec:
         raise ValueError("Step specification required for output reference")
@@ -200,7 +224,7 @@ The base class provides a standardized method for handling environment variables
 ```python
 def _get_environment_variables(self) -> Dict[str, str]:
     """
-    Create environment variables for the processing job based on the script contract.
+    Create environment variables for the processing job based on the [script contract](script_contract.md).
     
     This base implementation:
     1. Uses required_env_vars from the script contract
@@ -248,7 +272,7 @@ def _get_environment_variables(self) -> Dict[str, str]:
 
 This method provides consistent environment variable handling across all step builders by:
 
-1. Examining the script contract's `required_env_vars` and `optional_env_vars`
+1. Examining the [script contract](script_contract.md)'s `required_env_vars` and `optional_env_vars`
 2. Automatically converting environment variable names (e.g., `LABEL_FIELD`) to config attribute style (`label_field`)
 3. Looking for values in both the main config object and its `hyperparameters` attribute
 4. Using default values from the contract for optional variables when not found in config
@@ -410,7 +434,7 @@ step = processor.run(
 
 ### 6. Script Contract Alignment
 
-Ensure alignment between specifications, contracts, and implementations:
+Ensure alignment between specifications, [script contracts](script_contract.md), and implementations:
 
 ```python
 def __init__(self, config, spec=None, ...):
@@ -418,7 +442,7 @@ def __init__(self, config, spec=None, ...):
     self.config = config
     self.spec = spec
     
-    # Get contract from specification if available
+    # Get script contract from specification if available
     self.contract = getattr(spec, 'script_contract', None) if spec else None
     if not self.contract and hasattr(self.config, 'script_contract'):
         self.contract = self.config.script_contract
@@ -483,7 +507,7 @@ class XGBoostTrainingStepBuilder(StepBuilderBase):
 
 ### With Configs
 
-Step Builders use dependency injection pattern with [configs](config.md) and link them with script contracts:
+Step Builders use dependency injection pattern with [configs](config.md) and link them with [script contracts](script_contract.md):
 
 ```python
 class XGBoostTrainingStepBuilder(StepBuilderBase):
@@ -565,7 +589,7 @@ class StepBuilderBase:
                 raise ValueError(f"Spec-Contract alignment errors: {result.errors}")
                 
     def get_property_path(self, logical_name: str, format_args: Dict[str, Any] = None) -> Optional[str]:
-        """Get property path for an output using the specification."""
+        """Get [property path](enhanced_property_reference.md) for an output using the specification."""
         property_path = None
         
         # Get property path from specification outputs
@@ -601,13 +625,14 @@ Spec-driven Step Builders provide:
 
 1. **Implementation Abstraction**: Hide SageMaker complexity from users
 2. **Specification Compliance**: Ensure implementations match [specifications](step_specification.md)
-3. **Contract Enforcement**: Validate alignment between specification and script contracts
-4. **Automatic Dependency Resolution**: Enable automatic connections between steps
+3. **Contract Enforcement**: Validate alignment between specification and [script contracts](script_contract.md)
+4. **Automatic Dependency Resolution**: Enable automatic connections between steps through [dependency resolution](dependency_resolver.md)
 5. **Runtime Validation**: Comprehensive error handling with specification-based messages
 6. **Integration Points**: Bridge between declarative specifications and SageMaker steps
 7. **Reusability**: Common patterns can be shared across different step types
 8. **Maintainability**: Changes to SageMaker APIs isolated to builders
 9. **Clarity of Intent**: Clear separation between "what" (specs) and "how" (implementation)
+10. **Centralized Registration**: All builders are managed through the [Step Builder Registry](step_builder_registry_design.md)
 
 ## Example Usage with Specifications
 
@@ -647,5 +672,200 @@ class XGBoostTrainingPipeline(PipelineTemplateBase):
         
         return dag
 ```
+
+## Step Builder Registry
+
+The **Step Builder Registry** provides a centralized system for managing and discovering step builders throughout the pipeline system. It ensures consistent naming and simplifies the integration between configuration objects, builder classes, and pipeline steps.
+
+### Single Source of Truth
+
+The registry follows a **single source of truth** approach through a central `STEP_NAMES` dictionary defined in `step_names.py`:
+
+```python
+# Core step name registry - canonical names used throughout the system
+STEP_NAMES = {
+    "XGBoostTraining": {
+        "config_class": "XGBoostTrainingConfig",
+        "builder_step_name": "XGBoostTrainingStepBuilder",
+        "spec_type": "XGBoostTraining",
+        "description": "XGBoost model training step"
+    },
+    "TabularPreprocessing": {
+        "config_class": "TabularPreprocessingConfig",
+        "builder_step_name": "TabularPreprocessingStepBuilder",
+        "spec_type": "TabularPreprocessing",
+        "description": "Tabular data preprocessing step"
+    },
+    # ... other step definitions ...
+}
+```
+
+This registry is used to generate other mappings used throughout the system:
+
+```python
+# Generate the mappings that existing code expects
+CONFIG_STEP_REGISTRY = {
+    info["config_class"]: step_name 
+    for step_name, info in STEP_NAMES.items()
+}
+
+BUILDER_STEP_NAMES = {
+    step_name: info["builder_step_name"]
+    for step_name, info in STEP_NAMES.items()
+}
+
+# Generate step specification types
+SPEC_STEP_TYPES = {
+    step_name: info["spec_type"]
+    for step_name, info in STEP_NAMES.items()
+}
+```
+
+### Step Builder Registration
+
+Step builders are automatically registered using the `@register_builder()` decorator:
+
+```python
+@register_builder()
+class XGBoostTrainingStepBuilder(StepBuilderBase):
+    """Converts XGBoost training specification into SageMaker TrainingStep"""
+    
+    def __init__(self, config: XGBoostTrainingConfig, ...):
+        super().__init__(
+            config=config,
+            spec=XGBOOST_TRAINING_SPEC,
+            sagemaker_session=sagemaker_session,
+            ...
+        )
+```
+
+The decorator automatically determines the step type from the class name using the `STEP_NAMES` registry:
+
+```python
+def register_builder(step_type: str = None):
+    """
+    Decorator to automatically register a step builder class.
+    
+    Args:
+        step_type: Optional step type name. If not provided,
+                  will be derived from the class name using the STEP_NAMES registry.
+    """
+    def decorator(cls):
+        if not issubclass(cls, StepBuilderBase):
+            raise TypeError(f"@register_builder can only be used on StepBuilderBase subclasses: {cls.__name__}")
+        
+        # Determine step type if not provided
+        nonlocal step_type
+        if step_type is None:
+            class_name = cls.__name__
+            
+            # First, try to find in STEP_NAMES registry (single source of truth)
+            if class_name in REVERSE_BUILDER_MAPPING:
+                step_type = REVERSE_BUILDER_MAPPING[class_name]
+            else:
+                # Fallback to current logic for backward compatibility
+                if class_name.endswith('StepBuilder'):
+                    step_type = class_name[:-11]  # Remove 'StepBuilder'
+                else:
+                    step_type = class_name
+        
+        # Register the class
+        StepBuilderRegistry.register_builder_class(step_type, cls)
+        return cls
+    
+    return decorator
+```
+
+### Registry Class
+
+The `StepBuilderRegistry` class provides methods for:
+
+1. **Discovering Builders**: Automatically finding and registering step builders
+2. **Builder Resolution**: Finding the right builder for a configuration or step type
+3. **Job Type Variants**: Supporting multiple job types for the same step type
+4. **Validation**: Ensuring the registry is consistent and complete
+
+```python
+class StepBuilderRegistry:
+    """Centralized registry mapping step types to builder classes."""
+    
+    # Core registry mapping step types to builders
+    BUILDER_REGISTRY = {}  
+    
+    @classmethod
+    def get_builder_for_config(cls, config: BasePipelineConfig, node_name: str = None) -> Type[StepBuilderBase]:
+        """Get step builder class for a specific configuration."""
+        config_class_name = type(config).__name__
+        job_type = getattr(config, 'job_type', None)
+        
+        # Convert config class name to step type, considering job type
+        step_type = cls._config_class_to_step_type(config_class_name, node_name, job_type)
+        
+        # Try with the full step type (including job type if present)
+        if step_type in cls.BUILDER_REGISTRY:
+            return cls.BUILDER_REGISTRY[step_type]
+            
+        # Fall back to base step type if needed
+        base_step_type = step_type.split('_')[0] if '_' in step_type else step_type
+        if base_step_type in cls.BUILDER_REGISTRY:
+            return cls.BUILDER_REGISTRY[base_step_type]
+            
+        raise RegistryError(f"No builder found for {step_type}")
+```
+
+### Job Type Variants
+
+The registry supports **job type variants** of the same step builder, allowing for:
+
+1. **Multiple Uses**: Same builder for different purposes (e.g., training vs. inference)
+2. **Specialized Configuration**: Different hyperparameters for different job types
+3. **DAG Clarity**: Clear node names in the pipeline DAG
+
+Example with job types:
+
+```python
+# In the DAG definition
+dag.add_node("TabularPreprocessing_training")
+dag.add_node("TabularPreprocessing_inference")
+
+# Resolves to the same builder class with different job_type values
+training_config = TabularPreprocessingConfig(job_type="training")
+inference_config = TabularPreprocessingConfig(job_type="inference")
+```
+
+### Integration with Other Components
+
+The Step Builder Registry connects with:
+
+- [Configuration System](config.md): Maps config classes to step builders
+- [Pipeline DAG](pipeline_dag.md): Resolves DAG node names to builders
+- [Specifications](step_specification.md): Links step types to specifications
+- [Dynamic Pipeline Templates](dynamic_template.md): Creates steps with right builders
+- [Pipeline Template Base](pipeline_template_base.md): Provides foundation for template creation
+- [Validation Engine](dependency_resolution_explained.md): Validates builder availability
+
+### Benefits of the Registry
+
+1. **Naming Consistency**: Ensures consistent naming across all components
+2. **Auto-Discovery**: Reduces manual registration boilerplate
+3. **Single Source of Truth**: Centralizes naming conventions
+4. **Job Type Variants**: Supports multiple variants of the same step
+5. **Extensibility**: Allows third-party registration of custom builders
+6. **Validation**: Provides tools to ensure system consistency
+
+For more details on the registry implementation, see [Step Builder Registry Design](step_builder_registry_design.md).
+
+## Integration Across the System
+
+The Step Builder system integrates with several other components:
+
+1. **[Pipeline Templates](pipeline_template_base.md)**: Use builder registry to create steps from DAG nodes
+2. **[Step Specifications](step_specification.md)**: Define the contract that builders must implement
+3. **[Script Contracts](script_contract.md)**: Connect builders to script requirements
+4. **[Configuration System](config.md)**: Provide settings for builder customization
+5. **[Registry Manager](registry_manager.md)**: Coordinate property registration
+6. **[Dependency Resolver](dependency_resolver.md)**: Automatic input resolution between steps
+7. **[Pipeline DAG](pipeline_dag.md)**: Structure the step relationships
+8. **[Property References](enhanced_property_reference.md)**: Access runtime properties
 
 Step Builders form the **implementation foundation** that makes the spec-driven design practical and usable in real-world ML pipeline development, handling all the complex details of SageMaker integration while enabling declarative, specification-driven pipeline composition.

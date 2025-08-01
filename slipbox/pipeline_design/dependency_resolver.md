@@ -1,3 +1,25 @@
+---
+tags:
+  - design
+  - resolver
+  - pipeline_design
+  - intelligent_matching
+keywords:
+  - dependency resolution
+  - semantic matching
+  - compatibility scoring
+  - property references
+  - step connections
+  - specification registry
+topics:
+  - pipeline architecture
+  - automated dependency management
+  - resolution algorithms
+  - semantic matching
+language: python
+date of note: 2025-07-31
+---
+
 # Dependency Resolver
 
 ## What is the Purpose of Dependency Resolver?

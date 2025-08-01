@@ -1,3 +1,23 @@
+---
+tags:
+  - design
+  - architecture
+  - specification_driven
+  - pipeline_design
+keywords:
+  - specification-driven design
+  - declarative dependencies
+  - step specifications
+  - script contracts
+  - dependency resolution
+topics:
+  - pipeline architecture
+  - dependency management
+  - implementation patterns
+language: python
+date of note: 2025-07-31
+---
+
 # Specification-Driven Pipeline Design
 
 ## Overview

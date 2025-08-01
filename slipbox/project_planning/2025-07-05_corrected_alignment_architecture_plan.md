@@ -1,3 +1,25 @@
+---
+tags:
+  - project
+  - architecture
+  - alignment
+  - implementation
+keywords:
+  - alignment architecture
+  - property paths
+  - logical names
+  - step specifications
+  - script contracts
+  - step builders
+topics:
+  - pipeline architecture
+  - specification alignment
+  - contract integration
+  - property reference system
+language: python
+date of note: 2025-07-05
+---
+
 # Corrected Alignment Architecture Implementation Plan
 
 **Created**: July 5, 2025  

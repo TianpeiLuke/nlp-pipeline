@@ -1,3 +1,23 @@
+---
+tags:
+  - project
+  - implementation
+  - job_type_variants
+  - pipeline_specs
+keywords: 
+  - job type
+  - variant handling
+  - specification
+  - pipeline
+  - builder
+topics: 
+  - variant specifications
+  - dependency resolution
+  - builder simplification
+language: python
+date of note: 2025-07-04
+---
+
 # Job Type Variant Handling Solution
 
 **Created**: July 4, 2025 6:20 PM PST  

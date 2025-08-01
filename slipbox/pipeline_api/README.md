@@ -1,4 +1,25 @@
-# Pipeline API - DAG to Template Converter
+---
+tags:
+  - entry_point
+  - code
+  - pipeline_api
+  - documentation
+  - overview
+keywords:
+  - pipeline API
+  - DAG
+  - template converter
+  - MODS integration
+  - documentation
+topics:
+  - pipeline API
+  - usage examples
+  - architecture
+language: python
+date of note: 2025-07-31
+---
+
+# Pipeline API - DAG to Template Converter and MODS Integration
 
 This module provides a high-level API for converting PipelineDAG structures directly into executable SageMaker pipelines without requiring custom template classes.
 
@@ -13,7 +34,7 @@ The Pipeline API bridges the gap between abstract pipeline definitions (DAGs) an
 
 ## Quick Start
 
-### Simple Usage
+### Simple Usage (Standard Pipeline)
 
 ```python
 from src.pipeline_dag.base_dag import PipelineDAG
@@ -40,10 +61,32 @@ pipeline.upsert()
 execution = pipeline.start()
 ```
 
+### MODS Integration
+
+```python
+from src.pipeline_api.mods_dag_compiler import compile_mods_dag_to_pipeline, MODSPipelineDAGCompiler
+
+# Using the simple function (automatically extracts MODS metadata from base config)
+pipeline = compile_mods_dag_to_pipeline(
+    dag=dag,
+    config_path="configs/my_pipeline.json", 
+    sagemaker_session=session,
+    role="arn:aws:iam::123456789012:role/SageMakerRole"
+)
+
+# Using the advanced API
+mods_compiler = MODSPipelineDAGCompiler(
+    config_path="configs/my_pipeline.json",
+    sagemaker_session=session,
+    role=role
+)
+pipeline = mods_compiler.compile(dag)
+```
+
 ### Advanced Usage with Validation
 
 ```python
-from src.pipeline_api import PipelineDAGConverter
+from src.pipeline_api.dag_compiler import PipelineDAGCompiler
 
 # Create converter for more control
 converter = PipelineDAGConverter(
@@ -72,21 +115,28 @@ print(report.detailed_report())
 
 ## Core Components
 
-### 1. DAG Converter (`dag_converter.py`)
+### 1. DAG Compiler (`dag_compiler.py`)
 
 The main entry point providing two interfaces:
 
-- **`dag_to_pipeline_template()`**: Simple one-call conversion
-- **`PipelineDAGConverter`**: Advanced API with validation and debugging
+- **`compile_dag_to_pipeline()`**: Simple one-call conversion
+- **`PipelineDAGCompiler`**: Advanced API with validation and debugging
 
-### 2. Dynamic Template (`dynamic_template.py`)
+### 2. MODS DAG Compiler (`mods_dag_compiler.py`)
+
+Extended compiler that integrates with the MODS system:
+- Automatically extracts MODS metadata (author, version, description) from base config
+- Applies the `MODSTemplate` decorator properly to avoid metaclass conflicts
+- Provides both simple and advanced APIs consistent with standard compiler
+
+### 3. Dynamic Template (`dynamic_template.py`)
 
 A dynamic implementation of `PipelineTemplateBase` that:
 - Auto-detects required configuration classes
 - Implements abstract methods using intelligent resolution
 - Provides validation and preview capabilities
 
-### 3. Config Resolver (`config_resolver.py`)
+### 4. Config Resolver (`config_resolver.py`)
 
 Intelligent matching engine using multiple strategies:
 - **Direct Name Matching**: Exact node name to config identifier
@@ -94,14 +144,14 @@ Intelligent matching engine using multiple strategies:
 - **Semantic Matching**: Using synonyms and similarity
 - **Pattern Matching**: Regex patterns for step types
 
-### 4. Builder Registry (`builder_registry.py`)
+### 5. Builder Registry (`builder_registry.py`)
 
 Centralized registry mapping configuration types to step builders:
 - Pre-registered builders for all standard step types
 - Support for custom builder registration
 - Validation and statistics
 
-### 5. Validation Engine (`validation.py`)
+### 6. Validation Engine (`validation.py`)
 
 Comprehensive validation including:
 - Missing configurations detection
@@ -170,7 +220,8 @@ Your configuration file should contain instances of pipeline step configurations
 The API provides detailed error information:
 
 ```python
-from src.pipeline_api import ConfigurationError, RegistryError, ValidationError
+from src.pipeline_api.exceptions import ConfigurationError, ValidationError
+from src.pipeline_registry.exceptions import RegistryError
 
 try:
     pipeline = dag_to_pipeline_template(dag, config_path)
@@ -245,7 +296,7 @@ print(preview.display())
 
 ### Custom Config Resolver
 ```python
-from src.pipeline_api import StepConfigResolver
+from src.pipeline_api.config_resolver import StepConfigResolver
 
 class CustomResolver(StepConfigResolver):
     def _semantic_matching(self, node_name, configs):
@@ -260,7 +311,7 @@ converter = PipelineDAGConverter(
 
 ### Custom Step Builders
 ```python
-from src.pipeline_api import register_global_builder
+from src.pipeline_registry.builder_registry import register_global_builder
 
 register_global_builder("CustomStep", CustomStepBuilder)
 ```
@@ -294,7 +345,8 @@ logging.getLogger('src.pipeline_api').setLevel(logging.DEBUG)
 ## API Reference
 
 See individual module documentation for detailed API reference:
-- `dag_converter.py` - Main conversion functions
+- `dag_compiler.py` - Main conversion functions
+- `mods_dag_compiler.py` - MODS-integrated compiler functions
 - `dynamic_template.py` - Dynamic template implementation  
 - `config_resolver.py` - Configuration resolution strategies
 - `builder_registry.py` - Step builder registry

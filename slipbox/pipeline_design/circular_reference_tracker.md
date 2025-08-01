@@ -1,3 +1,26 @@
+---
+tags:
+  - design
+  - implementation
+  - serialization
+  - configuration
+keywords:
+  - circular reference
+  - object graphs
+  - deserialization
+  - reference tracking
+  - cycle detection
+  - error reporting
+  - validation
+topics:
+  - serialization
+  - error handling
+  - recursive data structures
+  - object tracking
+language: python
+date of note: 2025-07-31
+---
+
 # Circular Reference Tracker: Design & Implementation
 
 ## Overview
@@ -319,5 +342,5 @@ The CircularReferenceTracker has been fully implemented and integrated with the 
 
 ## References
 
-- [Config Field Categorization](./config_field_categorization_refactored.md)
+- [Config Field Categorization](./config_field_categorization.md)
 - [Type-Aware Serializer](./type_aware_serializer.md)

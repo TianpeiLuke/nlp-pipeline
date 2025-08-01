@@ -1,397 +1,346 @@
+---
+tags:
+  - design
+  - implementation
+  - serialization
+  - configuration
+keywords:
+  - type-aware serialization
+  - configuration serialization
+  - deserialization
+  - step name resolution
+  - registry integration
+  - three-tier config system
+topics:
+  - configuration management
+  - serialization patterns
+  - registry integration
+  - type resolution
+language: python
+date of note: 2025-07-31
+---
+
 # Type-Aware Serializer
 
 ## Overview
 
-The TypeAwareSerializer provides a robust system for serializing and deserializing complex types with complete type information preservation. This component is essential for maintaining type safety throughout the configuration lifecycle, ensuring that configurations can be correctly reconstructed during loading.
+The Type-Aware Serializer is a specialized component in the pipeline system that handles intelligent serialization and deserialization of configuration objects with awareness of their types and relationships. It bridges the gap between the serialized representation of configuration objects and their type-specific behavior at runtime.
+
+This component is a crucial part of the [Three-Tier Configuration System](config.md) and integrates deeply with the [Registry as Single Source of Truth](registry_single_source_of_truth.md) pattern.
 
 ## Purpose
 
-The purpose of TypeAwareSerializer is to:
+The Type-Aware Serializer serves several critical purposes:
 
-1. **Maintain type information** during serialization to JSON
-2. **Support complex nested types** including Pydantic models
-3. **Enable accurate deserialization** of complex objects
-4. **Handle special types** like datetime, Enum, and Path
-5. **Provide graceful error handling** when serialization fails
+1. **Type-Preserving Serialization**: Ensure configuration objects maintain their type information during serialization
+2. **Automatic Type Resolution**: Intelligently determine object types during deserialization
+3. **Registry Integration**: Use the [Step Names Registry](registry_single_source_of_truth.md#step-names-registry) for canonical step name resolution
+4. **Step Name Generation**: Generate consistent step names for configuration objects
+5. **Job Type Support**: Handle job type variants during serialization and deserialization
+6. **Configuration Hierarchy**: Respect the three-tier configuration hierarchy
 
-## Key Components
+## The Three-Tier Configuration System
 
-### 1. Type Metadata Fields
+The Type-Aware Serializer is a key component in the Three-Tier Configuration System:
 
-TypeAwareSerializer adds type metadata to serialized objects:
+```mermaid
+graph TD
+    T1[Tier 1: Base Config] --> T2[Tier 2: Step-Specific Config]
+    T2 --> T3[Tier 3: Job Type Variant Config]
+    TypeAwareSerializer --- T1
+    TypeAwareSerializer --- T2
+    TypeAwareSerializer --- T3
+    Registry[Step Names Registry] --- TypeAwareSerializer
+```
+
+### Tier 1: Base Configuration
+
+The base configuration tier provides common fields and functionality for all configuration objects:
 
 ```python
-# Constants for metadata fields
-MODEL_TYPE_FIELD = "__model_type__"    # Stores the class name
-MODEL_MODULE_FIELD = "__model_module__" # Stores the module name
+class BasePipelineConfig(BaseModel):
+    """Base class for all pipeline configurations."""
+    step_name_override: Optional[str] = None
+    description: Optional[str] = None
+    tags: Dict[str, str] = Field(default_factory=dict)
 ```
 
-### 2. Circular Reference Handling
+### Tier 2: Step-Specific Configuration
 
-#### Implemented CircularReferenceTracker Integration
-
-The serializer now uses the dedicated CircularReferenceTracker for advanced circular reference detection and diagnostics:
+The step-specific tier provides fields and behavior for specific step types:
 
 ```python
-def __init__(self, config_classes=None, mode=SerializationMode.PRESERVE_TYPES):
-    """Initialize the serializer with a CircularReferenceTracker."""
-    self.config_classes = config_classes or build_complete_config_classes()
-    self.mode = mode
-    self.logger = logging.getLogger(__name__)
-    # Use the CircularReferenceTracker for advanced circular reference detection
-    self.ref_tracker = CircularReferenceTracker(max_depth=100)
+class TabularPreprocessingConfig(BasePipelineConfig):
+    """Configuration for tabular preprocessing steps."""
+    input_data_uri: str
+    output_data_uri: str
+    features_to_use: List[str]
+    imputation_strategy: str = "mean"
+    remove_outliers: bool = True
 ```
 
-The deserialization process now uses the tracker to detect circular references with rich path information:
+### Tier 3: Job Type Variant Configuration
+
+The job type variant tier specializes configurations for specific job types:
 
 ```python
-def deserialize(self, field_data, field_name=None, expected_type=None):
-    """Deserialize with improved circular reference tracking."""
-    # Skip non-dict objects (can't have circular refs)
-    if not isinstance(field_data, dict):
-        return field_data
-            
-    # Use the tracker to check for circular references
-    context = {'expected_type': expected_type.__name__ if expected_type else None}
-    is_circular, error = self.ref_tracker.enter_object(field_data, field_name, context)
-    
-    if is_circular:
-        # Log the detailed error message
-        self.logger.warning(error)
-        # Return None instead of the circular reference
-        return None
-            
-    try:
-        # Process the object safely within the try/finally block
-        # ... [deserialization logic]
-        return result
-    finally:
-        # Always exit the object when done, even if an exception occurred
-        self.ref_tracker.exit_object()
+class TrainingTabularPreprocessingConfig(TabularPreprocessingConfig):
+    """Configuration for training-specific preprocessing."""
+    job_type: Literal["training"] = "training"
+    generate_train_validation_split: bool = True
+    validation_ratio: float = 0.2
+    shuffle_data: bool = True
 ```
-
-This implementation provides several advantages:
-
-1. **Complete Path Information**: The CircularReferenceTracker maintains the full path through the object graph, generating detailed diagnostic messages
-2. **Clean Resource Management**: Using try/finally ensures proper stack cleanup even when exceptions occur
-3. **Separation of Concerns**: Reference tracking is now handled by a dedicated component
-4. **Enhanced Diagnostics**: Error messages include both the original definition path and the reference path
-
-For detailed information on circular reference handling, see:
-- [Circular Reference Tracker](./circular_reference_tracker.md)
-
-These fields are embedded in serialized dictionaries to preserve type information:
-
-```json
-{
-  "__model_type__": "CradleDataLoadConfig",
-  "__model_module__": "src.pipeline_steps.config_cradle_data_load",
-  "job_type": "training",
-  "region": "us-west-2",
-  "data_source_type": "s3"
-}
-```
-
-### 3. Serialization Methods
-
-The serializer handles various types with specialized processing:
-
-```python
-def serialize(self, val):
-    """
-    Serialize a value with type information when needed.
-    
-    Args:
-        val: The value to serialize
-        
-    Returns:
-        Serialized value suitable for JSON
-    """
-    if isinstance(val, datetime):
-        return val.isoformat()
-    if isinstance(val, Enum):
-        return val.value
-    if isinstance(val, Path):
-        return str(val)
-    if isinstance(val, BaseModel):  # Handle Pydantic models
-        try:
-            # Get class details
-            cls = val.__class__
-            module_name = cls.__module__
-            cls_name = cls.__name__
-            
-            # Create serialized dict with type metadata
-            result = {
-                self.MODEL_TYPE_FIELD: cls_name,
-                self.MODEL_MODULE_FIELD: module_name,
-                **{k: self.serialize(v) for k, v in val.model_dump().items()}
-            }
-            return result
-        except Exception as e:
-            self.logger.warning(f"Error serializing {val.__class__.__name__}: {str(e)}")
-            return f"<Serialization error: {str(e)}>"
-    if isinstance(val, dict):
-        return {k: self.serialize(v) for k, v in val.items()}
-    if isinstance(val, list):
-        return [self.serialize(v) for v in val]
-    return val
-```
-
-### 4. Deserialization Methods
-
-The deserializer reconstructs objects based on type metadata:
-
-```python
-def deserialize(self, field_data, field_name=None, expected_type=None):
-    """
-    Deserialize data with proper type handling.
-    
-    Args:
-        field_data: The serialized data
-        field_name: Optional name of the field (for logging)
-        expected_type: Optional expected type
-        
-    Returns:
-        Deserialized value
-    """
-    # Skip if not a dict or no type info needed
-    if not isinstance(field_data, dict):
-        return field_data
-        
-    # Check for type metadata
-    type_name = field_data.get(self.MODEL_TYPE_FIELD)
-    module_name = field_data.get(self.MODEL_MODULE_FIELD)
-    
-    if not type_name:
-        # No type information, use the expected_type if applicable
-        if expected_type and isinstance(expected_type, type) and issubclass(expected_type, BaseModel):
-            return self._deserialize_model(field_data, expected_type)
-        return field_data
-        
-    # Get the actual class to use
-    actual_class = self._get_class_by_name(type_name, module_name)
-    
-    # If we couldn't find the class, log warning and use expected_type
-    if not actual_class:
-        self.logger.warning(
-            f"Could not find class {type_name} for field {field_name or 'unknown'}, "
-            f"using {expected_type.__name__ if expected_type else 'dict'}"
-        )
-        actual_class = expected_type
-        
-    # If still no class, return as is
-    if not actual_class:
-        return field_data
-        
-    return self._deserialize_model(field_data, actual_class)
-```
-
-### 5. Model Deserialization
-
-Special handling for Pydantic model deserialization:
-
-```python
-def _deserialize_model(self, field_data, model_class):
-    """
-    Deserialize a model instance.
-    
-    Args:
-        field_data: Serialized model data
-        model_class: Class to instantiate
-        
-    Returns:
-        Model instance
-    """
-    # Remove metadata fields
-    filtered_data = {k: v for k, v in field_data.items() 
-                   if k not in (self.MODEL_TYPE_FIELD, self.MODEL_MODULE_FIELD)}
-                   
-    # Recursively deserialize nested models
-    for k, v in list(filtered_data.items()):
-        if isinstance(v, dict) and self.MODEL_TYPE_FIELD in v:
-            # Get nested field type if available
-            nested_type = None
-            if hasattr(model_class, 'model_fields') and k in model_class.model_fields:
-                nested_type = model_class.model_fields[k].annotation
-            filtered_data[k] = self.deserialize(v, k, nested_type)
-    
-    try:
-        return model_class(**filtered_data)
-    except Exception as e:
-        self.logger.error(f"Failed to instantiate {model_class.__name__}: {str(e)}")
-        # Return as plain dict if instantiation fails
-        return filtered_data
-```
-
-### 6. Class Resolution
-
-Resolves classes by name using the config registry:
-
-```python
-def _get_class_by_name(self, class_name, module_name=None):
-    """
-    Get a class by name, from config_classes or by importing.
-    
-    Args:
-        class_name: Name of the class
-        module_name: Optional module to import from
-        
-    Returns:
-        Class or None if not found
-    """
-    # First check registered classes
-    if class_name in self.config_classes:
-        return self.config_classes[class_name]
-        
-    # Try to import from module if provided
-    if module_name:
-        try:
-            self.logger.debug(f"Attempting to import {class_name} from {module_name}")
-            module = __import__(module_name, fromlist=[class_name])
-            if hasattr(module, class_name):
-                return getattr(module, class_name)
-        except ImportError as e:
-            self.logger.warning(f"Failed to import {class_name} from {module_name}: {str(e)}")
-    
-    self.logger.warning(f"Class {class_name} not found")
-    return None
-```
-
-## Usage Examples
-
-### 1. Serializing a Config Object
-
-```python
-# Initialize serializer
-serializer = TypeAwareSerializer()
-
-# Create a config object
-config = CradleDataLoadConfig(
-    job_type="training",
-    region="us-west-2",
-    data_source_type="s3"
-)
-
-# Serialize with type information
-serialized = serializer.serialize(config)
-# Result:
-# {
-#   "__model_type__": "CradleDataLoadConfig",
-#   "__model_module__": "src.pipeline_steps.config_cradle_data_load",
-#   "job_type": "training",
-#   "region": "us-west-2",
-#   "data_source_type": "s3"
-# }
-```
-
-### 2. Deserializing a Config Object
-
-```python
-# Deserialize back to a config object
-config_classes = {"CradleDataLoadConfig": CradleDataLoadConfig}
-serializer = TypeAwareSerializer(config_classes)
-
-deserialized = serializer.deserialize(serialized)
-# Result: CradleDataLoadConfig instance with all fields
-
-assert isinstance(deserialized, CradleDataLoadConfig)
-assert deserialized.job_type == "training"
-```
-
-### 3. Handling Nested Objects
-
-```python
-# Config with nested Pydantic model
-config = XGBoostTrainingConfig(
-    hyperparameters=XGBoostHyperparameters(
-        max_depth=6,
-        eta=0.3
-    )
-)
-
-# Serialize with nested type information
-serialized = serializer.serialize(config)
-# Result includes nested type information:
-# {
-#   "__model_type__": "XGBoostTrainingConfig",
-#   "__model_module__": "src.pipeline_steps.config_xgboost_training",
-#   "hyperparameters": {
-#     "__model_type__": "XGBoostHyperparameters",
-#     "__model_module__": "src.pipeline_steps.hyperparameters_xgboost",
-#     "max_depth": 6,
-#     "eta": 0.3
-#   }
-# }
-
-# Deserialize with nested objects
-deserialized = serializer.deserialize(serialized)
-assert isinstance(deserialized.hyperparameters, XGBoostHyperparameters)
-assert deserialized.hyperparameters.max_depth == 6
-```
-
-## Benefits
-
-1. **Complete Type Preservation**: Maintains full type information for complex objects
-2. **Deep Nesting Support**: Handles arbitrarily nested models and collections
-3. **Robust Error Handling**: Gracefully handles serialization and instantiation errors
-4. **Flexible Class Resolution**: Uses registry and dynamic importing for class resolution
-5. **Automatic Type Recognition**: Recognizes and handles special types automatically
-6. **Recursive Processing**: Properly handles nested collections and models
 
 ## Implementation Details
 
-### 1. Class Registration
+### Core Serializer Class
 
-The serializer can work with a provided class dictionary or build one on demand:
+The Type-Aware Serializer is implemented as a class with methods for serialization and deserialization:
 
 ```python
-def __init__(self, config_classes=None):
-    """
-    Initialize with optional config classes.
+class TypeAwareConfigSerializer:
+    """Serializer that preserves configuration type information."""
     
-    Args:
-        config_classes: Optional dictionary mapping class names to class objects
-    """
-    self.config_classes = config_classes or build_complete_config_classes()
-    self.logger = logging.getLogger(__name__)
+    def serialize(self, config: Any) -> Dict[str, Any]:
+        """Serialize a configuration object preserving type information."""
+        if not isinstance(config, BaseModel):
+            raise TypeError(f"Expected Pydantic model, got {type(config)}")
+            
+        # Generate step name based on type and job type
+        step_name = self.generate_step_name(config)
+        
+        # Extract fields from the config
+        config_dict = config.dict()
+        
+        # Add type information
+        serialized = {
+            "config_type": type(config).__name__,
+            "step_name": step_name,
+            "config": config_dict
+        }
+        
+        return serialized
+    
+    def deserialize(self, serialized_data: Dict[str, Any]) -> Any:
+        """Deserialize a configuration object with type resolution."""
+        if not isinstance(serialized_data, dict):
+            raise TypeError(f"Expected dictionary, got {type(serialized_data)}")
+            
+        # Extract type information and config data
+        config_type = serialized_data.get("config_type")
+        config_data = serialized_data.get("config", {})
+        
+        if not config_type:
+            raise ValueError("Missing config_type in serialized data")
+            
+        # Resolve the actual class based on config_type
+        config_class = self._resolve_config_class(config_type)
+        
+        # Create instance
+        return config_class(**config_data)
+    
+    def _resolve_config_class(self, config_type: str) -> Type:
+        """Resolve configuration class using the three-tier system."""
+        # Dynamic import of all potential configuration classes
+        from src.pipeline_steps import config_classes
+        
+        # Try direct resolution first
+        if hasattr(config_classes, config_type):
+            return getattr(config_classes, config_type)
+        
+        # Try registry-based resolution
+        from src.pipeline_registry.step_names import get_config_class_name
+        try:
+            class_name = get_config_class_name(config_type)
+            if hasattr(config_classes, class_name):
+                return getattr(config_classes, class_name)
+        except (KeyError, ValueError):
+            pass
+        
+        # Try job type variant resolution
+        if '_' in config_type:
+            base_type, job_type = config_type.rsplit('_', 1)
+            # Try with job type prefix (e.g., TrainingXxxConfig)
+            job_type_class = f"{job_type.capitalize()}{base_type}Config"
+            if hasattr(config_classes, job_type_class):
+                return getattr(config_classes, job_type_class)
+                
+        # If all else fails, raise informative error
+        raise ValueError(f"Could not resolve config class for type '{config_type}'")
 ```
 
-### 2. Special Type Handling
+### Step Name Generation
 
-- **datetime**: Converted to ISO 8601 string
-- **Enum**: Stored as the enum value
-- **Path**: Converted to string
-- **Pydantic models**: Serialized with type information
-- **Collections**: Recursively processed
+The serializer uses the Step Names Registry to generate consistent step names:
 
-### 3. Deserialization Strategy
+```python
+def generate_step_name(self, config: Any) -> str:
+    """Generate a step name for a config, including job type and other attributes."""
+    # First check for step_name_override - highest priority
+    if hasattr(config, "step_name_override") and config.step_name_override != config.__class__.__name__:
+        return config.step_name_override
+        
+    # Get class name
+    class_name = config.__class__.__name__
+    
+    # Look up the step name from the registry (primary source of truth)
+    try:
+        from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY
+        if class_name in CONFIG_STEP_REGISTRY:
+            base_step = CONFIG_STEP_REGISTRY[class_name]
+        else:
+            # Fall back to the old behavior if not in registry
+            from src.pipeline_steps.config_base import BasePipelineConfig
+            base_step = BasePipelineConfig.get_step_name(class_name)
+    except (ImportError, AttributeError):
+        # If registry not available, fall back to the old behavior
+        from src.pipeline_steps.config_base import BasePipelineConfig
+        base_step = BasePipelineConfig.get_step_name(class_name)
+    
+    # Start with the base step name
+    step_name = base_step
+    
+    # Append distinguishing attributes - essential for job type variants
+    for attr in ("job_type", "data_type", "mode"):
+        if hasattr(config, attr):
+            val = getattr(config, attr)
+            if val is not None:
+                step_name = f"{step_name}_{val}"
+                
+    return step_name
+```
 
-1. Check if input is a dictionary
-2. Look for type metadata fields
-3. Resolve the class using name and module
-4. Remove metadata fields from data
-5. Recursively process nested fields
-6. Instantiate the class with processed fields
-7. Fall back to dict if instantiation fails
+## Integration with Step Names Registry
 
-## Error Handling
+The Type-Aware Serializer is deeply integrated with the [Step Names Registry](registry_single_source_of_truth.md#step-names-registry) to ensure consistent naming and type resolution:
 
-1. **Missing Classes**: Logs warning and falls back to expected type or dict
-2. **Serialization Errors**: Catches exceptions and returns error message
-3. **Instantiation Errors**: Logs error and returns dict with fields
-4. **Import Errors**: Logs warning and attempts alternative resolution
+1. **Step Name Resolution**: Uses `CONFIG_STEP_REGISTRY` to map config class names to step names
+2. **Type Resolution**: Resolves config types using registry-defined class names
+3. **Job Type Handling**: Processes job type variants consistent with registry naming conventions
 
-## Future Improvements
+```python
+# Sample integration with registry
+from src.pipeline_registry.step_names import CONFIG_STEP_REGISTRY, STEP_NAMES
 
-1. **Schema Validation**: Add schema validation during deserialization
-2. **Versioning Support**: Add versioning for backward compatibility
-3. **Custom Type Handlers**: Support for registering custom type serializers
-4. **Performance Optimization**: Caching for frequently used classes
-5. **Format Options**: Support for alternative formats (YAML, TOML)
+def get_registry_step_info(config_class_name: str) -> Dict[str, Any]:
+    """Get registry information for a configuration class."""
+    if config_class_name in CONFIG_STEP_REGISTRY:
+        step_name = CONFIG_STEP_REGISTRY[config_class_name]
+        return STEP_NAMES.get(step_name, {})
+    return {}
+```
+
+## Integration with Step Config Resolver
+
+The Type-Aware Serializer works in concert with the [Step Config Resolver](step_config_resolver.md) to ensure consistent mapping between configuration objects and pipeline nodes:
+
+1. **Serializer**: Responsible for type-aware serialization/deserialization of config objects
+2. **Config Resolver**: Responsible for mapping DAG node names to configuration objects
+
+This partnership enables the config resolver to match node names against properly serialized configuration objects:
+
+```python
+# In StepConfigResolver
+def resolve_config_map(self, dag_nodes: List[str], available_configs: Dict[str, BasePipelineConfig]) -> Dict[str, BasePipelineConfig]:
+    """Resolve DAG nodes to configurations."""
+    # Initialize serializer to access step names
+    serializer = TypeAwareConfigSerializer()
+    
+    # Build reverse lookup for step names to configs
+    step_name_to_config = {}
+    for config_name, config in available_configs.items():
+        step_name = serializer.generate_step_name(config)
+        step_name_to_config[step_name] = config
+        
+    # Direct match using step names
+    # ...
+```
+
+## Benefits of Type-Aware Serialization
+
+1. **Type Safety**: Ensures configuration objects maintain their class information
+2. **Consistency**: Generates step names consistent with the registry
+3. **Self-Documenting**: Serialized data includes both type and step name information
+4. **Job Type Support**: First-class handling of job type variants in step names
+5. **Registry Integration**: Uses registry as the single source of truth for step names
+6. **Three-Tier Awareness**: Respects and supports the three-tier configuration hierarchy
+
+## Example Usage
+
+### Serialization
+
+```python
+from src.pipeline_api import TypeAwareConfigSerializer
+
+# Create serializer
+serializer = TypeAwareConfigSerializer()
+
+# Serialize configuration object
+training_config = TrainingTabularPreprocessingConfig(
+    input_data_uri="s3://bucket/input",
+    output_data_uri="s3://bucket/output",
+    features_to_use=["feature1", "feature2"],
+    validation_ratio=0.15
+)
+
+# Serialize with type information
+serialized = serializer.serialize(training_config)
+
+# Result includes type information and step name
+print(serialized)
+# Output:
+# {
+#   "config_type": "TrainingTabularPreprocessingConfig",
+#   "step_name": "TabularPreprocessing_training",
+#   "config": {
+#     "input_data_uri": "s3://bucket/input",
+#     "output_data_uri": "s3://bucket/output",
+#     "features_to_use": ["feature1", "feature2"],
+#     "validation_ratio": 0.15,
+#     "job_type": "training",
+#     ...
+#   }
+# }
+```
+
+### Deserialization
+
+```python
+# Deserialize back to concrete type
+config = serializer.deserialize(serialized)
+
+# Type information is preserved
+print(type(config).__name__)  # "TrainingTabularPreprocessingConfig"
+print(config.job_type)        # "training"
+
+# Fields are correctly populated
+print(config.input_data_uri)  # "s3://bucket/input"
+print(config.validation_ratio)  # 0.15
+```
+
+### Configuration Validation
+
+```python
+# Type-aware validation during loading
+def load_typed_config(config_file: str) -> BasePipelineConfig:
+    """Load configuration with type awareness."""
+    serializer = TypeAwareConfigSerializer()
+    
+    with open(config_file, 'r') as f:
+        data = json.load(f)
+        
+    try:
+        # Deserialize with type resolution
+        config = serializer.deserialize(data)
+        return config
+    except (ValueError, TypeError) as e:
+        raise ConfigurationError(f"Failed to load configuration: {str(e)}")
+```
 
 ## References
 
-- [Config Field Categorization](./config_field_categorization_refactored.md)
-- [Config Registry](./config_registry.md)
-- [Circular Reference Tracker](./circular_reference_tracker.md)
-- [Pydantic Documentation](https://docs.pydantic.dev/latest/)
+- [Registry as Single Source of Truth](registry_single_source_of_truth.md) - Central registry pattern for step naming
+- [Step Config Resolver](step_config_resolver.md) - Resolution between DAG nodes and configurations
+- [Step Builder Registry](step_builder_registry_design.md) - Registry for step builders
+- [Configuration Design](config.md) - Overall configuration system design

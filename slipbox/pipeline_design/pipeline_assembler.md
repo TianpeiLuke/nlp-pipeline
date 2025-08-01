@@ -1,3 +1,23 @@
+---
+tags:
+  - design
+  - assembler
+  - pipeline_design
+  - implementation
+keywords:
+  - pipeline assembler
+  - step instantiation
+  - dependency management
+  - property references
+  - component connections
+topics:
+  - pipeline architecture
+  - assembly process
+  - step instantiation
+language: python
+date of note: 2025-07-31
+---
+
 # Pipeline Assembler
 
 The `PipelineAssembler` serves as a low-level pipeline assembler that translates a declarative pipeline structure into a SageMaker Pipeline. It takes a directed acyclic graph (DAG), configurations, and step builder classes as inputs and handles the complex task of instantiating steps, managing dependencies, and connecting components.

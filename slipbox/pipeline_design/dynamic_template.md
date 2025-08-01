@@ -1,8 +1,31 @@
+---
+tags:
+  - design
+  - implementation
+  - pipeline
+  - architecture
+keywords:
+  - dynamic template
+  - pipeline generation
+  - specification-driven
+  - DAG
+  - config resolution
+  - validation engine
+  - builder registry
+topics:
+  - pipeline template
+  - configuration management
+  - pipeline generation
+  - automation
+language: python
+date of note: 2025-07-31
+---
+
 # Dynamic Pipeline Template Design
 
 ## Overview
 
-The Dynamic Pipeline Template is a powerful component in the pipeline architecture that enables flexible, configuration-driven pipeline creation without requiring custom template classes for each pipeline structure. It serves as a universal adapter between pipeline specifications (expressed as DAGs) and the execution environment, intelligently handling configuration resolution and step builder mapping.
+The Dynamic Pipeline Template is a powerful component in the pipeline architecture that enables flexible, configuration-driven pipeline creation without requiring custom template classes for each pipeline structure. It extends and implements the [Pipeline Template Base](pipeline_template_base.md), providing a universal adapter between pipeline specifications (expressed as DAGs) and the execution environment, intelligently handling configuration resolution and step builder mapping.
 
 ## Motivation
 
@@ -47,6 +70,7 @@ Key motivations:
   - Confidence scoring for matching quality
   - Preview of resolution decisions
 - **Implementation**: `StepConfigResolver` with multi-strategy resolution
+- **Related Documentation**: See [Step Config Resolver](step_config_resolver.md) for detailed resolution strategies and implementation
 
 ### 4. Validation Engine
 
@@ -57,6 +81,7 @@ Key motivations:
   - Validate configuration-specific requirements
   - Check for dependency resolution issues
 - **Implementation**: `ValidationEngine` with comprehensive validation checks
+- **Related Documentation**: See [Validation Engine](validation_engine.md) for detailed validation strategies and implementation
 
 ## Architecture
 
@@ -271,7 +296,7 @@ pipeline = template.build_pipeline()
 
 ### Integration with DAG Compiler
 
-The Dynamic Pipeline Template works seamlessly with the DAG Compiler:
+The Dynamic Pipeline Template works seamlessly with the [DAG Compiler](pipeline_dag_compiler.md):
 
 ```python
 from src.pipeline_api.dag_compiler import PipelineDAGCompiler
@@ -294,6 +319,17 @@ template = DynamicPipelineTemplate(
 
 # Build the pipeline
 pipeline = template.build_pipeline()
+```
+
+### Integration with Pipeline Template Base
+
+The Dynamic Pipeline Template extends the [Pipeline Template Base](pipeline_template_base.md), providing a flexible implementation that works with any pipeline structure:
+
+```python
+# Dynamic template inherits from the template base
+class DynamicPipelineTemplate(PipelineTemplateBase):
+    # Implementation of abstract methods
+    # ...
 ```
 
 ## Advanced Features
@@ -374,3 +410,13 @@ for step, dependencies in deps.items():
 The Dynamic Pipeline Template represents a significant advancement in pipeline architecture, moving from static, custom template implementations to a flexible, configuration-driven approach. By dynamically implementing the required abstract methods of PipelineTemplateBase, it eliminates the need for custom template classes while providing intelligent configuration resolution and validation.
 
 This design enables rapid pipeline development and iteration, simplifies maintenance, and creates a universal adapter between pipeline specifications and execution environments. Combined with the DAG Compiler, it forms a powerful system for transforming high-level pipeline descriptions into executable SageMaker pipelines with minimal development effort.
+
+## Related Documents
+
+- [Step Config Resolver](step_config_resolver.md) - Detailed description of the configuration resolution process
+- [Validation Engine](validation_engine.md) - Comprehensive validation system for pipeline configurations
+- [Pipeline DAG Compiler](pipeline_dag_compiler.md) - Compilation of pipeline DAGs from various formats
+- [Pipeline Template Base](pipeline_template_base.md) - Base class for pipeline templates
+- [Step Builder Registry](step_builder_registry_design.md) - Registry for mapping configurations to builders
+- [Config Registry](config_registry.md) - Registry for configuration classes
+- [Registry-Based Step Name Generation](registry_based_step_name_generation.md) - Step naming conventions
