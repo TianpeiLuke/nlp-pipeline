@@ -6,11 +6,11 @@ including their dependencies and outputs based on the actual implementation.
 """
 
 from ..pipeline_deps.base_specifications import StepSpecification, DependencySpec, OutputSpec, DependencyType, NodeType
-from ..pipeline_registry.step_names import get_spec_step_type
+from ..pipeline_registry.step_names import get_spec_step_type_with_job_type
 
 # Batch Transform Calibration Step Specification
 BATCH_TRANSFORM_CALIBRATION_SPEC = StepSpecification(
-    step_type=get_spec_step_type("BatchTransform-Calibration"),
+    step_type=get_spec_step_type_with_job_type("BatchTransform", "calibration"),
     node_type=NodeType.INTERNAL,
     dependencies=[
         DependencySpec(
