@@ -13,7 +13,6 @@ from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
 
 from ...api.dag.base_dag import PipelineDAG
-from .dynamic_template import DynamicPipelineTemplate
 from .config_resolver import StepConfigResolver
 from ...steps.registry.builder_registry import StepBuilderRegistry
 from .validation import ValidationResult, ResolutionPreview, ConversionReport, ValidationEngine
@@ -68,14 +67,14 @@ def compile_dag_to_pipeline(
         >>> pipeline.upsert()
     """
     try:
-        logger.info(f"Compiling DAG with {len(dag.nodes)} nodes to pipeline")
-        
-        # Validate inputs
+        # Validate inputs first before accessing dag.nodes
         if not isinstance(dag, PipelineDAG):
             raise ValueError("dag must be a PipelineDAG instance")
         
         if not dag.nodes:
             raise ValueError("DAG must contain at least one node")
+            
+        logger.info(f"Compiling DAG with {len(dag.nodes)} nodes to pipeline")
         
         config_path_obj = Path(config_path)
         if not config_path_obj.exists():
@@ -462,6 +461,9 @@ class PipelineDAGCompiler:
             PipelineAPIError: If template creation fails
         """
         try:
+            # Import here to avoid circular import
+            from .dynamic_template import DynamicPipelineTemplate
+            
             self.logger.info(f"Creating template for DAG with {len(dag.nodes)} nodes")
             
             # Merge kwargs with default values
