@@ -27,37 +27,193 @@ logger = logging.getLogger(__name__)
 class RnRBedrockProcessor:
     """
     Main processor for RnR Reason Code classification using Bedrock.
+    Supports both standard models and inference profiles for Claude 4.
     """
+    
+    # Known inference profile configurations
+    INFERENCE_PROFILE_CONFIGS = {
+        'claude-4-global': {
+            'profile_id': 'global.anthropic.claude-sonnet-4-20250514-v1:0',
+            'model_id': 'anthropic.claude-sonnet-4-20250514-v1:0',
+            'region': 'us-east-1'
+        },
+        'claude-3-sonnet': {
+            'profile_arn': 'arn:aws:bedrock:us-east-1:178936618742:inference-profile/us.anthropic.claude-3-sonnet-20240229-v1:0',
+            'model_id': 'anthropic.claude-3-sonnet-20240229-v1:0',
+            'region': 'us-east-1'
+        }
+    }
     
     def __init__(
         self,
-        model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        region_name: str = "us-west-2",
+        model_id: str = "anthropic.claude-sonnet-4-20250514-v1:0",
+        region_name: str = "us-east-1",
         output_dir: str = "/opt/ml/output/data",  # SageMaker default output
+        inference_profile_arn: Optional[str] = None,
+        use_inference_profile: bool = True,
         **bedrock_kwargs
     ):
         """
         Initialize the RnR Bedrock Processor.
         
         Args:
-            model_id: Bedrock model ID to use
+            model_id: Bedrock model ID to use (supports inference profile IDs like global.anthropic.claude-sonnet-4-20250514-v1:0)
             region_name: AWS region name
             output_dir: Directory to save output files
+            inference_profile_arn: Optional inference profile ARN to use
+            use_inference_profile: Whether to automatically use inference profiles for Claude 4 models
             **bedrock_kwargs: Additional arguments for Bedrock client
         """
         self.model_id = model_id
         self.region_name = region_name
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.use_inference_profile = use_inference_profile
+        
+        # Configure inference profile
+        self._configure_inference_profile(inference_profile_arn)
         
         # Initialize the Bedrock agent
         self.agent = BedrockRnRAgent(
-            model_id=model_id,
+            model_id=self.effective_model_id,
             region_name=region_name,
             **bedrock_kwargs
         )
         
-        logger.info(f"Initialized RnR Bedrock Processor with model: {model_id}")
+        logger.info(f"Initialized RnR Bedrock Processor with model: {self.effective_model_id} in region: {region_name}")
+        if hasattr(self, 'inference_profile_info'):
+            logger.info(f"Inference profile configuration: {self.inference_profile_info}")
+    
+    def _configure_inference_profile(self, inference_profile_arn: Optional[str] = None):
+        """
+        Configure inference profile settings based on model and environment.
+        
+        Args:
+            inference_profile_arn: Optional inference profile ARN to use
+        """
+        self.inference_profile_info = {}
+        self.effective_model_id = self.model_id
+        
+        # Check environment variable first
+        env_profile_arn = os.environ.get('BEDROCK_INFERENCE_PROFILE_ARN')
+        if env_profile_arn:
+            inference_profile_arn = env_profile_arn
+            logger.info(f"Using inference profile ARN from environment: {inference_profile_arn}")
+        
+        # Set inference profile ARN if provided
+        if inference_profile_arn:
+            os.environ['BEDROCK_INFERENCE_PROFILE_ARN'] = inference_profile_arn
+            self.inference_profile_info['arn'] = inference_profile_arn
+            self.inference_profile_info['method'] = 'arn'
+            return
+        
+        # Auto-configure for known models if use_inference_profile is True
+        if self.use_inference_profile:
+            if self.model_id == "anthropic.claude-sonnet-4-20250514-v1:0":
+                # Use global profile ID for Claude 4
+                self.effective_model_id = "global.anthropic.claude-sonnet-4-20250514-v1:0"
+                self.inference_profile_info = {
+                    'profile_id': 'global.anthropic.claude-sonnet-4-20250514-v1:0',
+                    'original_model_id': self.model_id,
+                    'method': 'profile_id'
+                }
+                logger.info(f"Auto-configured to use inference profile ID: {self.effective_model_id}")
+                return
+            
+            elif 'claude-4' in self.model_id or 'claude-sonnet-4' in self.model_id:
+                logger.warning(f"Model {self.model_id} may require an inference profile. Consider setting BEDROCK_INFERENCE_PROFILE_ARN or using profile ID.")
+        
+        # If model already starts with 'global.', it's already a profile ID
+        if self.model_id.startswith('global.'):
+            self.inference_profile_info = {
+                'profile_id': self.model_id,
+                'method': 'profile_id'
+            }
+            logger.info(f"Using provided inference profile ID: {self.model_id}")
+    
+    def get_inference_profile_config(self, config_name: str) -> Dict[str, str]:
+        """
+        Get a predefined inference profile configuration.
+        
+        Args:
+            config_name: Name of the configuration ('claude-4-global', 'claude-3-sonnet')
+            
+        Returns:
+            Dictionary with profile configuration
+        """
+        if config_name not in self.INFERENCE_PROFILE_CONFIGS:
+            raise ValueError(f"Unknown configuration: {config_name}. Available: {list(self.INFERENCE_PROFILE_CONFIGS.keys())}")
+        
+        return self.INFERENCE_PROFILE_CONFIGS[config_name].copy()
+    
+    def set_inference_profile_arn(self, arn: str):
+        """
+        Set the inference profile ARN and reconfigure the agent.
+        
+        Args:
+            arn: Inference profile ARN
+        """
+        os.environ['BEDROCK_INFERENCE_PROFILE_ARN'] = arn
+        self.inference_profile_info = {
+            'arn': arn,
+            'method': 'arn'
+        }
+        
+        # Reinitialize agent with new configuration
+        self.agent = BedrockRnRAgent(
+            model_id=self.model_id,
+            region_name=self.region_name
+        )
+        
+        logger.info(f"Updated inference profile ARN: {arn}")
+    
+    def set_inference_profile_id(self, profile_id: str):
+        """
+        Set the inference profile ID and reconfigure the agent.
+        
+        Args:
+            profile_id: Inference profile ID (e.g., 'global.anthropic.claude-sonnet-4-20250514-v1:0')
+        """
+        # Clear any existing ARN
+        if 'BEDROCK_INFERENCE_PROFILE_ARN' in os.environ:
+            del os.environ['BEDROCK_INFERENCE_PROFILE_ARN']
+        
+        self.effective_model_id = profile_id
+        self.inference_profile_info = {
+            'profile_id': profile_id,
+            'original_model_id': self.model_id,
+            'method': 'profile_id'
+        }
+        
+        # Reinitialize agent with profile ID
+        self.agent = BedrockRnRAgent(
+            model_id=profile_id,
+            region_name=self.region_name
+        )
+        
+        logger.info(f"Updated to use inference profile ID: {profile_id}")
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """
+        Get information about the current model configuration.
+        
+        Returns:
+            Dictionary with model and inference profile information
+        """
+        info = {
+            'original_model_id': self.model_id,
+            'effective_model_id': self.effective_model_id,
+            'region_name': self.region_name,
+            'use_inference_profile': self.use_inference_profile,
+            'inference_profile_info': self.inference_profile_info
+        }
+        
+        # Add environment variable info
+        env_arn = os.environ.get('BEDROCK_INFERENCE_PROFILE_ARN')
+        if env_arn:
+            info['environment_profile_arn'] = env_arn
+        
+        return info
     
     def load_data_from_file(self, file_path: str) -> pd.DataFrame:
         """
@@ -304,15 +460,15 @@ def main():
     parser.add_argument(
         "--model-id",
         type=str,
-        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        help="Bedrock model ID to use"
+        default="anthropic.claude-sonnet-4-20250514-v1:0",
+        help="Bedrock model ID to use (supports inference profile IDs like global.anthropic.claude-sonnet-4-20250514-v1:0)"
     )
     
     parser.add_argument(
         "--region-name",
         type=str,
-        default="us-west-2",
-        help="AWS region name"
+        default="us-east-1",
+        help="AWS region name (use us-east-1 for inference profiles)"
     )
     
     parser.add_argument(
