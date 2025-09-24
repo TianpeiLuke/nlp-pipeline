@@ -65,3 +65,6 @@ pytest_cache/
 *.egg-info/
 dist/
 build/
+
+# Data
+.data/
